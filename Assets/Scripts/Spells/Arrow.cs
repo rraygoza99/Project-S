@@ -37,15 +37,19 @@ namespace Spellcaster
             return sb.ToString();
         }
 
-        /// <summary>Number key that enters this arrow while channeling: 1 = left, 2 = down, 3 = up, 4 = right.</summary>
-        public static int KeyNumber(Arrow a) => a switch { Arrow.Left => 1, Arrow.Down => 2, Arrow.Up => 3, _ => 4 };
-
-        /// <summary>The keys to press for a sequence, e.g. Fireball (down, right, up) = "2 4 3".</summary>
-        public static string KeysText(IList<Arrow> seq)
+        /// <summary>"↓ → ↑" for messages.</summary>
+        public static string Glyphs(IList<Arrow> seq)
         {
             var sb = new StringBuilder();
-            for (int i = 0; i < seq.Count; i++) sb.Append(i > 0 ? " " : "").Append(KeyNumber(seq[i]));
+            for (int i = 0; i < seq.Count; i++) sb.Append(i > 0 ? " " : "").Append("↑↓←→"[(int)seq[i]]);
             return sb.ToString();
+        }
+
+        /// <summary>True if the same stroke appears twice in a row (impossible to draw as a rune).</summary>
+        public static bool HasRepeat(IList<Arrow> seq)
+        {
+            for (int i = 1; i < seq.Count; i++) if (seq[i] == seq[i - 1]) return true;
+            return false;
         }
 
         public static bool HasPrefix(IList<Arrow> seq, IList<Arrow> prefix)

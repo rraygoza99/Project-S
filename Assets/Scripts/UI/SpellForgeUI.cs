@@ -88,7 +88,7 @@ namespace Spellcaster
             var made = preview;
             SpellBook.Known.Add(made);
             Sfx.Play("forge", 0.8f);
-            Say($"Learned {made.Name}: keys {Arrows.KeysText(made.Sequence)}");
+            Say($"Learned {made.Name}: rune {Arrows.Glyphs(made.Sequence)}");
             picks.Clear();
             Refresh();
             return made;
@@ -143,9 +143,9 @@ namespace Spellcaster
                 nameStyle.normal.textColor = Color.Lerp(preview.Color, Color.white, 0.3f);
                 HUD.Shadowed(new Rect(px0 + ic + 2 * u, py + u, pw, 2.5f * u), preview.Name, nameStyle);
                 HUD.Shadowed(new Rect(px0 + ic + 2 * u, py + 3.3f * u, pw, 2 * u), $"Cooldown {preview.Cooldown:0.#}s   Tier {preview.Tier}", HUD.Small);
-                float ax = px0 + ic + 2 * u, a = 1.6f * u;
-                for (int i = 0; i < preview.Sequence.Length; i++)
-                    HUD.DrawKey(new Rect(ax + i * (a + 0.2f * u), py + 5.2f * u, a, a), preview.Sequence[i], new Color(1f, 0.95f, 0.6f), new Color(0f, 0f, 0f, 0.6f));
+                float ax = px0 + ic + 2 * u;
+                HUD.Shadowed(new Rect(ax, py + 5.2f * u, pw, 2 * u), "Rune " + Arrows.Glyphs(preview.Sequence), HUD.Small);
+                HUD.DrawGlyph(preview.Sequence, new Rect(px0 + pw - 7.5f * u, py + u, 6f * u, 6f * u), preview.Color, 1f, preview.Sequence.Length, Mathf.Max(2f, 0.25f * u));
 
                 float ly = py + 9 * u;
                 HUD.Shadowed(new Rect(px0 + u, ly, pw, 2 * u), "Delivery: " + preview.Delivery.Name, HUD.Small);

@@ -8,7 +8,8 @@ namespace Spellcaster
     /// THE spell config. Each base spell is one entry: sequence, cooldown, delivery and payload.
     /// To add a spell, add an entry here (reusing effects from SpellEffects.cs, or adding a new
     /// SpellEffect subclass there). A run starts with <see cref="StartingIds"/>; runes and the Forge add to <see cref="Known"/>.
-    /// Sequences use U/D/L/R or arrow glyphs.
+    /// Sequences use U/D/L/R or arrow glyphs and are drawn as runes with the mouse, so a sequence may not
+    /// repeat the same stroke twice in a row, and none may be a prefix of another.
     /// </summary>
     public static class SpellBook
     {
@@ -45,7 +46,7 @@ namespace Spellcaster
             new SpellDefinition
             {
                 Id = "lightning", Name = "Lightning", Noun = "Lightning", Adjective = "Storm",
-                Sequence = Arrows.Parse("→→↓→"), Cooldown = 6f, IconKey = "lightning",
+                Sequence = Arrows.Parse("→↓→"), Cooldown = 6f, IconKey = "lightning",
                 Color = new Color(0.55f, 0.8f, 1f),
                 Delivery = new HitscanDelivery(range: 45f),
                 Payload = { new DamageEffect(45f, Element.Storm), new ChainEffect(jumps: 2, range: 8f, falloff: 0.8f) },
@@ -53,7 +54,7 @@ namespace Spellcaster
             new SpellDefinition
             {
                 Id = "frostnova", Name = "Frost Nova", Noun = "Nova", Adjective = "Frozen",
-                Sequence = Arrows.Parse("↓↓←→"), Cooldown = 10f, IconKey = "frost",
+                Sequence = Arrows.Parse("↓←↑→"), Cooldown = 10f, IconKey = "frost",
                 Color = new Color(0.55f, 0.9f, 1f),
                 Delivery = new NovaDelivery(radius: 6.5f),
                 Payload = { new DamageEffect(8f, Element.Frost), new FreezeEffect(seconds: 3f) },
@@ -77,7 +78,7 @@ namespace Spellcaster
             new SpellDefinition
             {
                 Id = "thunderring", Name = "Thunder Ring", Noun = "Storm", Adjective = "Thundering",
-                Sequence = Arrows.Parse("↑→→↑"), Cooldown = 8f, IconKey = "thunderring",
+                Sequence = Arrows.Parse("↑→↓"), Cooldown = 8f, IconKey = "thunderring",
                 Color = new Color(0.75f, 0.7f, 1f),
                 Delivery = new NovaDelivery(radius: 7f),
                 Payload = { new DamageEffect(25f, Element.Storm), new KnockbackEffect(9f) },

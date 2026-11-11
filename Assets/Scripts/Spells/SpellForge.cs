@@ -91,8 +91,15 @@ namespace Spellcaster
                 int len = length + attempt / 150; // grow if this length is crowded
                 var seq = new Arrow[len];
                 seq[0] = a.Sequence[0];
-                seq[1] = b.Sequence[0];
-                for (int i = 2; i < len; i++) seq[i] = (Arrow)rng.Next(4);
+                // Runes can't repeat a stroke, so the second parent's first stroke is used only if it differs.
+                int start = 1;
+                if (b.Sequence[0] != seq[0]) { seq[1] = b.Sequence[0]; start = 2; }
+                for (int i = start; i < len; i++)
+                {
+                    var next = (Arrow)rng.Next(3);
+                    if (next >= seq[i - 1]) next++; // any of the three other directions
+                    seq[i] = next;
+                }
                 if (!reserved.Any(r => Arrows.Conflicts(r, seq))) return seq;
             }
             return null;

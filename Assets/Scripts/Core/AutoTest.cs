@@ -101,6 +101,20 @@ namespace Spellcaster
             gs.ClearEnemies();
             yield return new WaitForSeconds(1.2f);
 
+            // ---- rune gestures ----
+            var g = new GestureRecognizer();
+            Check("gesture: a U shape with wobble reads ↓ → ↑", Arrows.ToText(DrawPath(g, "DRU", 9f, 0.8f)) == "DRU");
+            g.Reset();
+            Check("gesture: one long stroke is a single ↓", Arrows.ToText(DrawPath(g, "D", 40f, 0.5f)) == "D");
+            g.Reset();
+            var diag = new List<Arrow>();
+            for (int i = 0; i < 20; i++) { var a = g.Feed(new Vector2(0.5f, 0.45f)); if (a.HasValue) diag.Add(a.Value); }
+            Check($"gesture: a diagonal drift adds no stroke ({diag.Count})", diag.Count == 0);
+            var baseSpells = SpellBook.Defaults();
+            Check("every base rune is drawable (no repeated stroke) and prefix-free",
+                baseSpells.All(s => !Arrows.HasRepeat(s.Sequence)) &&
+                baseSpells.All(x => baseSpells.All(y => x == y || !Arrows.Conflicts(x.Sequence, y.Sequence))));
+
             // ---- Fireball: projectile + explosion ----
             var group = new List<Enemy>
             {
@@ -110,7 +124,7 @@ namespace Spellcaster
             yield return new WaitForSeconds(0.3f);
             player.LookAt(group[0].Center);
             yield return CastSequence("DRU", expectReady: "Fireball", showChannel: "04_channel_fireball");
-            Check("Fireball readied after ↓→↑", ss.Readied != null && ss.Readied.Name == "Fireball");
+            Check("Fireball readied by drawing ↓→↑ with the mouse", ss.Readied != null && ss.Readied.Name == "Fireball");
             yield return Shot("05_fireball_ready");
             ss.CastReadied();
             yield return new WaitForSeconds(0.85f);
@@ -122,8 +136,8 @@ namespace Spellcaster
             Check("Fireball on cooldown cannot be readied (fizzles)", ss.Readied == null && events.Contains("fizzle"));
             yield return new WaitForSeconds(0.35f);
             events.Clear();
-            yield return CastSequence("UU", expectReady: null);
-            Check("wrong sequence ↑↑ fizzles with lockout", events.Contains("fizzle") && ss.Lockout > 0f);
+            yield return CastSequence("UL", expectReady: null);
+            Check("wrong rune ↑← fizzles with lockout", events.Contains("fizzle") && ss.Lockout > 0f);
             ss.PushArrow(Arrow.Up);
             Check("input ignored during 0.3s lockout", ss.Entered.Count == 0);
             ss.SetChanneling(false);
@@ -137,7 +151,7 @@ namespace Spellcaster
             foreach (var e in line) e.Freeze(5f);
             yield return new WaitForSeconds(0.3f);
             player.LookAt(line[0].Center);
-            yield return CastSequence("RRDR", expectReady: "Lightning");
+            yield return CastSequence("RDR", expectReady: "Lightning");
             ss.CastReadied();
             yield return null;
             yield return Shot("06_lightning");
@@ -156,7 +170,7 @@ namespace Spellcaster
                     player.transform.position + new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)) * 3.5f));
             }
             yield return new WaitForSeconds(0.4f);
-            yield return CastSequence("DDLR", expectReady: "Frost Nova");
+            yield return CastSequence("DLUR", expectReady: "Frost Nova");
             ss.CastReadied();
             yield return new WaitForSeconds(0.15f);
             Check("Frost Nova froze all 5 nearby enemies", ring.All(e => e && e.IsFrozen));
@@ -187,7 +201,7 @@ namespace Spellcaster
             yield return new WaitForSeconds(0.2f);
             pushed.Freeze(2f);
             Vector3 p0 = pushed.transform.position;
-            yield return CastSequence("URRU", expectReady: "Thunder Ring");
+            yield return CastSequence("URD", expectReady: "Thunder Ring");
             ss.CastReadied();
             yield return new WaitForSeconds(0.4f);
             Check("Thunder Ring damages and knocks back", !pushed || !pushed.IsAlive || (pushed.transform.position - player.transform.position).magnitude > (p0 - player.transform.position).magnitude + 1f);
@@ -217,6 +231,7 @@ namespace Spellcaster
                 for (int j = i + 1; j < book.Count; j++)
                     if (Arrows.Conflicts(book[i].Sequence, book[j].Sequence)) conflictFree = false;
             Check("no two known sequences conflict (prefix-free)", conflictFree);
+            Check("forged runes never repeat a stroke", SpellBook.Known.All(s => !Arrows.HasRepeat(s.Sequence)));
 
             if (frozenFireball != null)
             {
@@ -476,17 +491,39 @@ namespace Spellcaster
 
         IEnumerator CastSequence(string seq, string expectReady, string showChannel = null)
         {
+            // Draws the rune with synthetic mouse movement, through the real gesture recognizer.
             var ss = SpellSystem.Instance;
             ss.SetChanneling(true);
             yield return null;
             var arrows = Arrows.Parse(seq);
             for (int i = 0; i < arrows.Length; i++)
             {
-                ss.PushArrow(arrows[i]);
+                Vector2 dir = GestureRecognizer.Dir(arrows[i]), side = new Vector2(-dir.y, dir.x);
+                for (int f = 0; f < 7; f++)
+                {
+                    ss.FeedGesture(dir * 1.1f + side * Mathf.Sin(f * 1.7f + i) * 0.35f);
+                    yield return null;
+                }
                 if (showChannel != null && i == arrows.Length - 2) yield return Shot(showChannel);
-                yield return new WaitForSeconds(0.06f);
             }
             if (expectReady != null) ss.SetChanneling(false); // releasing keeps the spell readied
+        }
+
+        /// <summary>Feeds a wobbly path (strokeLen units per stroke) into a recognizer; returns the strokes read.</summary>
+        static List<Arrow> DrawPath(GestureRecognizer g, string seq, float strokeLen, float wobble)
+        {
+            var got = new List<Arrow>();
+            int n = 0;
+            foreach (var a in Arrows.Parse(seq))
+            {
+                Vector2 dir = GestureRecognizer.Dir(a), side = new Vector2(-dir.y, dir.x);
+                for (float t = 0f; t < strokeLen; t += 0.5f, n++)
+                {
+                    var r = g.Feed(dir * 0.5f + side * Mathf.Sin(n * 0.9f) * wobble * 0.5f);
+                    if (r.HasValue) got.Add(r.Value);
+                }
+            }
+            return got;
         }
 
         static SpellDefinition Spell(string name) => SpellBook.Known.First(s => s.Name == name);

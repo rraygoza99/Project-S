@@ -11,8 +11,8 @@ namespace Spellcaster
     {
         public static Run Instance { get; private set; }
         public const int Slots = 3;
-        public static readonly KeyCode[] SlotKeys = { KeyCode.Z, KeyCode.X, KeyCode.C };
-        public static string SlotKeyName(int slot) => SlotKeys[slot].ToString();
+        public static readonly KeyCode[] SlotKeys = { KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.Alpha3 };
+        public static string SlotKeyName(int slot) => (slot + 1).ToString();
         public const float HasteDuration = 10f;
 
         public readonly PlayerStats Stats = new PlayerStats();
@@ -48,7 +48,7 @@ namespace Spellcaster
             var player = Player.Instance;
             if (AutoTest.Active || !player || !player.InputEnabled || !GameState.Instance.AcceptsGameplayInput) return;
             for (int i = 0; i < Slots; i++)
-                if (Input.GetKeyDown(SlotKeys[i])) UseConsumable(i);
+                if (Input.GetKeyDown(SlotKeys[i]) || Input.GetKeyDown(KeyCode.Keypad1 + i)) UseConsumable(i);
             if (Input.GetKeyDown(KeyCode.E))
             {
                 var p = Pickup.NearestInteractable(player.transform.position);
@@ -124,7 +124,7 @@ namespace Spellcaster
             if (s == null) return false;
             SpellBook.Known.Add(s);
             Sfx.Play("forge", 0.6f, 1.3f);
-            Toast($"Learned {s.Name}", $"Keys {Arrows.KeysText(s.Sequence)}   {s.Describe()}", s.Color);
+            Toast($"Learned {s.Name}", $"Rune {Arrows.Glyphs(s.Sequence)}   {s.Describe()}", s.Color);
             return true;
         }
 

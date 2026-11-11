@@ -132,7 +132,7 @@ namespace Spellcaster
             r = new ItemDef
             {
                 Id = "rune_" + spellId, Name = s.Name + " Rune", Kind = ItemKind.Rune, SpellId = spellId, Price = 25,
-                Desc = $"Learn {s.Name} (keys {Arrows.KeysText(s.Sequence)})", Color = s.Color, IconFactory = () => s.Icon,
+                Desc = $"Learn {s.Name}: rune {Arrows.Glyphs(s.Sequence)}", Color = s.Color, IconFactory = () => s.Icon,
             };
             runes[spellId] = r;
             return r;

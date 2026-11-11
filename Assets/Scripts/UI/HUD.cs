@@ -81,7 +81,7 @@ namespace Spellcaster
             if (run && run.ToastTimer > 0f) DrawToast(W, H, u, run);
 
             Shadowed(new Rect(0, H - pad - 1.6f * u, W, 2 * u),
-                "Ctrl/RMB + 1-4: spell   LMB: cast   Z X C: items   E: take   M: map   Tab: Forge", Small.Center());
+                "Hold RMB + draw: rune   LMB: cast   1-3: items   E: take   M: map   Tab: Forge", Small.Center());
 
             if (gs.BannerTimer > 0f)
             {
@@ -111,9 +111,9 @@ namespace Spellcaster
             Shadowed(new Rect(0, H * 0.14f, W, H * 0.15f), "SPELLCASTER", Title);
             Shadowed(new Rect(W * 0.12f, H * 0.32f, W * 0.76f, H * 0.5f),
                 "Fight through three dungeon floors, room by room. Doors lock until the room is clear.\n" +
-                "Hold Ctrl or Right Mouse, type the spell's keys with 1-4, Left Click to cast.\n" +
+                "Hold Right Mouse and draw a spell's rune with the mouse, then Left Click to cast.\n" +
                 "Find spell runes, relics and items; spend gold in shops; Tab fuses spells in the Forge.\n" +
-                "Z X C use items, E picks up, hold M for the map.\n\nClick to begin", Centered);
+                "1-3 use items, E picks up, hold M for the map.\n\nClick to begin", Centered);
         }
 
         void DrawEnd(float W, float H, float u, GameState gs, bool won)
@@ -347,7 +347,7 @@ namespace Spellcaster
         void DrawSpellPanel(float W, float H, float u, SpellSystem ss)
         {
             var book = ss.Book;
-            float rowH = 3.6f * u, icon = 3f * u, arrow = 1.35f * u, width = 17f * u;
+            float rowH = 3.6f * u, icon = 3f * u, width = 17f * u;
             float x0 = W - width - u, y = 2.5f * u;
             bool filtering = ss.Channeling && ss.Entered.Count > 0;
 
@@ -380,18 +380,16 @@ namespace Spellcaster
 
                 float tx = iconRect.xMax + 0.5f * u;
                 SetAlpha(Small, alpha);
-                Shadowed(new Rect(tx, row.y, width, 1.6f * u), s.Name, Small);
+                Shadowed(new Rect(tx, row.y + 0.2f * u, width, 1.6f * u), s.Name, Small);
                 SetAlpha(Small, 1f);
+                var seqStyle = new GUIStyle(Small);
+                seqStyle.normal.textColor = new Color(0.8f, 0.8f, 0.85f, 0.8f * alpha);
+                Shadowed(new Rect(tx, row.y + 1.7f * u, width, 1.6f * u), Arrows.Glyphs(s.Sequence), seqStyle);
 
-                // Arrow sequence: entered prefix lights up in the spell colour.
-                for (int a = 0; a < s.Sequence.Length; a++)
-                {
-                    bool lit = candidate && filtering && a < ss.Entered.Count;
-                    Color c = lit ? Color.Lerp(s.Color, Color.white, 0.35f) : new Color(0.85f, 0.85f, 0.85f);
-                    c.a = alpha;
-                    var r = new Rect(tx + a * (arrow + 0.15f * u), row.y + 1.75f * u, arrow, arrow);
-                    DrawKey(r, s.Sequence[a], c, lit ? new Color(s.Color.r * 0.6f, s.Color.g * 0.6f, s.Color.b * 0.6f, 0.9f * alpha) : new Color(0f, 0f, 0f, 0.6f * alpha));
-                }
+                // The rune's shape; strokes already drawn light up in the spell colour.
+                int lit = candidate && filtering ? ss.Entered.Count : 0;
+                var glyphBox = new Rect(row.xMax - rowH + 0.1f * u, row.y + 0.35f * u, rowH - 0.9f * u, rowH - 0.9f * u);
+                DrawGlyph(s.Sequence, glyphBox, s.Color, alpha, lit, Mathf.Max(1.5f, u * 0.16f));
                 y += rowH;
             }
         }
@@ -406,17 +404,7 @@ namespace Spellcaster
                 st.normal.textColor = Color.Lerp(s.Color, Color.white, 0.3f);
                 Shadowed(new Rect(0, cy + 2.5f * u, W, 2 * u), $"{s.Name} READY - Left Click", st);
             }
-            if (ss.Channeling)
-            {
-                float a = 2.4f * u;
-                int n = ss.Entered.Count;
-                float total = Mathf.Max(1, n) * (a + 0.3f * u);
-                float x = W / 2 - total / 2;
-                if (n == 0)
-                    Shadowed(new Rect(0, cy, W, a), ss.Lockout > 0f ? "..." : "channeling", Small.Center());
-                for (int i = 0; i < n; i++)
-                    DrawKey(new Rect(x + i * (a + 0.3f * u), cy, a, a), ss.Entered[i], new Color(1f, 0.95f, 0.6f), new Color(0f, 0f, 0f, 0.65f));
-            }
+            DrawRuneCanvas(W, H, u, ss);
             if (ss.MessageTimer > 0f)
             {
                 var st = new GUIStyle(Centered);
@@ -443,17 +431,111 @@ namespace Spellcaster
             Fill(new Rect(r.xMax - t, r.y, t, r.height), color);
         }
 
-        static GUIStyle keyStyle;
+        // ---------------- runes ----------------
 
-        /// <summary>A keycap showing the number key (1-4) that enters this arrow.</summary>
-        public static void DrawKey(Rect r, Arrow arrow, Color textColor, Color bg)
+        static readonly Color PenColor = new Color(0.75f, 0.88f, 1f);
+
+        /// <summary>
+        /// The rune being drawn, glowing in front of the wizard: a faint magic circle, the raw pen trail in
+        /// the colour of the spell it is heading for, and a short afterglow when it readies or fizzles.
+        /// </summary>
+        void DrawRuneCanvas(float W, float H, float u, SpellSystem ss)
         {
-            Fill(r, bg);
-            Frame(r, new Color(textColor.r, textColor.g, textColor.b, 0.35f * textColor.a), Mathf.Max(1f, r.height * 0.06f));
-            keyStyle ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, clipping = TextClipping.Overflow };
-            keyStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(r.height * 0.8f));
-            keyStyle.normal.textColor = textColor;
-            GUI.Label(r, Arrows.KeyNumber(arrow).ToString(), keyStyle);
+            var center = new Vector2(W * 0.5f, H * 0.47f);
+            float size = 22f * u;
+            var box = new Rect(center.x - size / 2, center.y - size / 2, size, size);
+
+            if (ss.EchoTimer > 0f && ss.EchoTrail.Count > 1)
+            {
+                float k = ss.EchoTimer / SpellSystem.EchoDuration;
+                var c = ss.EchoColor;
+                float grow = 1f + (1f - k) * 0.25f;
+                var eb = new Rect(center.x - size * grow / 2, center.y - size * grow / 2, size * grow, size * grow);
+                DrawPolyline(ss.EchoTrail, eb, 1.1f * u * grow, Mathf.Max(2f, 0.45f * u), new Color(c.r, c.g, c.b, k), true);
+            }
+            if (!ss.Channeling) return;
+
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3f);
+            DrawTinted(box, PixelArt.RingTex, new Color(0.55f, 0.7f, 1f, 0.12f + 0.06f * pulse));
+
+            Color col = PenColor;
+            if (ss.Entered.Count > 0)
+                foreach (var s in ss.Book)
+                    if (ss.IsCandidate(s)) { col = Color.Lerp(s.Color, Color.white, 0.25f); break; }
+            var trail = ss.Gesture.Trail;
+            if (trail.Count > 1) DrawPolyline(trail, box, 1.1f * u, Mathf.Max(2f, 0.45f * u), col, true);
+            else Shadowed(new Rect(0, box.yMax - 2f * u, W, 2f * u), ss.Lockout > 0f ? "..." : "draw a rune", Small.Center());
+
+            // pen tip
+            var tip = Fit(trail, box, 1.1f * u, trail[trail.Count - 1]);
+            float t = Mathf.Max(4f, 0.9f * u);
+            Fill(new Rect(tip.x - t, tip.y - t, 2 * t, 2 * t), new Color(col.r, col.g, col.b, 0.25f));
+            Fill(new Rect(tip.x - t / 2, tip.y - t / 2, t, t), Color.white);
+        }
+
+        /// <summary>Draws a spell's ideal rune shape in a box; the first `lit` strokes in the spell colour.</summary>
+        public static void DrawGlyph(IList<Arrow> seq, Rect box, Color spellColor, float alpha, int lit, float width)
+        {
+            var pts = GestureRecognizer.Glyph(seq);
+            var bounds = Bounds(pts);
+            float span = Mathf.Max(bounds.width, bounds.height, 1f);
+            float scale = Mathf.Min(box.width, box.height) / span;
+            Vector2 mid = bounds.center;
+            Vector2 P(Vector2 p) => new Vector2(box.center.x + (p.x - mid.x) * scale, box.center.y - (p.y - mid.y) * scale);
+
+            // count drawn strokes along the polyline (hairpin steps don't count as strokes)
+            int stroke = 0;
+            for (int i = 1; i < pts.Count; i++)
+            {
+                bool isStroke = (pts[i] - pts[i - 1]).sqrMagnitude > 0.5f;
+                bool on = stroke < lit;
+                Color c = on ? Color.Lerp(spellColor, Color.white, 0.4f) : new Color(0.8f, 0.8f, 0.85f);
+                c.a = alpha * (on ? 1f : 0.75f);
+                Line(P(pts[i - 1]), P(pts[i]), width, c);
+                if (isStroke) stroke++;
+            }
+            var s = P(pts[0]);
+            float d = width * 1.6f;
+            Fill(new Rect(s.x - d, s.y - d, 2 * d, 2 * d), new Color(1f, 1f, 1f, alpha)); // start dot
+        }
+
+        static Rect Bounds(List<Vector2> pts)
+        {
+            Vector2 min = pts[0], max = pts[0];
+            foreach (var p in pts) { min = Vector2.Min(min, p); max = Vector2.Max(max, p); }
+            return Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+        }
+
+        /// <summary>Maps a pen point (y up) into the box, scaling the whole trail to fit (at most maxScale px per unit).</summary>
+        static Vector2 Fit(List<Vector2> pts, Rect box, float maxScale, Vector2 p)
+        {
+            var b = Bounds(pts);
+            float scale = Mathf.Min(maxScale, box.width / Mathf.Max(b.width, 1e-3f), box.height / Mathf.Max(b.height, 1e-3f));
+            return new Vector2(box.center.x + (p.x - b.center.x) * scale, box.center.y - (p.y - b.center.y) * scale);
+        }
+
+        public static void DrawPolyline(List<Vector2> pts, Rect box, float maxScale, float width, Color c, bool glow)
+        {
+            var b = Bounds(pts);
+            float scale = Mathf.Min(maxScale, box.width / Mathf.Max(b.width, 1e-3f), box.height / Mathf.Max(b.height, 1e-3f));
+            Vector2 P(Vector2 p) => new Vector2(box.center.x + (p.x - b.center.x) * scale, box.center.y - (p.y - b.center.y) * scale);
+            if (glow)
+                for (int i = 1; i < pts.Count; i++) Line(P(pts[i - 1]), P(pts[i]), width * 3.2f, new Color(c.r, c.g, c.b, c.a * 0.22f));
+            var core = Color.Lerp(c, Color.white, 0.55f);
+            core.a = c.a;
+            for (int i = 1; i < pts.Count; i++) Line(P(pts[i - 1]), P(pts[i]), width, core);
+        }
+
+        /// <summary>A straight line of the given thickness (IMGUI has no line primitive, so a rotated quad).</summary>
+        public static void Line(Vector2 a, Vector2 b, float width, Color c)
+        {
+            Vector2 d = b - a;
+            float len = d.magnitude;
+            if (len < 0.01f) return;
+            var m = GUI.matrix;
+            GUIUtility.RotateAroundPivot(Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg, a);
+            Fill(new Rect(a.x - width * 0.5f, a.y - width * 0.5f, len + width, width), c);
+            GUI.matrix = m;
         }
 
         public static void DrawTinted(Rect r, Texture tex, Color color)

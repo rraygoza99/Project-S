@@ -37,12 +37,11 @@ be redistributed).
 
 | Input | Action |
 |---|---|
-| Mouse | Look |
+| Mouse | Look (draws runes while channeling) |
 | W A S D | Move (also while channeling, at 30% speed) |
-| Hold **Left Ctrl** or **Right Mouse** | Channel a spell (hands raise) |
-| **1 2 3 4** while channeling | Enter ← ↓ ↑ → (the number row above WASD) |
+| Hold **Right Mouse** (or **Left Ctrl**) | Channel: the view stops turning and the mouse draws a rune in front of you |
 | **Left Click** | Cast the readied spell, or fire the magic bolt (hold for auto-fire) |
-| **Z X C** | Use the item in that slot |
+| **1 2 3** | Use the item in that slot |
 | **E** | Take / buy the item in front of you |
 | Hold **M** | Full map, stats and items |
 | **Tab** | Spell Forge (outside of fights; the game pauses) |
@@ -50,10 +49,12 @@ be redistributed).
 | R | New run after death or victory |
 | K | Debug: spawn 10 enemies in this room |
 
-Spells are written as arrow sequences; each arrow is a number key: **1 = ←, 2 = ↓, 3 = ↑, 4 = →**
-(left to right, like a rhythm game). The HUD shows the keys to press.
+Every spell is a **rune**: a few straight up / down / left / right strokes drawn with the mouse
+(Fireball is a U: down, right, up). Draw in one go; a stroke counts once you move far enough in a new
+direction, carrying on in the same direction doesn't add strokes, and diagonal wobble is ignored. The
+rune glows in front of you while you draw, and the spell panel shows each spell's shape.
 
-Casting rules: a full sequence **readies** the spell (hands glow in its colour); releasing Ctrl keeps
+Casting rules: a full sequence **readies** the spell (hands glow in its colour); releasing the button keeps
 it readied; only one spell can be readied. Input that matches no available spell **fizzles** (0.3 s
 lockout). Spells on cooldown can't be readied.
 
@@ -107,7 +108,7 @@ Enemies drop **gold** (it flies to you) and sometimes hearts or items. **Luck** 
 | Blast Core | Explosions and novas are 40% bigger |
 | Frostbite Wand | Magic bolts may freeze enemies |
 
-| Items (3 slots, keys Z X C) | |
+| Items (3 slots, keys 1 2 3) | |
 |---|---|
 | Health Potion | Restore 35 HP |
 | Fire Bomb | Throw: explodes for 60 damage |
@@ -119,14 +120,14 @@ Enemies drop **gold** (it flies to you) and sometimes hearts or items. **Luck** 
 
 Every run starts with **Fireball**; the others are learned from **runes** (rune shrines, shops).
 
-| Spell | Sequence | Keys | Effect | Cooldown |
+| Spell | Rune | Shape | Effect | Cooldown |
 |---|---|---|---|---|
-| Fireball | ↓ → ↑ | 2 4 3 | Projectile, explodes for area damage | 3 s |
-| Lightning | → → ↓ → | 4 4 2 4 | Instant hit, chains to 2 nearby enemies | 6 s |
-| Frost Nova | ↓ ↓ ← → | 2 2 1 4 | Freezes everything around you for 3 s | 10 s |
-| Heal | ↑ ↓ ↑ ↓ | 3 2 3 2 | Restore 40 HP | 15 s |
-| Frost Shard | ← ↑ → | 1 3 4 | Fast projectile, freezes for 1.2 s | 2.5 s |
-| Thunder Ring | ↑ → → ↑ | 3 4 4 3 | Storm nova that throws enemies back | 8 s |
+| Fireball | ↓ → ↑ | U | Projectile, explodes for area damage | 3 s |
+| Lightning | → ↓ → | Z bolt | Instant hit, chains to 2 nearby enemies | 6 s |
+| Frost Nova | ↓ ← ↑ → | loop | Freezes everything around you for 3 s | 10 s |
+| Heal | ↑ ↓ ↑ ↓ | zig-zag | Restore 40 HP | 15 s |
+| Frost Shard | ← ↑ → | arch | Fast projectile, freezes for 1.2 s | 2.5 s |
+| Thunder Ring | ↑ → ↓ | cap ∩ | Storm nova that throws enemies back | 8 s |
 
 ### Spell Forge: make your own spells
 
@@ -136,7 +137,7 @@ Press **Tab** when no fight is on, pick two spells with the number keys, check t
 - uses the first spell's **delivery** (projectile / instant bolt / nova / self) and carries **both
   payloads** at 85% strength,
 - gets a cooldown of 80% of both cooldowns combined and a new, longer arrow sequence (starting with
-  the first arrow of each parent; it never clashes with a known spell or any rune you may find),
+  the first stroke of each parent, never the same stroke twice in a row; it never clashes with a known spell or any rune you may find),
 - unlocks **synergies** when elements react:
 
 | Elements | Synergy | Effect |
@@ -167,7 +168,7 @@ new SpellDefinition
 It automatically becomes a rune you can find. If no existing effect does what you want, add a class
 to `SpellEffects.cs` (subclass `SpellEffect`, pick a `Role`: *Direct* per enemy hit, *Spread* to find
 more targets, *Caster* once for you; implement `Scaled` and `Describe`). It then works with every
-delivery, the Forge, relics and synergy rules. The sequence must not be a prefix of another spell's.
+delivery, the Forge, relics and synergy rules. The rune must not repeat a stroke twice in a row or be a prefix of another spell's rune.
 
 **Add a stat item or relic:** add an entry to `Loot/Items.cs` with an `OnAcquire` that edits
 `PlayerStats`. Relic effects read the modifier fields in `PlayerStats` from the spell code

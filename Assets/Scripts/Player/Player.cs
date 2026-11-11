@@ -87,7 +87,8 @@ namespace Spellcaster
             if (IsDead) return;
 
             bool gameplay = GameState.Instance.AcceptsGameplayInput;
-            if (Cursor.lockState == CursorLockMode.Locked && InputEnabled && gameplay)
+            // While channeling, the mouse draws the rune instead of turning the view.
+            if (Cursor.lockState == CursorLockMode.Locked && InputEnabled && gameplay && !Channeling)
             {
                 Yaw += Input.GetAxisRaw("Mouse X") * MouseSensitivity;
                 Pitch = Mathf.Clamp(Pitch - Input.GetAxisRaw("Mouse Y") * MouseSensitivity, -85f, 85f);

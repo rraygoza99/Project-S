@@ -4,10 +4,11 @@ using UnityEngine;
 namespace Spellcaster
 {
     /// <summary>
-    /// Stratagem-style casting. Hold Left Ctrl / Right Mouse to channel; number keys 1-4 enter
-    /// directions (1 left, 2 down, 3 up, 4 right; WASD keeps moving, slowed). A full match readies the spell (one at a time); Left Click fires it. Input that
-    /// matches no available spell fizzles with a short lockout. Left Click with nothing readied fires
-    /// the basic bolt.
+    /// Rune casting. Hold Right Mouse (or Left Ctrl) to channel: mouse look stops and the mouse draws a
+    /// rune in front of you (see <see cref="GestureRecognizer"/>); each up/down/left/right stroke is one
+    /// arrow of the spell's sequence. A full match readies the spell (one at a time); Left Click fires it.
+    /// A stroke that matches no available spell fizzles with a short lockout. Left Click with nothing
+    /// readied fires the basic bolt. WASD keeps moving while channeling, slowed.
     /// </summary>
     public class SpellSystem : MonoBehaviour
     {
@@ -36,12 +37,14 @@ namespace Spellcaster
         static PlayerStats Stats => Run.Instance ? Run.Instance.Stats : new PlayerStats();
         float boltCooldown;
 
-        static readonly (KeyCode key, Arrow arrow)[] Keys =
-        {
-            // Number keys above WASD, so casting never takes your hand off the movement keys.
-            (KeyCode.Alpha1, Arrow.Left), (KeyCode.Alpha2, Arrow.Down), (KeyCode.Alpha3, Arrow.Up), (KeyCode.Alpha4, Arrow.Right),
-            (KeyCode.Keypad1, Arrow.Left), (KeyCode.Keypad2, Arrow.Down), (KeyCode.Keypad3, Arrow.Up), (KeyCode.Keypad4, Arrow.Right),
-        };
+        /// <summary>The rune being drawn right now.</summary>
+        public readonly GestureRecognizer Gesture = new GestureRecognizer();
+
+        /// <summary>The last finished rune, left glowing briefly (spell colour when it readied, red when it fizzled).</summary>
+        public List<Vector2> EchoTrail { get; private set; } = new List<Vector2>();
+        public Color EchoColor { get; private set; }
+        public float EchoTimer { get; private set; }
+        public const float EchoDuration = 0.6f;
 
         void Awake() => Instance = this;
 
@@ -55,6 +58,7 @@ namespace Spellcaster
             FizzleFlash = Mathf.Max(0f, FizzleFlash - dt * 3f);
             ReadyFlash = Mathf.Max(0f, ReadyFlash - dt * 2f);
             MessageTimer = Mathf.Max(0f, MessageTimer - dt);
+            EchoTimer = Mathf.Max(0f, EchoTimer - dt);
 
             var player = Player.Instance;
             bool canAct = player && player.InputEnabled && GameState.Instance.AcceptsGameplayInput && !AutoTest.Active;
@@ -62,8 +66,7 @@ namespace Spellcaster
             {
                 SetChanneling(Input.GetKey(KeyCode.LeftControl) || Input.GetMouseButton(1));
                 if (Channeling)
-                    foreach (var (key, arrow) in Keys)
-                        if (Input.GetKeyDown(key)) PushArrow(arrow);
+                    FeedGesture(new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y")));
 
                 if (Readied != null && Input.GetMouseButtonDown(0)) CastReadied();
                 else if (Readied == null && Input.GetMouseButton(0) && boltCooldown <= 0f) FireBasic();
@@ -93,6 +96,24 @@ namespace Spellcaster
             if (Player.Instance) Player.Instance.Channeling = on;
             if (on) Sfx.Play("channel", 0.4f);
             Entered.Clear(); // a partial sequence is lost when you let go; a readied spell is kept
+            Gesture.Reset();
+        }
+
+        /// <summary>Moves the rune pen (mouse delta while channeling) and enters any stroke it completes.</summary>
+        public void FeedGesture(Vector2 delta)
+        {
+            if (!Channeling) return;
+            if (Lockout > 0f) { Gesture.Reset(); return; }
+            var stroke = Gesture.Feed(delta);
+            if (stroke.HasValue) PushArrow(stroke.Value);
+        }
+
+        void Echo(Color color)
+        {
+            EchoTrail = new List<Vector2>(Gesture.Trail);
+            EchoColor = color;
+            EchoTimer = EchoDuration;
+            Gesture.Reset();
         }
 
         public float CooldownRemaining(SpellDefinition s) =>
@@ -140,6 +161,7 @@ namespace Spellcaster
         {
             Readied = s;
             Entered.Clear();
+            Echo(s.Color);
             ReadyFlash = 1f;
             Sfx.Play("ready", 0.6f);
             Raise("ready " + s.Name);
@@ -148,6 +170,7 @@ namespace Spellcaster
         public void Fizzle()
         {
             Entered.Clear();
+            Echo(new Color(1f, 0.25f, 0.15f));
             Lockout = FizzleLockout;
             FizzleFlash = 1f;
             Sfx.Play("fizzle", 0.7f);
