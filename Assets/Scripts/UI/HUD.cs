@@ -227,6 +227,28 @@ namespace Spellcaster
                     GUI.Label(rect, icon, mapIcon);
                 }
             }
+            DrawPlayerMarker(center, cell, origin);
+        }
+
+        static readonly Color MarkerColor = new Color(1f, 0.25f, 0.2f);
+
+        /// <summary>
+        /// The player on the map: a triangle at their position, its tip pointing where they look. Map up is world +Z
+        /// (north), the same direction as "the room above", so turning to face up and walking forward
+        /// leads to the room above.
+        /// </summary>
+        static void DrawPlayerMarker(Vector2 center, float cell, Vector2Int origin)
+        {
+            var player = Player.Instance;
+            if (!player) return;
+            Vector3 p = player.transform.position;
+            Vector2 pos = center + new Vector2(p.x / Dungeon.Spacing - origin.x, -(p.z / Dungeon.Spacing - origin.y)) * cell;
+            float size = Mathf.Max(11f, cell * 0.6f);
+            var r = new Rect(pos.x - size / 2, pos.y - size / 2, size, size);
+            var m = GUI.matrix;
+            GUIUtility.RotateAroundPivot(player.Yaw, pos); // yaw 0 = north (map up), clockwise like the screen
+            DrawTinted(r, PixelArt.TriangleTex, MarkerColor);
+            GUI.matrix = m;
         }
 
         static void DrawMinimap(float u, Dungeon d, Run run)
@@ -236,6 +258,9 @@ namespace Spellcaster
             var area = new Rect(u, u, cell * (range * 2 + 1), cell * (range * 2 + 1));
             Fill(area, new Color(0, 0, 0, 0.45f));
             if (d.Current != null) DrawRooms(area, cell, d.Current.Cell, d, range);
+            var north = new GUIStyle(Small) { alignment = TextAnchor.UpperCenter, fontStyle = FontStyle.Bold };
+            north.normal.textColor = new Color(1f, 0.85f, 0.45f, 0.9f);
+            Shadowed(new Rect(area.x, area.y, area.width, 2f * u), "N", north);
             string label = d.Current?.Label;
             Shadowed(new Rect(area.x, area.yMax + 0.3f * u, area.width * 2, 2.5f * u), $"FLOOR {d.Floor}" + (label != null ? $"  {label}" : ""), Label);
             if (run && run.Items.Count > 0)

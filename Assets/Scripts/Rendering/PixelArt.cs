@@ -112,6 +112,21 @@ namespace Spellcaster
             return FromPixels(s, s, px);
         });
 
+        /// <summary>Solid white triangle pointing up (tint with GUI.color), with a dark outline: the map marker.</summary>
+        public static Texture2D TriangleTex => Cached("triangle", () =>
+        {
+            const int n = 15, s = n + 2;
+            var px = new Color32[s * s];
+            for (int y = 0; y < n; y++) // y = 0 is the bottom row (the wide base)
+            {
+                float half = (n - 1 - y) * 0.5f * 0.85f + 0.5f; // narrows to a point at the top
+                for (int x = 0; x < n; x++)
+                    if (Mathf.Abs(x - (n - 1) * 0.5f) <= half) px[(y + 1) * s + x + 1] = new Color32(255, 255, 255, 255);
+            }
+            Outline(px, s, s);
+            return FromPixels(s, s, px);
+        });
+
         public static Texture2D RingTex =>Cached("ring", () =>
         {
             const int s = 64;

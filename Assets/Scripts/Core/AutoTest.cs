@@ -431,6 +431,7 @@ namespace Spellcaster
             player.LookAt(shrine.Center + Vector3.up * 1.5f);
             yield return Shot("17_shrine");
 
+            player.SetLook(90f, 0f); // face east: the map marker should point right
             HUD.ShowMap = true;
             yield return Shot("18_map");
             HUD.ShowMap = false;
