@@ -13,6 +13,10 @@ namespace Spellcaster
         public readonly SpellDefinition Spell;
         public readonly Player Caster;
         public float DamageDealt;
+        /// <summary>Multiplier on damage, burn and healing (spell power from items; echoes and split shots are weaker).</summary>
+        public float Power = 1f;
+        public PlayerStats Stats => Run.Instance ? Run.Instance.Stats : Fallback;
+        static readonly PlayerStats Fallback = new PlayerStats();
         readonly HashSet<Enemy> hit = new HashSet<Enemy>();
         bool resolved;
 
@@ -20,6 +24,7 @@ namespace Spellcaster
         {
             Spell = spell;
             Caster = caster;
+            Power = Stats.Power;
         }
 
         public void Launch() => Spell.Delivery.Launch(this);
@@ -45,18 +50,28 @@ namespace Spellcaster
 
             foreach (var effect in Spell.Payload)
                 if (effect.Role == EffectRole.Caster) effect.ApplyToCaster(this);
+
+            // Leech Sigil relic
+            if (Stats.SpellLifesteal > 0f && DamageDealt > 0f && Caster) Caster.Heal(DamageDealt * Stats.SpellLifesteal);
         }
 
         /// <summary>Applies every Direct effect to one enemy (once per cast).</summary>
         public void ApplyDirect(Enemy e, float scale)
         {
             if (!e || !hit.Add(e)) return;
+            bool wasAlive = e.IsAlive;
             foreach (var effect in Spell.Payload)
             {
                 if (effect.Role != EffectRole.Direct) continue;
                 if (!e.IsAlive && !(effect is DamageEffect)) continue;
                 effect.ApplyTo(this, e, scale);
             }
+
+            // Relic hooks
+            var stats = Stats;
+            if (stats.IgniteOnHit > 0f && e.IsAlive) e.Ignite(stats.IgniteOnHit * Power, 3f);
+            if (stats.VolatileKills && wasAlive && !e.IsAlive)
+                Combat.Explode(e.Center, 3f * stats.AreaMult, 20f * Power, 0f, new Color(1f, 0.5f, 0.15f));
         }
     }
 }

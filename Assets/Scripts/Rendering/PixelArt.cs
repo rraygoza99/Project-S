@@ -171,6 +171,43 @@ namespace Spellcaster
             return FromPixels(s, s, px, true);
         });
 
+        /// <summary>Vertical wooden boards with dark seams and two metal bands (crates, barrels).</summary>
+        public static Texture2D Planks(string key, Color32 wood, Color32 band, int seed) => Cached(key, () =>
+        {
+            const int s = 32;
+            var rng = new System.Random(seed);
+            var shades = new float[4];
+            for (int i = 0; i < 4; i++) shades[i] = 0.82f + (float)rng.NextDouble() * 0.25f;
+            var px = new Color32[s * s];
+            for (int y = 0; y < s; y++)
+            for (int x = 0; x < s; x++)
+            {
+                int board = x / 8;
+                bool seam = x % 8 == 7;
+                bool isBand = (y >= 4 && y < 7) || (y >= 25 && y < 28);
+                float grain = Mathf.Sin((y + board * 7) * 0.9f + x * 0.2f) * 0.05f + (float)rng.NextDouble() * 0.08f - 0.04f;
+                px[y * s + x] = isBand ? Mul(band, 1f + grain + (y % 3 == 0 ? 0.15f : 0f))
+                    : seam ? Mul(wood, 0.45f) : Mul(wood, shades[board] + grain);
+            }
+            return FromPixels(s, s, px, true);
+        });
+
+        /// <summary>Iron portcullis bars over darkness (locked doors).</summary>
+        public static Texture2D Bars(string key, Color32 iron) => Cached(key, () =>
+        {
+            const int s = 32;
+            var px = new Color32[s * s];
+            for (int y = 0; y < s; y++)
+            for (int x = 0; x < s; x++)
+            {
+                bool bar = x % 8 < 3;
+                bool cross = y % 16 < 2;
+                float hl = x % 8 == 0 ? 1.25f : (x % 8 == 2 ? 0.75f : 1f);
+                px[y * s + x] = bar || cross ? Mul(iron, cross ? 0.9f : hl) : new Color32(14, 8, 16, 255);
+            }
+            return FromPixels(s, s, px, true);
+        });
+
         // --- raster helpers for procedural sprites (y = 0 is the bottom row) ---
 
         public static void Set(Color32[] px, int w, int h, int x, int y, Color32 c)

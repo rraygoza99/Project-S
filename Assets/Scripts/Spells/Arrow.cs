@@ -37,6 +37,17 @@ namespace Spellcaster
             return sb.ToString();
         }
 
+        /// <summary>Number key that enters this arrow while channeling: 1 = left, 2 = down, 3 = up, 4 = right.</summary>
+        public static int KeyNumber(Arrow a) => a switch { Arrow.Left => 1, Arrow.Down => 2, Arrow.Up => 3, _ => 4 };
+
+        /// <summary>The keys to press for a sequence, e.g. Fireball (down, right, up) = "2 4 3".</summary>
+        public static string KeysText(IList<Arrow> seq)
+        {
+            var sb = new StringBuilder();
+            for (int i = 0; i < seq.Count; i++) sb.Append(i > 0 ? " " : "").Append(KeyNumber(seq[i]));
+            return sb.ToString();
+        }
+
         public static bool HasPrefix(IList<Arrow> seq, IList<Arrow> prefix)
         {
             if (prefix.Count > seq.Count) return false;

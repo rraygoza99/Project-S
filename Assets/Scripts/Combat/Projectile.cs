@@ -14,10 +14,10 @@ namespace Spellcaster
         HitHandler onHit;
         System.Action<Vector3> onExpire;
         Transform visual;
-        float baseSize;
+        float baseSize, gravity;
 
         public static Projectile Spawn(Vector3 position, Vector3 velocity, Color color, float size, float radius,
-            int mask, HitHandler onHit, float life = 4f, System.Action<Vector3> onExpire = null)
+            int mask, HitHandler onHit, float life = 4f, System.Action<Vector3> onExpire = null, float gravity = 0f)
         {
             var go = new GameObject("Projectile");
             go.transform.position = position;
@@ -31,6 +31,7 @@ namespace Spellcaster
             p.life = life;
             p.visual = r.transform;
             p.baseSize = size;
+            p.gravity = gravity;
             return p;
         }
 
@@ -45,6 +46,7 @@ namespace Spellcaster
                 return;
             }
 
+            velocity.y -= gravity * dt;
             Vector3 step = velocity * dt;
             float len = step.magnitude;
             if (len > 1e-5f)

@@ -79,11 +79,13 @@ namespace Spellcaster
 
         /// <summary>
         /// Starts with the first arrow of each parent (so it's memorable), then fills deterministically,
-        /// rejecting any sequence that is a prefix of (or prefixed by) a known one.
+        /// rejecting any sequence that is a prefix of (or prefixed by) a known or base one.
         /// </summary>
         public static Arrow[] GenerateSequence(SpellDefinition a, SpellDefinition b, IList<SpellDefinition> book, int length, int seed)
         {
             var rng = new System.Random(seed);
+            // Also avoid every base spell's sequence, so a rune found later can never clash.
+            var reserved = book.Select(s => s.Sequence).Concat(SpellBook.Defaults().Select(s => s.Sequence)).ToList();
             for (int attempt = 0; attempt < 500; attempt++)
             {
                 int len = length + attempt / 150; // grow if this length is crowded
@@ -91,7 +93,7 @@ namespace Spellcaster
                 seq[0] = a.Sequence[0];
                 seq[1] = b.Sequence[0];
                 for (int i = 2; i < len; i++) seq[i] = (Arrow)rng.Next(4);
-                if (!book.Any(s => Arrows.Conflicts(s.Sequence, seq))) return seq;
+                if (!reserved.Any(r => Arrows.Conflicts(r, seq))) return seq;
             }
             return null;
         }

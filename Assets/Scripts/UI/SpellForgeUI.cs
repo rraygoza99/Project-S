@@ -23,12 +23,17 @@ namespace Spellcaster
         {
             messageTimer = Mathf.Max(0f, messageTimer - Time.unscaledDeltaTime);
             var gs = GameState.Instance;
-            bool inRun = gs.Phase == Phase.Playing || gs.Phase == Phase.Intermission;
-            if (!inRun || AutoTest.Active) { if (IsOpen && !AutoTest.Active) Close(); return; }
+            if (!gs.InRun || AutoTest.Active) { if (IsOpen && !AutoTest.Active) Close(); return; }
 
             if (Input.GetKeyDown(KeyCode.Tab) && !SpellSystem.Instance.Channeling)
             {
-                if (IsOpen) Close(); else Open();
+                if (IsOpen) Close();
+                else if (Dungeon.Instance && Dungeon.Instance.InCombat)
+                {
+                    SpellSystem.Instance.Flash("Can't forge during a fight");
+                    Sfx.Play("fizzle", 0.4f, 1.3f);
+                }
+                else Open();
                 return;
             }
             if (!IsOpen) return;
@@ -83,7 +88,7 @@ namespace Spellcaster
             var made = preview;
             SpellBook.Known.Add(made);
             Sfx.Play("forge", 0.8f);
-            Say($"Learned {made.Name}: {Arrows.ToText(made.Sequence)}");
+            Say($"Learned {made.Name}: keys {Arrows.KeysText(made.Sequence)}");
             picks.Clear();
             Refresh();
             return made;
@@ -140,7 +145,7 @@ namespace Spellcaster
                 HUD.Shadowed(new Rect(px0 + ic + 2 * u, py + 3.3f * u, pw, 2 * u), $"Cooldown {preview.Cooldown:0.#}s   Tier {preview.Tier}", HUD.Small);
                 float ax = px0 + ic + 2 * u, a = 1.6f * u;
                 for (int i = 0; i < preview.Sequence.Length; i++)
-                    HUD.DrawTinted(new Rect(ax + i * (a + 0.2f * u), py + 5.2f * u, a, a), PixelArt.ArrowTex(preview.Sequence[i]), new Color(1f, 0.95f, 0.6f));
+                    HUD.DrawKey(new Rect(ax + i * (a + 0.2f * u), py + 5.2f * u, a, a), preview.Sequence[i], new Color(1f, 0.95f, 0.6f), new Color(0f, 0f, 0f, 0.6f));
 
                 float ly = py + 9 * u;
                 HUD.Shadowed(new Rect(px0 + u, ly, pw, 2 * u), "Delivery: " + preview.Delivery.Name, HUD.Small);

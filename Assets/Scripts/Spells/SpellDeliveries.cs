@@ -23,17 +23,32 @@ namespace Spellcaster
         public override void Launch(SpellCast cast)
         {
             Vector3 origin = SpellSystem.CastOrigin;
+            Vector3 dir = SpellSystem.AimDirection(origin);
+            Fire(cast, origin, dir, Size);
+            // Splitting Prism relic: extra, weaker projectiles fanned out to the sides.
+            int split = cast.Stats.ProjectileSplit;
+            for (int i = 0; i < split; i++)
+            {
+                float ang = (i / 2 + 1) * 12f * (i % 2 == 0 ? 1f : -1f);
+                var extra = new SpellCast(cast.Spell, cast.Caster) { Power = cast.Power * 0.6f };
+                Fire(extra, origin, Quaternion.AngleAxis(ang, Vector3.up) * dir, Size * 0.75f);
+            }
+        }
+
+        void Fire(SpellCast cast, Vector3 origin, Vector3 dir, float size)
+        {
             var color = cast.Spell.Color;
-            Projectile.Spawn(origin, SpellSystem.AimDirection(origin) * Speed, color, Size, 0.2f,
-                Layers.WorldMask | Layers.EnemyMask,
+            Projectile.Spawn(origin, dir * Speed, color, size, 0.2f,
+                Layers.PlayerShotMask,
                 (point, col) =>
                 {
-                    Fx.Flash(point, color, Size * 1.5f, 0.25f, 1.5f);
+                    Fx.Flash(point, color, size * 1.5f, 0.25f, 1.5f);
+                    var prop = col ? col.GetComponentInParent<Prop>() : null;
+                    if (prop) prop.TakeDamage(30f * cast.Power);
                     cast.Resolve(col ? col.GetComponentInParent<Enemy>() : null, point);
                 },
                 life: 4f,
                 onExpire: point => cast.Resolve((Enemy)null, point));
-            // trailing sparks
         }
     }
 
@@ -51,11 +66,13 @@ namespace Spellcaster
             Vector3 origin = SpellSystem.CastOrigin;
             Vector3 end = cam.position + cam.forward * Range;
             Enemy target = null;
-            if (Physics.Raycast(cam.position, cam.forward, out var hit, Range, Layers.WorldMask | Layers.EnemyMask, QueryTriggerInteraction.Ignore))
+            if (Physics.Raycast(cam.position, cam.forward, out var hit, Range, Layers.PlayerShotMask, QueryTriggerInteraction.Ignore))
             {
                 end = hit.point;
                 target = hit.collider.GetComponentInParent<Enemy>();
                 if (target) end = target.Center;
+                var prop = hit.collider.GetComponentInParent<Prop>();
+                if (prop) prop.TakeDamage(30f * cast.Power);
             }
             LightningFx.Bolt(origin, end, cast.Spell.Color, 0.3f);
             Fx.Flash(end, cast.Spell.Color, 1.4f, 0.3f, 1f);
@@ -75,15 +92,17 @@ namespace Spellcaster
         public override void Launch(SpellCast cast)
         {
             Vector3 center = cast.Caster.transform.position;
-            Fx.Ring(center + Vector3.up * 0.1f, cast.Spell.Color, Radius, 0.45f);
-            Fx.Flash(center + Vector3.up * 1f, cast.Spell.Color, Radius * 0.8f, 0.35f, 1.2f);
+            float radius = Radius * cast.Stats.AreaMult;
+            Fx.Ring(center + Vector3.up * 0.1f, cast.Spell.Color, radius, 0.45f);
+            Fx.Flash(center + Vector3.up * 1f, cast.Spell.Color, radius * 0.8f, 0.35f, 1.2f);
+            if (cast.Spell.Payload.Exists(e => e is DamageEffect)) Combat.DamageProps(center + Vector3.up, radius, 20f * cast.Power);
             Sfx.Play(cast.Spell.Payload.Exists(e => e is FreezeEffect) ? "freeze" : "explode", 0.7f);
             var targets = new List<Enemy>();
             foreach (var e in Enemy.All)
             {
                 Vector3 d = e.transform.position - center;
                 d.y = 0f;
-                if (e.IsAlive && d.sqrMagnitude <= Radius * Radius) targets.Add(e);
+                if (e.IsAlive && d.sqrMagnitude <= radius * radius) targets.Add(e);
             }
             cast.Resolve(targets, center + Vector3.up);
         }

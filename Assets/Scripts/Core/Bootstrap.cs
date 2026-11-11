@@ -9,7 +9,7 @@ namespace Spellcaster
     /// </summary>
     public static class Bootstrap
     {
-        public static readonly Color FogColor = new Color(0.06f, 0.035f, 0.08f);
+        public static readonly Color FogColor = new Color(0.06f, 0.035f, 0.08f); // floor 1; each floor sets its own
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Init()
@@ -26,7 +26,8 @@ namespace Spellcaster
 
             var root = new GameObject("Game");
             root.AddComponent<GameState>();
-            ArenaBuilder.Build(root.transform);
+            root.AddComponent<Run>();
+            var dungeon = root.AddComponent<Dungeon>();
 
             // The world camera renders into a low-res texture; this camera just clears the backbuffer,
             // and the HUD blits the low-res image with nearest-neighbour filtering.
@@ -43,6 +44,7 @@ namespace Spellcaster
             root.AddComponent<EnemySpawner>();
             root.AddComponent<HUD>();
             root.AddComponent<SpellForgeUI>();
+            dungeon.BuildFloor(1);
             AutoTest.TryStart(root);
         }
     }

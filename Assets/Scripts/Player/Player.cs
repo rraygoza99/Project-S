@@ -8,8 +8,8 @@ namespace Spellcaster
     {
         public static Player Instance { get; private set; }
 
-        public const float MaxHP = 100f;
-        public float HP { get; private set; } = MaxHP;
+        public float MaxHP => Run.Instance ? Run.Instance.Stats.MaxHP : 100f;
+        public float HP { get; private set; } = 100f;
         public bool IsDead => HP <= 0f;
         public bool God;
 
@@ -106,7 +106,8 @@ namespace Spellcaster
             if (wish.sqrMagnitude > 1f) wish.Normalize();
             if (Channeling) wish *= ChannelSpeedFactor;
 
-            Vector3 target = transform.TransformDirection(wish) * MoveSpeed;
+            float speed = Run.Instance ? Run.Instance.MoveSpeed : MoveSpeed;
+            Vector3 target = transform.TransformDirection(wish) * speed;
             planarVelocity = Vector3.MoveTowards(planarVelocity, target, Acceleration * dt);
             verticalVelocity = cc.isGrounded ? -2f : verticalVelocity - 20f * dt;
             cc.Move((planarVelocity + Vector3.up * verticalVelocity) * dt);
@@ -159,6 +160,7 @@ namespace Spellcaster
         public void TakeDamage(float amount)
         {
             if (IsDead || amount <= 0f) return;
+            if (Run.Instance) amount *= Run.Instance.Stats.DamageTaken;
             HurtFlash = 1f;
             Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f));
             HP = Mathf.Max(God ? 1f : 0f, HP - amount);
@@ -170,6 +172,20 @@ namespace Spellcaster
             if (IsDead) return;
             HP = Mathf.Min(MaxHP, HP + amount);
             HealFlash = 1f;
+        }
+
+        /// <summary>Keeps HP within a (possibly lowered) max.</summary>
+        public void ClampHP() => HP = Mathf.Min(HP, MaxHP);
+
+        /// <summary>Moves the player instantly (new floor, tests). Yaw in degrees.</summary>
+        public void Teleport(Vector3 position, float yaw)
+        {
+            cc.enabled = false;
+            transform.position = position;
+            cc.enabled = true;
+            planarVelocity = Vector3.zero;
+            verticalVelocity = 0f;
+            SetLook(yaw, 0f);
         }
     }
 }

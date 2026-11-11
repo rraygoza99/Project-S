@@ -44,7 +44,7 @@ namespace Spellcaster
         public override SpellEffect Scaled(float p) => new DamageEffect(Amount * p, element);
         public override string Describe() => $"{Amount:0} {element.ToString().ToLower()} dmg";
         public override void ApplyTo(SpellCast cast, Enemy target, float scale) =>
-            cast.DamageDealt += target.TakeDamage(Amount * scale, element);
+            cast.DamageDealt += target.TakeDamage(Amount * scale * cast.Power, element);
     }
 
     public class FreezeEffect : SpellEffect
@@ -73,7 +73,7 @@ namespace Spellcaster
         public override string Describe() => $"burn {Dps:0}/s for {Seconds:0}s";
         public override void ApplyTo(SpellCast cast, Enemy target, float scale)
         {
-            target.Ignite(Dps * scale, Seconds);
+            target.Ignite(Dps * scale * cast.Power, Seconds);
             Sfx.Play("burn", 0.35f, Random.Range(0.9f, 1.1f));
         }
     }
@@ -90,7 +90,7 @@ namespace Spellcaster
         public override void ApplyTo(SpellCast cast, Enemy target, float scale)
         {
             if (!target.ConsumeFreeze()) return;
-            cast.DamageDealt += target.TakeDamage(Bonus * scale, Element.Frost);
+            cast.DamageDealt += target.TakeDamage(Bonus * scale * cast.Power, Element.Frost);
             Fx.Flash(target.Center, new Color(0.8f, 0.95f, 1f), 2.4f, 0.35f, 1.2f);
             Sfx.Play("shatter", 0.6f, Random.Range(0.9f, 1.1f));
         }
@@ -126,10 +126,12 @@ namespace Spellcaster
         public override string Describe() => $"explodes {Radius:0.#}m";
         public override void Spread(SpellCast cast, Enemy from, Vector3 point)
         {
-            Fx.Flash(point, Color.Lerp(cast.Spell.Color, new Color(1f, 0.6f, 0.2f), 0.5f), Radius * 1.3f, 0.45f, 0.6f);
-            Fx.Flash(point, new Color(1f, 0.95f, 0.7f), Radius * 0.6f, 0.2f, 0.8f);
+            float radius = Radius * cast.Stats.AreaMult;
+            Fx.Flash(point, Color.Lerp(cast.Spell.Color, new Color(1f, 0.6f, 0.2f), 0.5f), radius * 1.3f, 0.45f, 0.6f);
+            Fx.Flash(point, new Color(1f, 0.95f, 0.7f), radius * 0.6f, 0.2f, 0.8f);
             Sfx.Play("explode", 0.7f, Random.Range(0.9f, 1.1f));
-            var hits = Physics.OverlapSphere(point, Radius, Layers.EnemyMask, QueryTriggerInteraction.Ignore);
+            Combat.DamageProps(point, radius, 30f * cast.Power);
+            var hits = Physics.OverlapSphere(point, radius, Layers.EnemyMask, QueryTriggerInteraction.Ignore);
             foreach (var col in hits)
             {
                 var e = col.GetComponent<Enemy>();
@@ -152,7 +154,8 @@ namespace Spellcaster
         {
             Vector3 pos = from ? from.Center : point;
             float scale = 1f;
-            for (int j = 0; j < Jumps; j++)
+            int jumps = Jumps + cast.Stats.ExtraChains;
+            for (int j = 0; j < jumps; j++)
             {
                 Enemy next = null;
                 float best = Range * Range;
@@ -184,7 +187,7 @@ namespace Spellcaster
         public override string Describe() => $"heal {Amount:0}";
         public override void ApplyToCaster(SpellCast cast)
         {
-            cast.Caster.Heal(Amount);
+            cast.Caster.Heal(Amount * cast.Power);
             Sfx.Play("heal", 0.7f);
         }
     }

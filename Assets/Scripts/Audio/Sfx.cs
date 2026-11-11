@@ -110,6 +110,23 @@ namespace Spellcaster
             Add("hurt", 0.2f, (t, d) => Sq(Slide(t, d, 150, 80)) * 0.3f * Env(t, d, 1) + Noise() * 0.2f * Env(t, d, 3));
             Add("claw", 0.12f, (t, d) => Noise() * 0.35f * Mathf.Sin(Mathf.PI * t / d));
             Add("enemyshot", 0.25f, (t, d) => Sin(Slide(t, d, 260, 620)) * 0.35f * Env(t, d, 1));
+            // --- roguelike: loot, doors, rooms ---
+            Add("coin", 0.16f, (t, d) => (Sq(1760 * t) * 0.15f + Sin(t < 0.05f ? 1320 * t : 1760 * t) * 0.2f) * Env(t, d, 2));
+            Add("pickup", 0.25f, (t, d) => Sin(Slide(t, d, 600, 1200)) * 0.3f * Env(t, d, 1.5f));
+            Add("item", 0.8f, (t, d) =>
+            {
+                float a = Sin(523 * t) + (t > 0.1f ? Sin(659 * (t - 0.1f)) : 0f) + (t > 0.2f ? Sin(784 * (t - 0.2f)) : 0f) + (t > 0.3f ? Sin(1046 * (t - 0.3f)) : 0f);
+                return a * 0.12f * Env(t, d, 1.2f);
+            });
+            Add("buy", 0.3f, (t, d) => (Sq(1200 * t) * 0.1f + Sin(2400 * t) * 0.15f) * Env(t, d, 2) + Noise() * 0.1f * Env(t, 0.02f, 1));
+            Add("door", 0.5f, (t, d) => (Saw(Slide(t, d, 70, 45)) * 0.35f + Noise() * 0.25f * Env(t, 0.12f, 1)) * Env(t, d, 1.5f));
+            Add("clear", 0.7f, (t, d) => (Sin(392 * t) + Sin(523 * t) * (t > 0.12f ? 1f : 0f) + Sin(659 * t) * (t > 0.24f ? 1f : 0f)) * 0.14f * Env(t, d, 1.2f));
+            Add("boss", 1.4f, (t, d) => (Saw(Slide(t, d, 55, 38)) * 0.3f + Sin(41 * t) * 0.3f + Noise() * 0.08f) * Mathf.Sin(Mathf.PI * t / d));
+            Add("portal", 1.0f, (t, d) => (Sin(Slide(t, d, 200, 1200)) * 0.25f + Sin(Slide(t, d, 300, 1800)) * 0.12f) * Mathf.Sin(Mathf.PI * t / d));
+            Add("spikes", 0.18f, (t, d) => (Noise() * 0.4f + Sq(Slide(t, d, 900, 300)) * 0.15f) * Env(t, d, 2.5f));
+            Add("crate", 0.2f, (t, d) => (Noise() * 0.4f + Sin(Slide(t, d, 220, 90)) * 0.35f) * Env(t, d, 2.5f));
+            Add("potion", 0.45f, (t, d) => Sin(Slide(t, d, 300, 700) + 0.3f * Sin(18 * t)) * 0.3f * Env(t, d, 1));
+            Add("throw", 0.2f, (t, d) => Noise() * 0.3f * Mathf.Sin(Mathf.PI * t / d) + Sin(Slide(t, d, 400, 200)) * 0.1f * Env(t, d, 1));
             Add("wave", 0.9f, (t, d) => (Saw(Slide(t, d, 110, 82)) * 0.2f + Sin(55 * t) * 0.3f) * Mathf.Sin(Mathf.PI * t / d));
         }
 

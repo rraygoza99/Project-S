@@ -14,6 +14,10 @@ namespace Spellcaster
 
         public EnemyType Type { get; private set; }
         public float HP { get; private set; }
+        public float MaxHP { get; private set; }
+        public float DamageMult { get; private set; } = 1f;
+        /// <summary>True if the enemy was frozen when it died (Permafrost relic).</summary>
+        public bool DiedFrozen { get; private set; }
         public bool IsAlive => state != State.Dead;
         public bool IsFrozen => frozenTimer > 0f;
         public bool IsBurning => burnTimer > 0f;
@@ -34,13 +38,14 @@ namespace Spellcaster
         Vector3 knockback, lastMove;
         bool attackFired, facingLeft;
         float bobPhase;
+        int attacksDone;
 
         static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         static readonly int MainTexStId = Shader.PropertyToID("_MainTex_ST");
         static readonly int ColorId = Shader.PropertyToID("_Color");
         static readonly int FlashId = Shader.PropertyToID("_Flash");
 
-        public static Enemy Spawn(EnemyType type, Vector3 position)
+        public static Enemy Spawn(EnemyType type, Vector3 position, float hpMult = 1f, float dmgMult = 1f)
         {
             var go = new GameObject(type.Name) { layer = Layers.Enemy };
             go.transform.position = position;
@@ -64,7 +69,8 @@ namespace Spellcaster
 
             var e = go.AddComponent<Enemy>();
             e.Type = type;
-            e.HP = type.MaxHP;
+            e.MaxHP = e.HP = type.MaxHP * hpMult;
+            e.DamageMult = dmgMult;
             e.cc = cc;
             e.visual = quad.transform;
             e.rend = r;
@@ -203,7 +209,7 @@ namespace Spellcaster
             if (desire.sqrMagnitude > 1e-3f)
             {
                 Vector3 d = desire.normalized;
-                if (Physics.SphereCast(Center, Type.Radius * 0.8f, d, out var hit, 1.4f, Layers.WorldMask, QueryTriggerInteraction.Ignore))
+                if (Physics.SphereCast(Center, Mathf.Min(Type.Radius * 0.8f, 0.6f), d, out var hit, 1.4f + Type.Radius, Layers.SolidMask, QueryTriggerInteraction.Ignore))
                 {
                     Vector3 n = hit.normal;
                     n.y = 0f;
@@ -253,26 +259,47 @@ namespace Spellcaster
             if (!Type.Ranged)
             {
                 attackCooldown = Type.AttackCooldown;
-                if (dist <= Type.AttackRange + 0.5f) player.TakeDamage(Type.Damage);
+                if (dist <= Type.AttackRange + 0.5f) player.TakeDamage(Type.Damage * DamageMult);
                 Sfx.Play("claw", 0.5f, Random.Range(0.9f, 1.15f));
                 if (Random.value < 0.4f) Sfx.Play(Type.SoundPrefix + "_attack", 0.35f, Random.Range(0.95f, 1.15f));
                 return;
             }
 
             attackCooldown = Type.AttackCooldown * Random.Range(0.8f, 1.3f);
+            attacksDone++;
+            if (Type.SummonEvery > 0 && attacksDone % Type.SummonEvery == Type.SummonEvery - 1 && Enemy.All.Count < 12)
+            {
+                // Boss: open two summoning sigils beside it instead of shooting.
+                for (int i = 0; i < 2; i++)
+                {
+                    Vector3 side = Vector3.Cross(Vector3.up, (player.transform.position - transform.position).normalized) * (i == 0 ? 2.5f : -2.5f);
+                    var at = transform.position + side;
+                    var room = Dungeon.Instance ? Dungeon.Instance.Current : null;
+                    if (room != null && !room.Contains(at, 1.5f)) at = transform.position;
+                    EnemySpawner.Instance.SpawnAt(EnemyType.Imp, at + Vector3.up * 0.05f, 1f, DamageMult);
+                }
+                Sfx.Play("boss", 0.6f, 1.3f);
+                return;
+            }
             Vector3 origin = Center;
             Vector3 toChest = (player.ChestPosition - origin).normalized;
-            origin += toChest * 0.6f;
-            float damage = Type.Damage;
+            origin += toChest * (0.6f + Type.Radius * 0.5f);
+            float damage = Type.Damage * DamageMult;
             var color = Type.ProjectileColor;
-            Projectile.Spawn(origin, toChest * Type.ProjectileSpeed, color, 0.6f, 0.18f,
-                Layers.WorldMask | Layers.PlayerMask, (point, col) =>
-                {
-                    var p = col.GetComponent<Player>();
-                    if (p) p.TakeDamage(damage);
-                    Fx.Flash(point, color, 0.8f, 0.25f, 1.5f);
-                }, life: 6f);
-            Sfx.Play("enemyshot", 0.45f, Random.Range(0.9f, 1.1f));
+            for (int i = 0; i < Type.Shots; i++)
+            {
+                float ang = Type.Shots > 1 ? Mathf.Lerp(-Type.SpreadDeg * 0.5f, Type.SpreadDeg * 0.5f, i / (Type.Shots - 1f)) : 0f;
+                Vector3 dir = Quaternion.AngleAxis(ang, Vector3.up) * toChest;
+                Projectile.Spawn(origin, dir * Type.ProjectileSpeed, color, Type.IsBoss ? 0.8f : 0.6f, 0.18f,
+                    Layers.WorldMask | Layers.PlayerMask | Layers.PropMask, (point, col) =>
+                    {
+                        var p = col.GetComponent<Player>();
+                        if (p) p.TakeDamage(damage);
+                        else if (col.GetComponentInParent<Prop>() is Prop prop) prop.TakeDamage(damage);
+                        Fx.Flash(point, color, 0.8f, 0.25f, 1.5f);
+                    }, life: 6f);
+            }
+            Sfx.Play("enemyshot", 0.45f, Random.Range(0.9f, 1.1f) * (Type.IsBoss ? 0.7f : 1f));
         }
 
         /// <summary>Returns the damage actually dealt.</summary>
@@ -319,6 +346,7 @@ namespace Spellcaster
 
         void Die()
         {
+            DiedFrozen = frozenTimer > 0f;
             state = State.Dead;
             cc.enabled = false;
             frozenTimer = 0f;
