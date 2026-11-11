@@ -25,3 +25,4 @@ crashlytics-build.properties
 # Asset Store content (not redistributable) - recreate with tools/import-assets.ps1
 /Assets/ThirdParty/
 /Assets/ThirdParty.meta
+/Release/
