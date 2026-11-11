@@ -44,8 +44,10 @@ namespace Spellcaster
             root.AddComponent<EnemySpawner>();
             root.AddComponent<HUD>();
             root.AddComponent<SpellForgeUI>();
+            root.AddComponent<MainMenu>();
             dungeon.BuildFloor(1);
             AutoTest.TryStart(root);
+            Settings.Load(); // after TryStart, so the self-test runs with default settings
         }
     }
 }

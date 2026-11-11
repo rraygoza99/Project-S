@@ -35,6 +35,17 @@ namespace Spellcaster
             Trail.Add(Vector2.zero);
         }
 
+        /// <summary>
+        /// Starts a new rune but remembers the direction of the last stroke, so the hand carrying on in
+        /// that direction after a rune completes (or fizzles) doesn't count it again.
+        /// </summary>
+        public void Restart()
+        {
+            var last = Last;
+            Reset();
+            Last = last;
+        }
+
         /// <summary>Moves the pen; returns the stroke recognised by this movement, if any.</summary>
         public Arrow? Feed(Vector2 delta)
         {

@@ -59,6 +59,7 @@ namespace Spellcaster
             ReadyFlash = Mathf.Max(0f, ReadyFlash - dt * 2f);
             MessageTimer = Mathf.Max(0f, MessageTimer - dt);
             EchoTimer = Mathf.Max(0f, EchoTimer - dt);
+            Gesture.StrokeLength = Settings.RuneStroke;
 
             var player = Player.Instance;
             bool canAct = player && player.InputEnabled && GameState.Instance.AcceptsGameplayInput && !AutoTest.Active;
@@ -103,7 +104,7 @@ namespace Spellcaster
         public void FeedGesture(Vector2 delta)
         {
             if (!Channeling) return;
-            if (Lockout > 0f) { Gesture.Reset(); return; }
+            if (Lockout > 0f) { Gesture.Restart(); return; }
             var stroke = Gesture.Feed(delta);
             if (stroke.HasValue) PushArrow(stroke.Value);
         }
@@ -113,7 +114,7 @@ namespace Spellcaster
             EchoTrail = new List<Vector2>(Gesture.Trail);
             EchoColor = color;
             EchoTimer = EchoDuration;
-            Gesture.Reset();
+            Gesture.Restart(); // overshooting the final stroke must not start a new rune with it
         }
 
         public float CooldownRemaining(SpellDefinition s) =>

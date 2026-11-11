@@ -18,7 +18,9 @@ namespace Spellcaster
         public bool Paused { get; private set; }
 
         public bool ForgeOpen => SpellForgeUI.Instance && SpellForgeUI.Instance.IsOpen;
-        public bool AcceptsGameplayInput => Phase == Phase.Playing && !ForgeOpen && !Paused;
+        // The click that pressed "Start game" must not also fire a bolt.
+        public bool AcceptsGameplayInput => Phase == Phase.Playing && !ForgeOpen && !Paused && Time.frameCount > beganFrame + 1;
+        int beganFrame = -10;
         public bool InRun => Phase == Phase.Playing;
 
         static bool skipTitle;
@@ -36,7 +38,7 @@ namespace Spellcaster
 
         void Start()
         {
-            if (skipTitle || AutoTest.Active) Begin();
+            if (skipTitle && !AutoTest.Active) Begin();
         }
 
         void Update()
@@ -48,12 +50,13 @@ namespace Spellcaster
 
             switch (Phase)
             {
-                case Phase.Title:
-                    if (Input.GetMouseButtonDown(0)) Begin();
+                case Phase.Playing:
+                    if (Paused && Input.GetKeyDown(KeyCode.Q)) ToMenu();
                     break;
                 case Phase.Dead:
                 case Phase.Victory:
                     if (Input.GetKeyDown(KeyCode.R)) Restart();
+                    else if (Input.GetKeyDown(KeyCode.Escape)) ToMenu();
                     break;
             }
         }
@@ -62,6 +65,7 @@ namespace Spellcaster
         {
             if (Phase != Phase.Title) return;
             Phase = Phase.Playing;
+            beganFrame = Time.frameCount;
             Sfx.Play("wave", 0.6f);
         }
 
@@ -87,6 +91,14 @@ namespace Spellcaster
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             if (SpellSystem.Instance) SpellSystem.Instance.SetChanneling(false);
+        }
+
+        /// <summary>Ends the run and goes back to the main menu.</summary>
+        public void ToMenu()
+        {
+            skipTitle = false;
+            Time.timeScale = 1f;
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
 
         public void Restart()

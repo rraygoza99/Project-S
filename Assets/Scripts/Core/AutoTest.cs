@@ -41,7 +41,23 @@ namespace Spellcaster
             var d = Dungeon.Instance;
             var run = Run.Instance;
             ss.Event += e => events.Add(e);
-            yield return new WaitForSeconds(1.0f);
+            yield return new WaitForSeconds(0.5f);
+
+            // ---- main menu ----
+            var menu = MainMenu.Instance;
+            Check("game opens on the main menu (Start game, Options, Exit game)", gs.Phase == Phase.Title && menu.Visible && menu.Current == MainMenu.Page.Main);
+            yield return Shot("00_main_menu");
+            menu.Open(MainMenu.Page.Options);
+            Settings.SetMouseSensitivity(3f);
+            Settings.SetRuneStroke(6f);
+            yield return Shot("00b_options");
+            yield return null;
+            Check("options change mouse sensitivity and rune size", Mathf.Approximately(Settings.MouseSensitivity, 3f) && Mathf.Approximately(ss.Gesture.StrokeLength, 6f));
+            Settings.ResetForTest();
+            menu.Open(MainMenu.Page.Main);
+            menu.StartGame();
+            yield return new WaitForSeconds(0.5f);
+            Check("Start game begins the run", gs.Phase == Phase.Playing && !menu.Visible);
 
             // ---- floor generation ----
             var rooms = d.Rooms.Values.ToList();
@@ -114,6 +130,19 @@ namespace Spellcaster
             Check("every base rune is drawable (no repeated stroke) and prefix-free",
                 baseSpells.All(s => !Arrows.HasRepeat(s.Sequence)) &&
                 baseSpells.All(x => baseSpells.All(y => x == y || !Arrows.Conflicts(x.Sequence, y.Sequence))));
+
+            // Finishing a rune and carrying on with the last stroke must not enter that stroke again.
+            events.Clear();
+            ss.SetChanneling(true);
+            foreach (var a in Arrows.Parse("DRU"))
+                for (int f = 0; f < 8; f++) ss.FeedGesture(GestureRecognizer.Dir(a) * 1.1f);
+            bool readied = ss.Readied != null && ss.Readied.Name == "Fireball";
+            for (int f = 0; f < 15; f++) ss.FeedGesture(Vector2.up * 1.1f); // overshoot upwards
+            Check($"overshooting a rune's last stroke doesn't repeat it (entered {ss.Entered.Count})",
+                readied && ss.Entered.Count == 0 && !events.Contains("fizzle") && ss.Readied?.Name == "Fireball");
+            ss.SetChanneling(false);
+            ss.ClearReadied();
+            events.Clear();
 
             // ---- Fireball: projectile + explosion ----
             var group = new List<Enemy>
@@ -417,6 +446,14 @@ namespace Spellcaster
             float waited = 0f;
             while (waited < 6f && Enemy.All.Count < 2) { waited += Time.deltaTime; yield return null; }
             Check("boss summons imps", Enemy.All.Count >= 2);
+            float luck0 = run.Stats.Luck;
+            run.Stats.Luck = 100f; // anywhere else this would guarantee drops
+            int loot0 = Pickup.All.Count(p => p && bossRoom.Contains(p.transform.position));
+            foreach (var minion in Enemy.All.Where(e => e != d.Boss).ToArray()) minion.TakeDamage(99999f);
+            yield return new WaitForSeconds(0.6f);
+            int loot1 = Pickup.All.Count(p => p && bossRoom.Contains(p.transform.position));
+            run.Stats.Luck = luck0;
+            Check($"boss minions drop nothing ({loot1 - loot0} new pickups)", loot1 == loot0);
             if (d.Boss) d.Boss.TakeDamage(99999f);
             yield return new WaitForSeconds(1.2f);
             Check("killing the boss kills its minions and opens the portal", Enemy.All.Count == 0 && d.PortalOpen && !d.DoorsLocked);

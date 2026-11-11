@@ -15,7 +15,6 @@ namespace Spellcaster
 
         public float MoveSpeed = 6.5f;
         public float Acceleration = 50f;
-        public float MouseSensitivity = 2f;
         /// <summary>Speed multiplier applied while channeling a spell.</summary>
         public float ChannelSpeedFactor = 0.3f;
 
@@ -90,8 +89,9 @@ namespace Spellcaster
             // While channeling, the mouse draws the rune instead of turning the view.
             if (Cursor.lockState == CursorLockMode.Locked && InputEnabled && gameplay && !Channeling)
             {
-                Yaw += Input.GetAxisRaw("Mouse X") * MouseSensitivity;
-                Pitch = Mathf.Clamp(Pitch - Input.GetAxisRaw("Mouse Y") * MouseSensitivity, -85f, 85f);
+                float sens = Settings.MouseSensitivity;
+                Yaw += Input.GetAxisRaw("Mouse X") * sens;
+                Pitch = Mathf.Clamp(Pitch - Input.GetAxisRaw("Mouse Y") * sens, -85f, 85f);
             }
             ApplyLook();
 
@@ -116,7 +116,7 @@ namespace Spellcaster
 
         void HandleCursor()
         {
-            if (AutoTest.Active) return;
+            if (AutoTest.Active || !GameState.Instance.InRun) return; // the menu manages the cursor
             if (Input.GetKeyDown(KeyCode.Escape) && !GameState.Instance.ForgeOpen)
             {
                 Cursor.lockState = CursorLockMode.None;

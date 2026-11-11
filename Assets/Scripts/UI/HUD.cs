@@ -38,6 +38,16 @@ namespace Spellcaster
 
         void OnGUI()
         {
+            var gs0 = GameState.Instance;
+            if (gs0 && gs0.Phase == Phase.Title && MainMenu.Instance)
+            {
+                // The menu needs mouse/keyboard events, not just repaints.
+                EnsureStyles();
+                if (Event.current.type == EventType.Repaint && RetroView.RT)
+                    GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), RetroView.RT, ScaleMode.StretchToFill, false);
+                MainMenu.Instance.DrawGUI(Screen.width, Screen.height);
+                return;
+            }
             if (Event.current.type != EventType.Repaint) return;
             EnsureStyles();
             float W = Screen.width, H = Screen.height;
@@ -50,7 +60,6 @@ namespace Spellcaster
             var dungeon = Dungeon.Instance;
 
             if (RetroView.RT) GUI.DrawTexture(new Rect(0, 0, W, H), RetroView.RT, ScaleMode.StretchToFill, false);
-            if (gs.Phase == Phase.Title) { DrawTitle(W, H); return; }
 
             if (WizardHands.Instance) WizardHands.Instance.Draw(px);
 
@@ -101,19 +110,8 @@ namespace Spellcaster
             else if (gs.Paused)
             {
                 Fill(new Rect(0, 0, W, H), new Color(0, 0, 0, 0.5f));
-                Shadowed(new Rect(0, 0, W, H), "Paused - click to resume", Centered);
+                Shadowed(new Rect(0, 0, W, H), "Paused - click to resume\nQ: main menu", Centered);
             }
-        }
-
-        void DrawTitle(float W, float H)
-        {
-            Fill(new Rect(0, 0, W, H), new Color(0.03f, 0.01f, 0.05f, 0.65f));
-            Shadowed(new Rect(0, H * 0.14f, W, H * 0.15f), "SPELLCASTER", Title);
-            Shadowed(new Rect(W * 0.12f, H * 0.32f, W * 0.76f, H * 0.5f),
-                "Fight through three dungeon floors, room by room. Doors lock until the room is clear.\n" +
-                "Hold Right Mouse and draw a spell's rune with the mouse, then Left Click to cast.\n" +
-                "Find spell runes, relics and items; spend gold in shops; Tab fuses spells in the Forge.\n" +
-                "1-3 use items, E picks up, hold M for the map.\n\nClick to begin", Centered);
         }
 
         void DrawEnd(float W, float H, float u, GameState gs, bool won)
@@ -132,7 +130,7 @@ namespace Spellcaster
             Shadowed(new Rect(0, H * 0.42f, W, 4 * u), where, Centered);
             Shadowed(new Rect(0, H * 0.5f, W, 3 * u),
                 $"{gs.Kills} kills   {rooms} rooms cleared   {gold} gold found   {items} items   {SpellBook.Known.Count} spells   {t / 60}:{t % 60:00}", Label.Center());
-            Shadowed(new Rect(0, H * 0.6f, W, 4 * u), "Press R to start a new run", Centered);
+            Shadowed(new Rect(0, H * 0.6f, W, 4 * u), "R: new run      Esc: main menu", Centered);
         }
 
         static void DrawCrosshair(float W, float H, float px)
