@@ -45,9 +45,12 @@ namespace Spellcaster
             root.AddComponent<HUD>();
             root.AddComponent<SpellForgeUI>();
             root.AddComponent<MainMenu>();
+            root.AddComponent<PracticeTool>();
+            root.AddComponent<Tutorial>();
             dungeon.BuildFloor(1);
             AutoTest.TryStart(root);
             Settings.Load(); // after TryStart, so the self-test runs with default settings
+            Progress.Load();
         }
     }
 }

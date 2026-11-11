@@ -11,8 +11,7 @@ namespace Spellcaster
     {
         public static Run Instance { get; private set; }
         public const int Slots = 3;
-        public static readonly KeyCode[] SlotKeys = { KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.Alpha3 };
-        public static string SlotKeyName(int slot) => (slot + 1).ToString();
+        public static string SlotKeyName(int slot) => Bindings.Short(GameAction.Item1 + slot);
         public const float HasteDuration = 10f;
 
         public readonly PlayerStats Stats = new PlayerStats();
@@ -22,6 +21,9 @@ namespace Spellcaster
         public readonly List<ItemDef> Items = new List<ItemDef>();
         public readonly ItemDef[] Consumables = new ItemDef[Slots];
         public float HasteTimer;
+        /// <summary>Time Scroll: enemies at half speed while above zero.</summary>
+        public float SlowTimer;
+        float frozenHeartCooldown;
 
         public string ToastTitle { get; private set; }
         public string ToastText { get; private set; }
@@ -35,6 +37,7 @@ namespace Spellcaster
         {
             Instance = this;
             SpellBook.StartRun();
+            Progress.NewThisRun.Clear();
             Enemy.Killed += OnKilled;
         }
 
@@ -43,13 +46,15 @@ namespace Spellcaster
         void Update()
         {
             HasteTimer = Mathf.Max(0f, HasteTimer - Time.deltaTime);
+            SlowTimer = Mathf.Max(0f, SlowTimer - Time.deltaTime);
+            frozenHeartCooldown = Mathf.Max(0f, frozenHeartCooldown - Time.deltaTime);
             ToastTimer = Mathf.Max(0f, ToastTimer - Time.deltaTime);
 
             var player = Player.Instance;
             if (AutoTest.Active || !player || !player.InputEnabled || !GameState.Instance.AcceptsGameplayInput) return;
             for (int i = 0; i < Slots; i++)
-                if (Input.GetKeyDown(SlotKeys[i]) || Input.GetKeyDown(KeyCode.Keypad1 + i)) UseConsumable(i);
-            if (Input.GetKeyDown(KeyCode.E))
+                if (Bindings.Pressed(GameAction.Item1 + i)) UseConsumable(i);
+            if (Bindings.Pressed(GameAction.Interact))
             {
                 var p = Pickup.NearestInteractable(player.transform.position);
                 if (p) p.TryCollect(this);
@@ -85,7 +90,7 @@ namespace Spellcaster
             switch (item.Kind)
             {
                 case ItemKind.Coin:
-                    AddGold(item.Value);
+                    AddGold(item.Value + Stats.CoinBonus);
                     Sfx.Play("coin", 0.5f, Random.Range(0.95f, 1.1f));
                     return;
                 case ItemKind.Heart:
@@ -113,7 +118,7 @@ namespace Spellcaster
         public void AddGold(int amount)
         {
             Gold += amount;
-            if (amount > 0) GoldEarned += amount;
+            if (amount > 0) { GoldEarned += amount; Progress.Add("gold", amount); }
         }
 
         /// <summary>Adds a base spell to the spell book (from a rune). Returns false if already known.</summary>
@@ -123,6 +128,7 @@ namespace Spellcaster
             var s = SpellBook.CreateBase(spellId);
             if (s == null) return false;
             SpellBook.Known.Add(s);
+            Progress.Add("runes_learned");
             Sfx.Play("forge", 0.6f, 1.3f);
             Toast($"Learned {s.Name}", $"Rune {Arrows.Glyphs(s.Sequence)}   {s.Describe()}", s.Color);
             return true;
@@ -138,6 +144,7 @@ namespace Spellcaster
                 return false;
             }
             Consumables[slot] = null;
+            Progress.Add("items_used");
             return true;
         }
 
@@ -149,8 +156,36 @@ namespace Spellcaster
             ToastTimer = seconds;
         }
 
+        /// <summary>Called when the player takes damage (Frozen Heart).</summary>
+        public void OnPlayerHurt()
+        {
+            if (!Stats.FrostOnHurt || frozenHeartCooldown > 0f || !Player.Instance) return;
+            frozenHeartCooldown = 8f;
+            var p = Player.Instance.transform.position;
+            Fx.Ring(p + Vector3.up * 0.1f, new Color(0.6f, 0.9f, 1f), 5f, 0.4f);
+            Sfx.Play("freeze", 0.6f);
+            foreach (var e in Enemy.All.ToArray())
+                if (e.IsAlive && (e.transform.position - p).sqrMagnitude < 25f) e.Freeze(2f);
+        }
+
+        /// <summary>Phoenix Feather: uses up one revive. Returns true if the hit should not kill.</summary>
+        public bool TryRevive()
+        {
+            if (Stats.Revives <= 0) return false;
+            Stats.Revives--;
+            int i = Items.FindIndex(it => it.Id == "phoenix");
+            if (i >= 0) Items.RemoveAt(i);
+            Toast("Phoenix Feather", "burned away to save you", new Color(1f, 0.55f, 0.2f));
+            Sfx.Play("portal", 0.8f, 1.3f);
+            return true;
+        }
+
         void OnKilled(Enemy e)
         {
+            Progress.Add("kills");
+            if (e.LastHitByBolt) Progress.Add("bolt_kills");
+            if (e.LastElement == Element.Poison) Progress.Add("poison_kills");
+            if (e.Type.IsBoss) Progress.Add("bosses");
             if (Stats.HealOnKill > 0f && Player.Instance) Player.Instance.Heal(Stats.HealOnKill);
             if (Stats.FrostSpread && e.DiedFrozen)
             {

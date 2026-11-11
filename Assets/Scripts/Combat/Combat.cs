@@ -6,11 +6,11 @@ namespace Spellcaster
     public static class Combat
     {
         /// <summary>Damages the enemy or breakable prop that owns this collider. Returns true if it was an enemy.</summary>
-        public static bool HitCollider(Collider col, float damage, Element element = Element.Arcane)
+        public static bool HitCollider(Collider col, float damage, Element element = Element.Arcane, bool bolt = false)
         {
             if (!col) return false;
             var e = col.GetComponentInParent<Enemy>();
-            if (e) { e.TakeDamage(damage, element); return true; }
+            if (e) { e.TakeDamage(damage, element, bolt: bolt); return true; }
             var p = col.GetComponentInParent<Prop>();
             if (p) p.TakeDamage(damage);
             return false;

@@ -53,6 +53,19 @@ namespace Spellcaster
             if (Trail.Count < MaxTrail && (Pen - Trail[Trail.Count - 1]).sqrMagnitude > 0.04f) Trail.Add(Pen);
 
             Vector2 d = Pen - anchor;
+            if (Last.HasValue)
+            {
+                // While the pen keeps going the way of the last stroke, the next stroke is measured from
+                // the pen's furthest point, not from where the last stroke was recognised. Otherwise
+                // doubling back (↓ then ↑) would first have to undo the overshoot and could be missed.
+                Vector2 ld = Dir(Last.Value);
+                float along = Vector2.Dot(d, ld), across = Mathf.Abs(ld.x * d.y - ld.y * d.x);
+                if (along > 0f && along >= across)
+                {
+                    anchor = Pen;
+                    return null;
+                }
+            }
             if (d.magnitude < StrokeLength) return null;
             float ax = Mathf.Abs(d.x), ay = Mathf.Abs(d.y);
             if (Mathf.Max(ax, ay) < Dominance * Mathf.Min(ax, ay))

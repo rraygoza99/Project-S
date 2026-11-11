@@ -7,7 +7,7 @@ namespace Spellcaster
     public enum Arrow { Up, Down, Left, Right }
 
     /// <summary>Spell schools. Effects carry one; combinations of schools unlock synergies in the Forge.</summary>
-    public enum Element { Arcane, Fire, Storm, Frost, Life }
+    public enum Element { Arcane, Fire, Storm, Frost, Life, Poison, Earth }
 
     public static class Arrows
     {

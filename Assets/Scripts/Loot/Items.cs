@@ -22,6 +22,9 @@ namespace Spellcaster
         /// <summary>Consumables: returns false if it can't be used right now (the item is kept).</summary>
         public Func<Run, bool> Use;
         public Func<Texture2D> IconFactory;
+        /// <summary>Not in the loot pools until its achievement is reached (meta progression).</summary>
+        public bool StartsLocked;
+        public bool IsAvailable => !StartsLocked || Progress.IsUnlocked("item:" + Id);
 
         Texture2D icon;
         public Texture2D Icon => icon ? icon : (icon = IconFactory != null ? IconFactory() : ItemIcons.Get(Shape, Color));
@@ -69,6 +72,13 @@ namespace Spellcaster
                 OnAcquire = r => r.Stats.HealOnKill += 2f },
             new ItemDef { Id = "glass_cannon", Name = "Glass Cannon", Desc = "+40% spell power, -25 max HP", Shape = "potion", Color = C(0.6f, 0.9f, 1f), Price = 20,
                 OnAcquire = r => { r.Stats.Power += 0.4f; r.Stats.MaxHP = Mathf.Max(25f, r.Stats.MaxHP - 25f); Player.Instance?.ClampHP(); } },
+            // unlockable
+            new ItemDef { Id = "thorn_robe", Name = "Thorned Robe", Desc = "Enemies that hit you up close take 15 damage", Shape = "shield", Color = C(0.4f, 0.75f, 0.3f), Price = 20, StartsLocked = true,
+                OnAcquire = r => r.Stats.Thorns += 15f },
+            new ItemDef { Id = "phoenix", Name = "Phoenix Feather", Desc = "Survive one lethal hit with half your HP", Shape = "wand", Color = C(1f, 0.55f, 0.2f), Price = 40, StartsLocked = true,
+                OnAcquire = r => r.Stats.Revives += 1 },
+            new ItemDef { Id = "gold_tooth", Name = "Gold Tooth", Desc = "Every coin is worth 1 more gold", Shape = "fang", Color = C(1f, 0.85f, 0.3f), Price = 15, StartsLocked = true,
+                OnAcquire = r => r.Stats.CoinBonus += 1 },
         };
 
         public static readonly List<ItemDef> Relics = new List<ItemDef>
@@ -91,6 +101,19 @@ namespace Spellcaster
                 OnAcquire = r => r.Stats.AreaMult *= 1.4f },
             new ItemDef { Id = "frost_wand", Name = "Frostbite Wand", Desc = "Magic bolts may freeze enemies", Shape = "wand", Color = C(0.55f, 0.9f, 1f), Price = 25,
                 OnAcquire = r => r.Stats.BoltFreezeChance += 0.2f },
+            // unlockable
+            new ItemDef { Id = "bolt_splitter", Name = "Bolt Splitter", Desc = "The magic bolt fires 3 bolts", Shape = "gem", Color = C(0.75f, 0.55f, 1f), Price = 30, StartsLocked = true,
+                OnAcquire = r => r.Stats.BoltSplit += 2 },
+            new ItemDef { Id = "toxic_vial", Name = "Toxic Vial", Desc = "Every spell hit poisons enemies", Shape = "potion", Color = C(0.45f, 1f, 0.3f), Price = 30, StartsLocked = true,
+                OnAcquire = r => r.Stats.PoisonOnHit += 6f },
+            new ItemDef { Id = "storm_crown", Name = "Storm Crown", Desc = "Every 5th spell has no cooldown", Shape = "ring", Color = C(0.6f, 0.75f, 1f), Price = 35, StartsLocked = true,
+                OnAcquire = r => r.Stats.FreeCastEvery = 5 },
+            new ItemDef { Id = "overcharge", Name = "Overcharge", Desc = "A spell kept ready for 1.5s hits 50% harder", Shape = "orb", Color = C(1f, 0.95f, 0.5f), Price = 30, StartsLocked = true,
+                OnAcquire = r => r.Stats.Overcharge = true },
+            new ItemDef { Id = "frozen_heart", Name = "Frozen Heart", Desc = "Getting hurt freezes enemies around you", Shape = "heart", Color = C(0.55f, 0.85f, 1f), Price = 30, StartsLocked = true,
+                OnAcquire = r => r.Stats.FrostOnHurt = true },
+            new ItemDef { Id = "hex_mark", Name = "Hex Mark", Desc = "Spells deal 30% more to burning or poisoned enemies", Shape = "tome", Color = C(0.7f, 0.3f, 0.6f), Price = 30, StartsLocked = true,
+                OnAcquire = r => r.Stats.HexBonus += 0.3f },
         };
 
         public static readonly List<ItemDef> Consumables = new List<ItemDef>
@@ -120,6 +143,27 @@ namespace Spellcaster
                 Use = r => { r.HasteTimer = Run.HasteDuration; Sfx.Play("potion", 0.7f, 1.3f); return true; } },
             new ItemDef { Id = "renewal", Name = "Scroll of Renewal", Desc = "Reset all spell cooldowns", Kind = ItemKind.Consumable, Shape = "scroll", Color = C(0.5f, 1f, 0.6f), Price = 10,
                 Use = r => { SpellSystem.Instance.ResetCooldowns(); Sfx.Play("ready", 0.7f); return true; } },
+            // unlockable
+            new ItemDef { Id = "smoke_bomb", Name = "Smoke Bomb", Desc = "Stun every nearby enemy for 3s", Kind = ItemKind.Consumable, Shape = "bomb", Color = C(0.7f, 0.7f, 0.75f), Price = 10, StartsLocked = true,
+                Use = r =>
+                {
+                    var p = Player.Instance.transform.position;
+                    Fx.Ring(p + Vector3.up * 0.1f, new Color(0.8f, 0.8f, 0.85f), 14f, 0.6f);
+                    Fx.Flash(p + Vector3.up, new Color(0.7f, 0.7f, 0.75f), 6f, 0.6f, 1.5f);
+                    Sfx.Play("explode", 0.5f, 1.5f);
+                    foreach (var e in Enemy.All.ToArray())
+                        if (e.IsAlive && (e.transform.position - p).sqrMagnitude < 14f * 14f) e.Stun(3f);
+                    return true;
+                } },
+            new ItemDef { Id = "time_scroll", Name = "Time Scroll", Desc = "Enemies move and attack at half speed for 6s", Kind = ItemKind.Consumable, Shape = "scroll", Color = C(0.9f, 0.8f, 0.4f), Price = 12, StartsLocked = true,
+                Use = r => { r.SlowTimer = 6f; Sfx.Play("portal", 0.5f, 0.6f); return true; } },
+            new ItemDef { Id = "rune_stone", Name = "Rune Stone", Desc = "Learn a random spell you don't know", Kind = ItemKind.Consumable, Shape = "tome", Color = C(0.6f, 0.8f, 1f), Price = 20, StartsLocked = true,
+                Use = r =>
+                {
+                    var rune = RandomRune();
+                    if (rune == null || SpellBook.Known.Count >= SpellBook.MaxSpells) return false;
+                    return r.GrantSpell(rune.SpellId);
+                } },
         };
 
         static readonly Dictionary<string, ItemDef> runes = new Dictionary<string, ItemDef>();
@@ -147,19 +191,19 @@ namespace Spellcaster
         /// <summary>A passive or relic the player doesn't own yet (relicChance 0..1), or a heart if none are left.</summary>
         public static ItemDef RandomTreasure(Run run, float relicChance, ICollection<ItemDef> exclude = null)
         {
-            bool Free(ItemDef i) => !run.Has(i.Id) && (exclude == null || !exclude.Contains(i));
+            bool Free(ItemDef i) => i.IsAvailable && !run.Has(i.Id) && (exclude == null || !exclude.Contains(i));
             var relics = Relics.Where(Free).ToList();
             var passives = Passives.Where(Free).ToList();
             var pool = (UnityEngine.Random.value < relicChance && relics.Count > 0) || passives.Count == 0 ? relics : passives;
             return Pick(pool) ?? Heart;
         }
 
-        public static ItemDef RandomConsumable() => Pick(Consumables);
+        public static ItemDef RandomConsumable() => Pick(Consumables.Where(i => i.IsAvailable).ToList());
 
         /// <summary>A rune for a base spell the player doesn't know yet, or null.</summary>
         public static ItemDef RandomRune(ICollection<ItemDef> exclude = null)
         {
-            var ids = SpellBook.BaseIds.Where(id => !SpellBook.Knows(id) && (exclude == null || !exclude.Contains(Rune(id)))).ToList();
+            var ids = SpellBook.Available.Select(s => s.Id).Where(id => !SpellBook.Knows(id) && (exclude == null || !exclude.Contains(Rune(id)))).ToList();
             return ids.Count == 0 ? null : Rune(ids[UnityEngine.Random.Range(0, ids.Count)]);
         }
     }

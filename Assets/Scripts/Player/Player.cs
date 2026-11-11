@@ -91,18 +91,19 @@ namespace Spellcaster
             {
                 float sens = Settings.MouseSensitivity;
                 Yaw += Input.GetAxisRaw("Mouse X") * sens;
-                Pitch = Mathf.Clamp(Pitch - Input.GetAxisRaw("Mouse Y") * sens, -85f, 85f);
+                Pitch = Mathf.Clamp(Pitch - Input.GetAxisRaw("Mouse Y") * sens * (Settings.InvertY ? -1f : 1f), -85f, 85f);
             }
             ApplyLook();
+            Cam.fieldOfView = Settings.FieldOfView;
 
             // WASD always moves (arrow keys are the spell inputs); channeling slows you down.
             Vector3 wish = Vector3.zero;
             if (InputEnabled && gameplay)
             {
-                if (Input.GetKey(KeyCode.W)) wish.z += 1;
-                if (Input.GetKey(KeyCode.S)) wish.z -= 1;
-                if (Input.GetKey(KeyCode.D)) wish.x += 1;
-                if (Input.GetKey(KeyCode.A)) wish.x -= 1;
+                if (Bindings.Held(GameAction.MoveForward)) wish.z += 1;
+                if (Bindings.Held(GameAction.MoveBack)) wish.z -= 1;
+                if (Bindings.Held(GameAction.MoveRight)) wish.x += 1;
+                if (Bindings.Held(GameAction.MoveLeft)) wish.x -= 1;
             }
             if (wish.sqrMagnitude > 1f) wish.Normalize();
             if (Channeling) wish *= ChannelSpeedFactor;
@@ -164,15 +165,47 @@ namespace Spellcaster
             if (Run.Instance) amount *= Run.Instance.Stats.DamageTaken;
             HurtFlash = 1f;
             Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f));
+            if (Dungeon.Instance) Dungeon.Instance.NotePlayerHurt();
+            if (!God && HP - amount <= 0f && Run.Instance && Run.Instance.TryRevive())
+            {
+                HP = MaxHP * 0.5f;
+                HealFlash = 1f;
+                return;
+            }
             HP = Mathf.Max(God ? 1f : 0f, HP - amount);
+            if (Run.Instance) Run.Instance.OnPlayerHurt();
             if (HP <= 0f) GameState.Instance.OnPlayerDied();
         }
 
         public void Heal(float amount)
         {
             if (IsDead) return;
+            float before = HP;
             HP = Mathf.Min(MaxHP, HP + amount);
             HealFlash = 1f;
+            healed += HP - before;
+            if (healed >= 1f) { Progress.Add("heal", Mathf.FloorToInt(healed)); healed -= Mathf.Floor(healed); }
+        }
+
+        float healed;
+
+        /// <summary>Blink: jumps up to `distance` along the view (flattened), stopping short of walls.</summary>
+        public void Blink(float distance, Color color)
+        {
+            Vector3 dir = Cam.transform.forward;
+            dir.y = 0f;
+            if (dir.sqrMagnitude < 1e-4f) dir = transform.forward;
+            dir.Normalize();
+            Vector3 from = transform.position + Vector3.up * 0.9f;
+            float d = distance;
+            if (Physics.SphereCast(from, cc.radius, dir, out var hit, distance, Layers.SolidMask, QueryTriggerInteraction.Ignore))
+                d = Mathf.Max(0f, hit.distance - 0.3f);
+            Fx.Flash(ChestPosition, color, 2f, 0.35f, 1.5f);
+            cc.enabled = false;
+            transform.position += dir * d;
+            cc.enabled = true;
+            Fx.Flash(ChestPosition, color, 2.4f, 0.4f, 1.2f);
+            Sfx.Play("zap", 0.6f, 1.4f);
         }
 
         /// <summary>Keeps HP within a (possibly lowered) max.</summary>

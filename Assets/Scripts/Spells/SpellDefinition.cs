@@ -25,6 +25,9 @@ namespace Spellcaster
         public List<string> Components = new List<string>();
         public List<string> Synergies = new List<string>();
         public int Tier = 1;
+        /// <summary>Not in the rune pool until its achievement is reached (meta progression).</summary>
+        public bool StartsLocked;
+        public bool IsAvailable => !StartsLocked || Progress.IsUnlocked("spell:" + Id);
         public bool IsForged => Tier > 1;
 
         public HashSet<Element> Elements => new HashSet<Element>(Payload.Select(e => e.Element));

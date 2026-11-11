@@ -13,6 +13,8 @@ namespace Spellcaster
         public readonly SpellDefinition Spell;
         public readonly Player Caster;
         public float DamageDealt;
+        /// <summary>Enemies this cast killed (achievement: several with one spell).</summary>
+        public int Kills;
         /// <summary>Multiplier on damage, burn and healing (spell power from items; echoes and split shots are weaker).</summary>
         public float Power = 1f;
         public PlayerStats Stats => Run.Instance ? Run.Instance.Stats : Fallback;
@@ -70,6 +72,12 @@ namespace Spellcaster
             // Relic hooks
             var stats = Stats;
             if (stats.IgniteOnHit > 0f && e.IsAlive) e.Ignite(stats.IgniteOnHit * Power, 3f);
+            if (stats.PoisonOnHit > 0f && e.IsAlive) e.Poison(stats.PoisonOnHit * Power, 3f); // Toxic Vial
+            if (wasAlive && !e.IsAlive)
+            {
+                Kills++;
+                Progress.Max("multikill", Kills);
+            }
             if (stats.VolatileKills && wasAlive && !e.IsAlive)
                 Combat.Explode(e.Center, 3f * stats.AreaMult, 20f * Power, 0f, new Color(1f, 0.5f, 0.15f));
         }

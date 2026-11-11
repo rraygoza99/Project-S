@@ -22,6 +22,8 @@ namespace Spellcaster
 
         public bool Channeling { get; private set; }
         public readonly List<Arrow> Entered = new List<Arrow>();
+        /// <summary>The strokes of the last attempt that readied or fizzled (practice feedback).</summary>
+        public List<Arrow> LastStrokes { get; private set; } = new List<Arrow>();
         public SpellDefinition Readied { get; private set; }
         public float Lockout { get; private set; }
         public float FizzleFlash { get; private set; }
@@ -65,12 +67,11 @@ namespace Spellcaster
             bool canAct = player && player.InputEnabled && GameState.Instance.AcceptsGameplayInput && !AutoTest.Active;
             if (canAct)
             {
-                SetChanneling(Input.GetKey(KeyCode.LeftControl) || Input.GetMouseButton(1));
-                if (Channeling)
-                    FeedGesture(new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y")));
+                bool held = Bindings.Held(GameAction.Channel);
+                ProcessChannelInput(held, new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y")), dt);
 
-                if (Readied != null && Input.GetMouseButtonDown(0)) CastReadied();
-                else if (Readied == null && Input.GetMouseButton(0) && boltCooldown <= 0f) FireBasic();
+                if (Readied != null && Bindings.Pressed(GameAction.Cast)) CastReadied();
+                else if (Readied == null && Bindings.Held(GameAction.Cast) && boltCooldown <= 0f) FireBasic();
             }
             else if (!AutoTest.Active) SetChanneling(false);
 
@@ -100,6 +101,44 @@ namespace Spellcaster
             Gesture.Reset();
         }
 
+        /// <summary>A rune survives the button being up this long (a slipped finger or a dropped input frame).</summary>
+        public const float ReleaseGrace = 0.18f;
+        /// <summary>Mouse movement this soon after pressing the button is still the aiming hand, not the rune.</summary>
+        public const float StartSettle = 0.1f;
+        float releaseTimer, settleTimer;
+
+        /// <summary>
+        /// One frame of channel input. Pressing starts a rune; the first moments of mouse movement are
+        /// ignored (you were probably still aiming); letting go only ends the rune after a short grace
+        /// period, so a momentary slip of the button doesn't wipe a half-drawn rune. Mouse look comes
+        /// back the moment the button is up.
+        /// </summary>
+        public void ProcessChannelInput(bool held, Vector2 mouseDelta, float dt)
+        {
+            if (held)
+            {
+                if (!Channeling)
+                {
+                    SetChanneling(true);
+                    settleTimer = StartSettle;
+                }
+                releaseTimer = 0f;
+                if (Player.Instance) Player.Instance.Channeling = true;
+                if (settleTimer > 0f)
+                {
+                    settleTimer -= dt;
+                    Gesture.Restart();
+                    return;
+                }
+                FeedGesture(mouseDelta);
+                return;
+            }
+            if (!Channeling) return;
+            if (Player.Instance) Player.Instance.Channeling = false; // look and full speed come back at once
+            releaseTimer += dt;
+            if (releaseTimer >= ReleaseGrace) SetChanneling(false);
+        }
+
         /// <summary>Moves the rune pen (mouse delta while channeling) and enters any stroke it completes.</summary>
         public void FeedGesture(Vector2 delta)
         {
@@ -127,7 +166,8 @@ namespace Spellcaster
             cooldownLengths.TryGetValue(s, out var len) && len > 0f ? CooldownRemaining(s) / len : 0f;
 
         /// <summary>A spell's cooldown after items and buffs.</summary>
-        public static float EffectiveCooldown(SpellDefinition s) => s.Cooldown * (Run.Instance ? Run.Instance.CooldownMult : 1f);
+        public static float EffectiveCooldown(SpellDefinition s) =>
+            GameState.PracticeMode ? 0f : s.Cooldown * (Run.Instance ? Run.Instance.CooldownMult : 1f);
 
         /// <summary>Spells still reachable with the arrows entered so far.</summary>
         public bool IsCandidate(SpellDefinition s) => !OnCooldown(s) && Arrows.HasPrefix(s.Sequence, Entered);
@@ -146,6 +186,7 @@ namespace Spellcaster
                 if (s.Sequence.Length == Entered.Count) exact = s;
             }
 
+            if (!any || exact != null) LastStrokes = new List<Arrow>(Entered);
             if (!any)
             {
                 Fizzle();
@@ -158,9 +199,13 @@ namespace Spellcaster
             if (exact != null) Ready(exact);
         }
 
+        float readiedAt;
+        int castCount;
+
         void Ready(SpellDefinition s)
         {
             Readied = s;
+            readiedAt = Time.time;
             Entered.Clear();
             Echo(s.Color);
             ReadyFlash = 1f;
@@ -185,11 +230,17 @@ namespace Spellcaster
             if (s == null || !Player.Instance) return false;
             Readied = null;
             float cd = EffectiveCooldown(s);
+            castCount++;
+            Progress.Add("spells_cast");
+            var stats = Stats;
+            if (stats.FreeCastEvery > 0 && castCount % stats.FreeCastEvery == 0) { cd = 0f; Flash("Free cast!"); } // Storm Crown
+            float power = stats.Power;
+            if (stats.Overcharge && Time.time - readiedAt >= 1.5f) { power *= 1.5f; Flash("Overcharged!"); }
             cooldownEnds[s] = Time.time + cd;
             cooldownLengths[s] = cd;
             Sfx.Play("cast", 0.6f);
             WizardHands.Instance.Kick();
-            new SpellCast(s, Player.Instance).Launch();
+            new SpellCast(s, Player.Instance) { Power = power }.Launch();
             Raise("cast " + s.Name);
             // Echo Stone relic: sometimes the spell goes off a second time, a little weaker.
             if (Stats.EchoChance > 0f && Random.value < Stats.EchoChance) StartCoroutine(Echo(s));
@@ -247,10 +298,22 @@ namespace Spellcaster
             boltCooldown = stats.BoltInterval;
             float damage = stats.BoltDamage, freezeChance = stats.BoltFreezeChance;
             Vector3 origin = CastOrigin;
-            Projectile.Spawn(origin, AimDirection(origin) * BoltSpeed, BoltColor, 0.45f, 0.12f,
+            Vector3 aim = AimDirection(origin);
+            for (int i = 0; i <= stats.BoltSplit; i++) // Bolt Splitter: extra bolts fanned out
+            {
+                float ang = i == 0 ? 0f : ((i + 1) / 2) * 8f * (i % 2 == 1 ? 1f : -1f);
+                SpawnBolt(origin, Quaternion.AngleAxis(ang, Vector3.up) * aim, damage, freezeChance);
+            }
+            Sfx.Play("bolt", 0.5f, Random.Range(0.95f, 1.05f));
+            WizardHands.Instance.Kick();
+        }
+
+        void SpawnBolt(Vector3 origin, Vector3 dir, float damage, float freezeChance)
+        {
+            Projectile.Spawn(origin, dir * BoltSpeed, BoltColor, 0.45f, 0.12f,
                 Layers.PlayerShotMask, (point, col) =>
                 {
-                    Combat.HitCollider(col, damage);
+                    Combat.HitCollider(col, damage, Element.Arcane, bolt: true);
                     var enemy = col ? col.GetComponentInParent<Enemy>() : null;
                     if (enemy && enemy.IsAlive && freezeChance > 0f && Random.value < freezeChance)
                     {
@@ -259,8 +322,6 @@ namespace Spellcaster
                     }
                     Fx.Flash(point, BoltColor, 0.6f, 0.2f, 1.5f);
                 });
-            Sfx.Play("bolt", 0.5f, Random.Range(0.95f, 1.05f));
-            WizardHands.Instance.Kick();
         }
     }
 }

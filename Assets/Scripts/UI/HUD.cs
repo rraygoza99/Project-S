@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Spellcaster
@@ -70,15 +71,18 @@ namespace Spellcaster
             }
             if (spells && spells.FizzleFlash > 0f) Fill(new Rect(0, 0, W, H), new Color(1f, 0.3f, 0.1f, 0.12f * spells.FizzleFlash));
 
-            DrawCrosshair(W, H, px);
+            if (!spells || !spells.Channeling) DrawCrosshair(W, H, px); // while drawing, the rune's pen is the focus
             if (player) DrawHealth(H, px, u, player, run);
             if (run) DrawSlots(H, px, u, run);
-            if (dungeon) DrawMinimap(u, dungeon, run);
+            bool practice = PracticeTool.Instance && PracticeTool.Instance.Active;
+            if (dungeon && !practice) DrawMinimap(u, dungeon, run);
+            if (practice) PracticeTool.Instance.Draw(W, H, u);
+            if (Tutorial.Instance && Tutorial.Instance.Active) Tutorial.Instance.Draw(W, H, u);
             if (dungeon && player) DrawWorldLabels(W, H, u, player);
             if (dungeon && dungeon.Boss && dungeon.Boss.IsAlive) DrawBossBar(W, u, dungeon.Boss);
 
             float pad = 4f * px;
-            Shadowed(new Rect(0, H - pad - 1.6f * u, W - pad, 2 * u), $"{fps:0} FPS", Small.Right());
+            if (Settings.ShowFps) Shadowed(new Rect(0, H - pad - 1.6f * u, W - pad, 2 * u), $"{fps:0} FPS", Small.Right());
 
             if (spells)
             {
@@ -90,7 +94,9 @@ namespace Spellcaster
             if (run && run.ToastTimer > 0f) DrawToast(W, H, u, run);
 
             Shadowed(new Rect(0, H - pad - 1.6f * u, W, 2 * u),
-                "Hold RMB + draw: rune   LMB: cast   1-3: items   E: take   M: map   Tab: Forge", Small.Center());
+                $"Hold {Bindings.Short(GameAction.Channel)} + draw: rune   {Bindings.Short(GameAction.Cast)}: cast   " +
+                $"{Bindings.Short(GameAction.Item1)}-{Bindings.Short(GameAction.Item3)}: items   {Bindings.Short(GameAction.Interact)}: take   " +
+                $"{Bindings.Short(GameAction.Map)}: map   {Bindings.Short(GameAction.Forge)}: Forge", Small.Center());
 
             if (gs.BannerTimer > 0f)
             {
@@ -100,7 +106,7 @@ namespace Spellcaster
                 Title.normal.textColor = c;
             }
 
-            bool showMap = ShowMap || (gs.InRun && !gs.Paused && !gs.ForgeOpen && Input.GetKey(KeyCode.M));
+            bool showMap = ShowMap || (gs.InRun && !gs.Paused && !gs.ForgeOpen && Bindings.Held(GameAction.Map));
             if (showMap && dungeon) DrawBigMap(W, H, u, dungeon, run);
 
             if (SpellForgeUI.Instance) SpellForgeUI.Instance.Draw();
@@ -130,7 +136,14 @@ namespace Spellcaster
             Shadowed(new Rect(0, H * 0.42f, W, 4 * u), where, Centered);
             Shadowed(new Rect(0, H * 0.5f, W, 3 * u),
                 $"{gs.Kills} kills   {rooms} rooms cleared   {gold} gold found   {items} items   {SpellBook.Known.Count} spells   {t / 60}:{t % 60:00}", Label.Center());
-            Shadowed(new Rect(0, H * 0.6f, W, 4 * u), "R: new run      Esc: main menu", Centered);
+            if (Progress.NewThisRun.Count > 0)
+            {
+                var ns = new GUIStyle(Label) { alignment = TextAnchor.MiddleCenter, wordWrap = true };
+                ns.normal.textColor = new Color(1f, 0.85f, 0.4f);
+                Shadowed(new Rect(W * 0.1f, H * 0.555f, W * 0.8f, 4 * u),
+                    "New unlocks: " + string.Join(", ", Progress.NewThisRun.Select(a => a.RewardName)), ns);
+            }
+            Shadowed(new Rect(0, H * 0.64f, W, 4 * u), "R: new run      Esc: main menu", Centered);
         }
 
         static void DrawCrosshair(float W, float H, float px)

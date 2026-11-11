@@ -31,5 +31,23 @@ namespace Spellcaster
         public float BoltFreezeChance;
         public bool VolatileKills;
         public bool FrostSpread;
+
+        // ---- unlockable items (meta progression) ----
+        /// <summary>Damage dealt back to enemies that hit you in melee.</summary>
+        public float Thorns;
+        /// <summary>Lethal hits survived (Phoenix Feather), used up one at a time.</summary>
+        public int Revives;
+        public int BoltSplit;
+        /// <summary>Extra gold per coin picked up.</summary>
+        public int CoinBonus;
+        public float PoisonOnHit;
+        /// <summary>Every Nth spell cast has no cooldown (0 = off).</summary>
+        public int FreeCastEvery;
+        /// <summary>A spell kept ready for 1.5 s hits 50% harder.</summary>
+        public bool Overcharge;
+        /// <summary>Getting hurt freezes enemies around you (8 s cooldown).</summary>
+        public bool FrostOnHurt;
+        /// <summary>Extra spell damage against burning or poisoned enemies.</summary>
+        public float HexBonus;
     }
 }

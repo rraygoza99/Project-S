@@ -34,6 +34,10 @@ namespace Spellcaster
         readonly List<Door> doors = new List<Door>();
         readonly Queue<(EnemyType type, Vector3 pos)> pending = new Queue<(EnemyType, Vector3)>();
         float spawnTimer, hpMult = 1f, dmgMult = 1f;
+        bool hurtThisRoom;
+
+        /// <summary>Player.TakeDamage calls this (flawless-room achievement).</summary>
+        public void NotePlayerHurt() => hurtThisRoom = true;
         Palette pal;
         /// <summary>Items already placed on this floor, so treasure, shrine, shop and boss never repeat each other.</summary>
         readonly List<ItemDef> floorStock = new List<ItemDef>();
@@ -107,6 +111,7 @@ namespace Spellcaster
             Prop.All.Clear();
             floorStock.Clear();
 
+            Progress.Max("max_floor", floor);
             hpMult = 1f + 0.4f * (floor - 1);
             dmgMult = 1f + 0.25f * (floor - 1);
             pal = MakePalette(floor);
@@ -300,6 +305,7 @@ namespace Spellcaster
         void StartEncounter(Room room)
         {
             InCombat = true;
+            hurtThisRoom = false;
             SetGates(room, true);
             Sfx.Play("door", 0.8f, 0.8f);
             pending.Clear();
@@ -329,6 +335,8 @@ namespace Spellcaster
             SetGates(room, false);
             if (wasCleared) return;
             RoomsCleared++;
+            Progress.Add("rooms");
+            if (!hurtThisRoom) Progress.Add("flawless_rooms");
             Sfx.Play("clear", 0.7f);
             if (room.Type == RoomType.Boss)
             {
@@ -362,7 +370,7 @@ namespace Spellcaster
             Boss = null;
         }
 
-        void SetGates(Room room, bool locked)
+        public void SetGates(Room room, bool locked)
         {
             foreach (var d in room.Doors) d.Locked = locked;
         }

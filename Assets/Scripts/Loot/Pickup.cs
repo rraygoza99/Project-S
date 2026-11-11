@@ -126,7 +126,9 @@ namespace Spellcaster
             if (dist < 1.1f && Run.Instance && Run.Instance.CanAcquire(Item, out _)) TryCollect(Run.Instance, quiet: true);
         }
 
-        public string Prompt => Price > 0 ? $"E: buy {Item.Name} - {Price} gold" : $"E: take {Item.Name}";
+        public string Prompt => Price > 0
+            ? $"{Bindings.Short(GameAction.Interact)}: buy {Item.Name} - {Price} gold"
+            : $"{Bindings.Short(GameAction.Interact)}: take {Item.Name}";
 
         /// <summary>Takes (or buys) the item. Returns false and tells the player why if it can't.</summary>
         public bool TryCollect(Run run, bool quiet = false)
@@ -145,6 +147,7 @@ namespace Spellcaster
             if (Price > 0)
             {
                 run.Gold -= Price;
+                Progress.Add("items_bought");
                 Sfx.Play("buy", 0.7f);
             }
             run.Acquire(Item);

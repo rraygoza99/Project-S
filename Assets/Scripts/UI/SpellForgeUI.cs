@@ -25,9 +25,14 @@ namespace Spellcaster
             var gs = GameState.Instance;
             if (!gs.InRun || AutoTest.Active) { if (IsOpen && !AutoTest.Active) Close(); return; }
 
-            if (Input.GetKeyDown(KeyCode.Tab) && !SpellSystem.Instance.Channeling)
+            if (Bindings.Pressed(GameAction.Forge) && !SpellSystem.Instance.Channeling)
             {
                 if (IsOpen) Close();
+                else if (GameState.TutorialMode)
+                {
+                    SpellSystem.Instance.Flash("Finish the tutorial first");
+                    Sfx.Play("fizzle", 0.4f, 1.3f);
+                }
                 else if (Dungeon.Instance && Dungeon.Instance.InCombat)
                 {
                     SpellSystem.Instance.Flash("Can't forge during a fight");
@@ -87,6 +92,7 @@ namespace Spellcaster
             }
             var made = preview;
             SpellBook.Known.Add(made);
+            Progress.Add("forged");
             Sfx.Play("forge", 0.8f);
             Say($"Learned {made.Name}: rune {Arrows.Glyphs(made.Sequence)}");
             picks.Clear();

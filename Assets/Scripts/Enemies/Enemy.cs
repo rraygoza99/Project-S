@@ -21,6 +21,13 @@ namespace Spellcaster
         public bool IsAlive => state != State.Dead;
         public bool IsFrozen => frozenTimer > 0f;
         public bool IsBurning => burnTimer > 0f;
+        public bool IsPoisoned => poisonTimer > 0f;
+        public bool IsStunned => stunTimer > 0f;
+        /// <summary>Element of the last damage taken, and whether it was the magic bolt (kill tracking).</summary>
+        public Element LastElement { get; private set; }
+        public bool LastHitByBolt { get; private set; }
+        /// <summary>Global enemy speed (Time Scroll slows every enemy to half).</summary>
+        public static float TimeFactor => Run.Instance && Run.Instance.SlowTimer > 0f ? 0.5f : 1f;
         public Vector3 Center => transform.position + Vector3.up * (Type.Hover + Type.Height * 0.5f);
 
         const float FadeDuration = 0.35f;
@@ -34,6 +41,7 @@ namespace Spellcaster
         MaterialPropertyBlock mpb;
         float stateTimer, attackCooldown, hurtFlash, hitAnimTimer, frozenTimer, animTime, deathTimer, verticalVelocity, strafeTimer;
         float burnTimer, burnDps, burnTick;
+        float poisonTimer, poisonDps, poisonTick, stunTimer;
         float strafeSign = 1f, avoidSign;
         Vector3 knockback, lastMove;
         bool attackFired, facingLeft;
@@ -115,15 +123,19 @@ namespace Spellcaster
             }
 
             UpdateBurn(dt);
-            if (state == State.Dead) return; // burned to death this frame
+            UpdatePoison(dt);
+            if (state == State.Dead) return; // burned or poisoned to death this frame
+            float realDt = dt;
+            dt *= TimeFactor; // Time Scroll: movement and attacks at half speed
 
             var player = Player.Instance;
             if (!player) return;
 
             Vector3 move = Vector3.zero;
-            if (frozenTimer > 0f)
+            if (frozenTimer > 0f || stunTimer > 0f)
             {
-                frozenTimer -= dt;
+                frozenTimer = Mathf.Max(0f, frozenTimer - realDt);
+                stunTimer = Mathf.Max(0f, stunTimer - realDt);
             }
             else
             {
@@ -164,12 +176,41 @@ namespace Spellcaster
             cc.Move((velocity + Vector3.up * verticalVelocity) * dt);
 
             // Pick the animation frame.
-            if (state == State.Attack && frozenTimer <= 0f && set.Attack != null)
+            bool held = frozenTimer > 0f || stunTimer > 0f;
+            if (state == State.Attack && !held && set.Attack != null)
                 ApplyVisual(set.Attack, set.Attack.FrameAtNormalized(stateTimer / (Type.Windup + Type.Recover)), 1f);
             else if (hitAnimTimer > 0f && set.Hit != null)
                 ApplyVisual(set.Hit, set.Hit.FrameAt(set.Hit.Duration - hitAnimTimer), 1f);
             else
-                ApplyVisual(set.Walk, frozenTimer > 0f ? set.Walk.FrameAt(0) : set.Walk.FrameAt(animTime), 1f);
+                ApplyVisual(set.Walk, held ? set.Walk.FrameAt(0) : set.Walk.FrameAt(animTime), 1f);
+        }
+
+        void UpdatePoison(float dt)
+        {
+            if (poisonTimer <= 0f) return;
+            poisonTimer -= dt;
+            poisonTick -= dt;
+            if (poisonTick <= 0f)
+            {
+                poisonTick = 0.5f;
+                Fx.Flash(Center + Random.insideUnitSphere * 0.35f, new Color(0.45f, 1f, 0.3f), 0.6f, 0.35f, 0.8f);
+                TakeDamage(poisonDps * 0.5f, Element.Poison, silent: true);
+            }
+        }
+
+        public void Poison(float dps, float seconds)
+        {
+            if (!IsAlive) return;
+            poisonDps = Mathf.Max(poisonDps, dps);
+            poisonTimer = Mathf.Max(poisonTimer, seconds);
+        }
+
+        /// <summary>Stops the enemy in place (like a freeze, but not ice: Shatter and Permafrost ignore it).</summary>
+        public void Stun(float seconds)
+        {
+            if (!IsAlive) return;
+            stunTimer = Mathf.Max(stunTimer, seconds);
+            if (state == State.Attack) state = State.Walk;
         }
 
         void UpdateBurn(float dt)
@@ -259,7 +300,12 @@ namespace Spellcaster
             if (!Type.Ranged)
             {
                 attackCooldown = Type.AttackCooldown;
-                if (dist <= Type.AttackRange + 0.5f) player.TakeDamage(Type.Damage * DamageMult);
+                if (dist <= Type.AttackRange + 0.5f)
+                {
+                    player.TakeDamage(Type.Damage * DamageMult);
+                    float thorns = Run.Instance ? Run.Instance.Stats.Thorns : 0f; // Thorned Robe
+                    if (thorns > 0f) { TakeDamage(thorns, Element.Arcane); Fx.Flash(Center, new Color(0.6f, 1f, 0.4f), 1f, 0.2f, 1f); }
+                }
                 Sfx.Play("claw", 0.5f, Random.Range(0.9f, 1.15f));
                 if (Random.value < 0.4f) Sfx.Play(Type.SoundPrefix + "_attack", 0.35f, Random.Range(0.95f, 1.15f));
                 return;
@@ -303,9 +349,11 @@ namespace Spellcaster
         }
 
         /// <summary>Returns the damage actually dealt.</summary>
-        public float TakeDamage(float amount, Element element = Element.Arcane, bool silent = false)
+        public float TakeDamage(float amount, Element element = Element.Arcane, bool silent = false, bool bolt = false)
         {
             if (!IsAlive || amount <= 0f) return 0f;
+            LastElement = element;
+            LastHitByBolt = bolt;
             float dealt = Mathf.Min(HP, amount);
             HP -= amount;
             hurtFlash = 0.1f;
@@ -351,6 +399,8 @@ namespace Spellcaster
             cc.enabled = false;
             frozenTimer = 0f;
             burnTimer = 0f;
+            poisonTimer = 0f;
+            stunTimer = 0f;
             deathTimer = 0f;
             All.Remove(this);
             Sfx.Play(Type.SoundPrefix + "_death", 0.5f, Random.Range(0.9f, 1.1f), fallback: "death");
@@ -381,7 +431,9 @@ namespace Spellcaster
 
             Color tint = state == State.Dead ? Color.white
                 : frozenTimer > 0f ? new Color(0.55f, 0.85f, 1f)
+                : stunTimer > 0f ? new Color(1f, 0.92f, 0.55f)
                 : burnTimer > 0f ? new Color(1f, 0.75f + 0.25f * Mathf.Sin(Time.time * 20f), 0.55f)
+                : poisonTimer > 0f ? new Color(0.6f, 1f, 0.5f)
                 : Color.white;
             tint.a = alpha;
             mpb.SetTexture(MainTexId, anim.Texture);

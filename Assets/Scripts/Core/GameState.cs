@@ -23,6 +23,11 @@ namespace Spellcaster
         int beganFrame = -10;
         public bool InRun => Phase == Phase.Playing;
 
+        /// <summary>Practice tool session (main menu): all spells, no cooldowns, no damage, no fights.</summary>
+        public static bool PracticeMode { get; private set; }
+        /// <summary>The run opens with the tutorial in the start room.</summary>
+        public static bool TutorialMode { get; private set; }
+
         static bool skipTitle;
         /// <summary>True after a restart: go straight into the run.</summary>
         public static bool SkipTitleOnLoad => skipTitle;
@@ -66,7 +71,42 @@ namespace Spellcaster
             if (Phase != Phase.Title) return;
             Phase = Phase.Playing;
             beganFrame = Time.frameCount;
+            if (PracticeMode) SetupPractice();
+            else if (TutorialMode && Tutorial.Instance) Tutorial.Instance.Begin();
             Sfx.Play("wave", 0.6f);
+        }
+
+        /// <summary>Starts a run that opens with the tutorial.</summary>
+        public void StartTutorial()
+        {
+            TutorialMode = true;
+            Begin();
+        }
+
+        public void EndTutorial() => TutorialMode = false;
+
+        /// <summary>Starts the practice tool from the main menu.</summary>
+        public void StartPractice()
+        {
+            PracticeMode = true;
+            Begin();
+        }
+
+        /// <summary>Test hook: switch the current run into practice.</summary>
+        public void EnterPracticeForTest()
+        {
+            PracticeMode = true;
+            SetupPractice();
+        }
+
+        void SetupPractice()
+        {
+            SpellBook.LearnAll();
+            if (Dungeon.Instance) Dungeon.Instance.HoldEncounters = true;
+            if (Player.Instance) Player.Instance.God = true;
+            if (SpellSystem.Instance) SpellSystem.Instance.ResetCooldowns();
+            Show("Practice", 2f);
+            if (PracticeTool.Instance) PracticeTool.Instance.Begin();
         }
 
         void OnKilled(Enemy e) => Kills++;
@@ -75,6 +115,8 @@ namespace Spellcaster
         {
             if (Phase != Phase.Playing) return;
             Phase = Phase.Dead;
+            Progress.Add("deaths");
+            Progress.Flush();
             ReleaseCursor();
         }
 
@@ -82,6 +124,8 @@ namespace Spellcaster
         {
             if (Phase != Phase.Playing) return;
             Phase = Phase.Victory;
+            Progress.Add("wins");
+            Progress.Flush();
             Sfx.Play("ready", 0.8f, 0.8f);
             ReleaseCursor();
         }
@@ -97,6 +141,8 @@ namespace Spellcaster
         public void ToMenu()
         {
             skipTitle = false;
+            PracticeMode = false;
+            TutorialMode = false;
             Time.timeScale = 1f;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
@@ -104,6 +150,8 @@ namespace Spellcaster
         public void Restart()
         {
             skipTitle = true;
+            PracticeMode = false;
+            TutorialMode = false;
             Time.timeScale = 1f;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }

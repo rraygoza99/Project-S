@@ -29,6 +29,9 @@ namespace Spellcaster
 
         public static IEnumerable<string> BaseIds => Defaults().Select(s => s.Id);
 
+        /// <summary>Base spells that can appear in runs: the originals plus the unlocked ones.</summary>
+        public static List<SpellDefinition> Available => Defaults().Where(s => s.IsAvailable).ToList();
+
         public static SpellDefinition CreateBase(string id) => Defaults().FirstOrDefault(s => s.Id == id);
 
         public static bool Knows(string id) => Known.Any(s => s.Id == id);
@@ -83,6 +86,56 @@ namespace Spellcaster
                 Delivery = new NovaDelivery(radius: 7f),
                 Payload = { new DamageEffect(25f, Element.Storm), new KnockbackEffect(9f) },
             },
+
+            // ---- unlocked through achievements (Progress.cs) ----
+            new SpellDefinition
+            {
+                Id = "poisoncloud", Name = "Poison Cloud", Noun = "Miasma", Adjective = "Toxic", StartsLocked = true,
+                Sequence = Arrows.Parse("←↓→"), Cooldown = 7f, IconKey = "poisoncloud",
+                Color = new Color(0.5f, 1f, 0.3f),
+                Delivery = new ProjectileDelivery(speed: 14f, size: 0.9f),
+                Payload = { new DamageEffect(10f, Element.Poison), new PoisonEffect(dps: 8f, seconds: 4f), new CloudEffect(radius: 4f, seconds: 5f, dps: 8f) },
+            },
+            new SpellDefinition
+            {
+                Id = "arcanemissiles", Name = "Arcane Missiles", Noun = "Missiles", Adjective = "Arcane", StartsLocked = true,
+                Sequence = Arrows.Parse("→↑→"), Cooldown = 4f, IconKey = "arcanemissiles",
+                Color = new Color(0.85f, 0.5f, 1f),
+                Delivery = new HomingDelivery(count: 5, speed: 16f),
+                Payload = { new DamageEffect(14f, Element.Arcane) },
+            },
+            new SpellDefinition
+            {
+                Id = "blink", Name = "Blink", Noun = "Step", Adjective = "Shifting", StartsLocked = true,
+                Sequence = Arrows.Parse("↑←↑"), Cooldown = 5f, IconKey = "blink",
+                Color = new Color(0.6f, 0.9f, 1f),
+                Delivery = new SelfDelivery(),
+                Payload = { new BlinkEffect(distance: 8f) },
+            },
+            new SpellDefinition
+            {
+                Id = "quake", Name = "Quake", Noun = "Quake", Adjective = "Rumbling", StartsLocked = true,
+                Sequence = Arrows.Parse("↓←↓"), Cooldown = 9f, IconKey = "quake",
+                Color = new Color(0.85f, 0.65f, 0.35f),
+                Delivery = new NovaDelivery(radius: 8f),
+                Payload = { new DamageEffect(20f, Element.Earth), new StunEffect(seconds: 2.5f) },
+            },
+            new SpellDefinition
+            {
+                Id = "lifedrain", Name = "Life Drain", Noun = "Drain", Adjective = "Draining", StartsLocked = true,
+                Sequence = Arrows.Parse("←↑←"), Cooldown = 5f, IconKey = "lifedrain",
+                Color = new Color(0.85f, 0.2f, 0.4f),
+                Delivery = new HitscanDelivery(range: 35f),
+                Payload = { new DamageEffect(30f, Element.Life), new LifestealEffect(0.5f) },
+            },
+            new SpellDefinition
+            {
+                Id = "meteor", Name = "Meteor", Noun = "Meteor", Adjective = "Falling", StartsLocked = true,
+                Sequence = Arrows.Parse("→↓←"), Cooldown = 14f, IconKey = "meteor",
+                Color = new Color(1f, 0.4f, 0.15f),
+                Delivery = new MeteorDelivery(range: 40f),
+                Payload = { new DamageEffect(60f, Element.Fire), new ExplodeEffect(radius: 6f, falloff: 1f) },
+            },
         };
 
         static List<SpellDefinition> known;
@@ -92,10 +145,10 @@ namespace Spellcaster
         /// <summary>A new run starts with only the starting spells.</summary>
         public static void StartRun() => known = null;
 
-        /// <summary>Test/debug helper: know every base spell.</summary>
+        /// <summary>Know every available base spell (practice tool, tests).</summary>
         public static void LearnAll()
         {
-            foreach (var sp in Defaults())
+            foreach (var sp in Available)
                 if (!Knows(sp.Id)) Known.Add(sp);
         }
     }

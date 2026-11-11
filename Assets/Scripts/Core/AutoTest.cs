@@ -16,7 +16,7 @@ namespace Spellcaster
     public class AutoTest : MonoBehaviour
     {
         public static bool Active { get; private set; }
-        const float WatchdogSeconds = 240f;
+        const float WatchdogSeconds = 420f;
         string outDir;
         int passed, failed;
         readonly List<string> events = new List<string>();
@@ -31,6 +31,7 @@ namespace Spellcaster
             t.outDir = i + 1 < args.Length && !args[i + 1].StartsWith("-") ? args[i + 1] : Path.GetFullPath("AutoTest");
             Directory.CreateDirectory(t.outDir);
             Player.Instance.God = true;
+            Progress.Tracking = false; // the run's own events don't unlock things mid-test; the meta section turns it on
         }
 
         IEnumerator Start()
@@ -45,19 +46,85 @@ namespace Spellcaster
 
             // ---- main menu ----
             var menu = MainMenu.Instance;
-            Check("game opens on the main menu (Start game, Options, Exit game)", gs.Phase == Phase.Title && menu.Visible && menu.Current == MainMenu.Page.Main);
+            Check("game opens on the main menu", gs.Phase == Phase.Title && menu.Visible && menu.Current == MainMenu.Page.Main);
             yield return Shot("00_main_menu");
+
+            // ---- options ----
             menu.Open(MainMenu.Page.Options);
             Settings.SetMouseSensitivity(3f);
             Settings.SetRuneStroke(6f);
+            Settings.SetFieldOfView(95f);
+            Settings.SetInvertY(true);
             yield return Shot("00b_options");
             yield return null;
-            Check("options change mouse sensitivity and rune size", Mathf.Approximately(Settings.MouseSensitivity, 3f) && Mathf.Approximately(ss.Gesture.StrokeLength, 6f));
+            Check("options change sensitivity, rune size, FOV and invert Y",
+                Mathf.Approximately(Settings.MouseSensitivity, 3f) && Mathf.Approximately(ss.Gesture.StrokeLength, 6f) &&
+                Mathf.Approximately(player.Cam.fieldOfView, 95f) && Settings.InvertY);
+            int resCount = Settings.AvailableResolutions().Count;
+            Settings.CycleResolution(1);
+            Check($"resolution list offered ({resCount} sizes, now {Settings.CurrentResolution.x}x{Settings.CurrentResolution.y})", resCount >= 1);
+
+            // ---- controls (rebinding) ----
+            menu.Open(MainMenu.Page.Controls);
+            Bindings.Set(GameAction.Cast, 0, KeyCode.Mouse1);
+            Check("rebinding a key that is in use swaps the two actions",
+                Bindings.Get(GameAction.Cast, 0) == KeyCode.Mouse1 && Bindings.Get(GameAction.Channel, 0) == KeyCode.Mouse0);
+            Bindings.Set(GameAction.Interact, 1, KeyCode.F);
+            menu.Listen(GameAction.Map, 1);
+            yield return Shot("00c_controls");
+            Progress.Tracking = true;
+            Progress.Add("kills", 37);
+            Progress.Add("deaths", 3);
+            Progress.Add("rooms", 10); // unlocks Poison Cloud
+            menu.Open(MainMenu.Page.Unlocks);
+            yield return Shot("00g_unlocks");
+            Check("Unlocks page lists 18 goals with progress", Progress.All.Count == 18 && Progress.UnlockedCount == 2);
+            Progress.ResetForTest();
+            Progress.Tracking = false;
             Settings.ResetForTest();
+            Check("reset restores default settings and controls",
+                Bindings.Get(GameAction.Channel, 0) == KeyCode.Mouse1 && Bindings.Get(GameAction.Cast, 0) == KeyCode.Mouse0 &&
+                Bindings.Get(GameAction.Interact, 1) == KeyCode.None && !Settings.InvertY && Mathf.Approximately(Settings.FieldOfView, 75f));
             menu.Open(MainMenu.Page.Main);
-            menu.StartGame();
+
+            // ---- tutorial (first run) ----
+            var tut = Tutorial.Instance;
+            menu.StartTutorial();
             yield return new WaitForSeconds(0.5f);
-            Check("Start game begins the run", gs.Phase == Phase.Playing && !menu.Visible);
+            Check("Tutorial starts the run with step 1 (walk), start room doors locked",
+                gs.Phase == Phase.Playing && !menu.Visible && tut.Active && tut.Current == Tutorial.Step.Move && d.DoorsLocked);
+            yield return Shot("00d_tutorial_move");
+            player.Teleport(d.Current.Center + new Vector3(0f, 0.1f, 3f), 0f);
+            yield return new WaitForSeconds(0.3f);
+            Check("tutorial: walking moves on to the magic bolt", tut.Current == Tutorial.Step.Bolt && Enemy.All.Count == 1);
+            var tdummy = Enemy.All[0];
+            for (int i = 0; i < 6 && tdummy && tdummy.IsAlive; i++)
+            {
+                player.LookAt(tdummy.Center);
+                ss.FireBasic();
+                yield return new WaitForSeconds(0.5f);
+            }
+            yield return null;
+            Check("tutorial: killing the dummy moves on to drawing", tut.Current == Tutorial.Step.Channel);
+            ss.SetChanneling(true);
+            for (int i = 0; i < 12; i++) { ss.FeedGesture(new Vector2(0.3f, 0.1f)); yield return null; }
+            Check("tutorial: starting a rune moves on to Fireball", tut.Current == Tutorial.Step.Fireball);
+            ss.SetChanneling(false);
+            yield return Shot("00e_tutorial_fireball");
+            yield return CastSequence("DRU", expectReady: "Fireball");
+            Check("tutorial: drawing Fireball moves on to casting it", tut.Current == Tutorial.Step.Cast && Enemy.All.Count == 3);
+            player.LookAt(Enemy.All[0].Center);
+            ss.CastReadied();
+            yield return new WaitForSeconds(2f);
+            Check("tutorial: casting moves on to the tips card", tut.Current == Tutorial.Step.Tips);
+            yield return Shot("00f_tutorial_tips");
+            tut.Finish();
+            yield return null;
+            Check("finishing the tutorial opens the doors and clears the dummies",
+                !GameState.TutorialMode && !d.DoorsLocked && Enemy.All.Count == 0 && Settings.TutorialDone && !ss.OnCooldown(Spell("Fireball")));
+            ClearPickups();
+            player.Teleport(d.Current.Center + new Vector3(0f, 0.1f, -3f), 0f);
+            yield return new WaitForSeconds(0.3f);
 
             // ---- floor generation ----
             var rooms = d.Rooms.Values.ToList();
@@ -126,10 +193,52 @@ namespace Spellcaster
             var diag = new List<Arrow>();
             for (int i = 0; i < 20; i++) { var a = g.Feed(new Vector2(0.5f, 0.45f)); if (a.HasValue) diag.Add(a.Value); }
             Check($"gesture: a diagonal drift adds no stroke ({diag.Count})", diag.Count == 0);
+            // Stress: random drawable runes (3-7 strokes, wobbly, including zig-zags) must read back exactly.
+            var rng = new System.Random(1234);
+            int bad = 0;
+            string firstBad = null;
+            for (int n = 0; n < 300; n++)
+            {
+                int len = rng.Next(3, 8);
+                var seq = new Arrow[len];
+                seq[0] = (Arrow)rng.Next(4);
+                for (int i = 1; i < len; i++) { var nx = (Arrow)rng.Next(3); if (nx >= seq[i - 1]) nx++; seq[i] = nx; }
+                var rg = new GestureRecognizer();
+                var got = new List<Arrow>();
+                for (int i = 0; i < len; i++)
+                {
+                    Vector2 dir = GestureRecognizer.Dir(seq[i]), side = new Vector2(-dir.y, dir.x);
+                    int strokeFrames = rng.Next(6, 14); // short and long strokes (overshoot)
+                    for (int f = 0; f < strokeFrames; f++)
+                    {
+                        var r = rg.Feed(dir * 1.1f + side * (float)(rng.NextDouble() * 2 - 1) * 0.45f);
+                        if (r.HasValue) got.Add(r.Value);
+                    }
+                }
+                if (Arrows.ToText(got) != Arrows.ToText(seq)) { bad++; firstBad ??= $"{Arrows.Glyphs(seq)} read as {Arrows.Glyphs(got)}"; }
+            }
+            Check($"gesture: 300 random wobbly runes read back exactly ({bad} misread{(firstBad != null ? ", e.g. " + firstBad : "")})", bad == 0);
+
             var baseSpells = SpellBook.Defaults();
             Check("every base rune is drawable (no repeated stroke) and prefix-free",
                 baseSpells.All(s => !Arrows.HasRepeat(s.Sequence)) &&
                 baseSpells.All(x => baseSpells.All(y => x == y || !Arrows.Conflicts(x.Sequence, y.Sequence))));
+
+            // Holding the button: aiming motion right after pressing is ignored, and a brief slip of the
+            // button (or a dropped input frame) doesn't wipe the half-drawn rune.
+            events.Clear();
+            const float frame = 1f / 60f;
+            for (int f = 0; f < 4; f++) ss.ProcessChannelInput(true, new Vector2(-1.5f, 0.3f), frame); // still aiming left
+            foreach (var a in Arrows.Parse("DR"))
+                for (int f = 0; f < 8; f++) ss.ProcessChannelInput(true, GestureRecognizer.Dir(a) * 1.1f, frame);
+            for (int f = 0; f < 5; f++) ss.ProcessChannelInput(false, Vector2.zero, frame);            // 80 ms slip
+            bool keptRune = ss.Channeling && ss.Entered.Count == 2;
+            for (int f = 0; f < 8; f++) ss.ProcessChannelInput(true, Vector2.up * 1.1f, frame);
+            Check($"aiming motion at the start is ignored and a brief button slip keeps the rune (kept {keptRune})",
+                keptRune && ss.Readied?.Name == "Fireball" && !events.Contains("fizzle"));
+            for (int f = 0; f < 20; f++) ss.ProcessChannelInput(false, Vector2.zero, frame);
+            Check("letting go for real ends channeling", !ss.Channeling);
+            ss.ClearReadied();
 
             // Finishing a rune and carrying on with the last stroke must not enter that stroke again.
             events.Clear();
@@ -261,6 +370,24 @@ namespace Spellcaster
                     if (Arrows.Conflicts(book[i].Sequence, book[j].Sequence)) conflictFree = false;
             Check("no two known sequences conflict (prefix-free)", conflictFree);
             Check("forged runes never repeat a stroke", SpellBook.Known.All(s => !Arrows.HasRepeat(s.Sequence)));
+            // Every known rune, drawn the way the test draws (wobbly strokes), must read back exactly.
+            var misread = new List<string>();
+            foreach (var sp in SpellBook.Known)
+            {
+                var rg = new GestureRecognizer();
+                var got = new List<Arrow>();
+                for (int i = 0; i < sp.Sequence.Length; i++)
+                {
+                    Vector2 dir = GestureRecognizer.Dir(sp.Sequence[i]), side = new Vector2(-dir.y, dir.x);
+                    for (int f = 0; f < 7; f++)
+                    {
+                        var r = rg.Feed(dir * 1.1f + side * Mathf.Sin(f * 1.7f + i) * 0.35f);
+                        if (r.HasValue) got.Add(r.Value);
+                    }
+                }
+                if (Arrows.ToText(got) != Arrows.ToText(sp.Sequence)) misread.Add($"{sp.Name} {Arrows.Glyphs(sp.Sequence)} read as {Arrows.Glyphs(got)}");
+            }
+            Check("every known rune (forged too) reads back exactly" + (misread.Count > 0 ? ": " + string.Join("; ", misread) : ""), misread.Count == 0);
 
             if (frozenFireball != null)
             {
@@ -482,13 +609,218 @@ namespace Spellcaster
             Check("final portal wins the run", gs.Phase == Phase.Victory);
             yield return Shot("22_victory");
 
+            // ---- meta progression: locked content, counters, achievements, new spells and items ----
+            gs.ForcePlayingForTest();
+            Progress.ResetForTest();
+            Check("unlockable spells and items start locked and never drop",
+                SpellBook.Available.Count == 6 && !SpellBook.Available.Any(sp => sp.StartsLocked) &&
+                Enumerable.Range(0, 200).Select(_ => Items.RandomTreasure(run, 0.5f)).All(i => i.IsAvailable) &&
+                Enumerable.Range(0, 50).Select(_ => Items.RandomConsumable()).All(i => i.IsAvailable));
+            Progress.Tracking = true;
+            gs.ClearEnemies();
+            yield return new WaitForSeconds(0.6f);
+            ClearPickups();
+            player.Teleport(d.Current.Center + new Vector3(0f, 0.1f, -8f), 0f);
+            var tally = SpawnAhead(player, EnemyType.Imp, 6f, 0f);
+            yield return new WaitForSeconds(0.3f);
+            tally.Freeze(5f);
+            for (int i = 0; i < 5 && tally.IsAlive; i++) { player.LookAt(tally.Center); ss.FireBasic(); yield return new WaitForSeconds(0.5f); }
+            Check($"kills are counted, including magic-bolt kills ({Progress.Get("kills")} / {Progress.Get("bolt_kills")})",
+                Progress.Get("kills") >= 1 && Progress.Get("bolt_kills") >= 1);
+            Progress.Add("rooms", 10);
+            Check("an achievement unlocks its reward (clear 10 rooms -> Poison Cloud)",
+                Progress.IsUnlocked("spell:poisoncloud") && Progress.NewThisRun.Count == 1 && SpellBook.Available.Any(sp => sp.Id == "poisoncloud"));
+            Progress.UnlockAllForTest();
+            Progress.Tracking = false;
+            Check("18 achievements unlock 6 spells and 12 items",
+                Progress.All.Count == 18 && Progress.All.Count(a => a.IsSpell) == 6 && SpellBook.Available.Count == 12 &&
+                Items.Passives.Concat(Items.Relics).Concat(Items.Consumables).Count(i => i.StartsLocked) == 12);
+
+            for (int i = 0; i < Run.Slots; i++) run.Consumables[i] = null;
+            int known0 = SpellBook.Known.Count;
+            run.Acquire(Items.Get("rune_stone"));
+            run.UseConsumable(0);
+            Check($"Rune Stone teaches a spell you don't know ({known0} -> {SpellBook.Known.Count})", SpellBook.Known.Count == known0 + 1);
+            SpellBook.LearnAll();
+            ss.ResetCooldowns();
+
+            // Poison Cloud: the hit target and its neighbour (inside the cloud) are poisoned
+            var p1 = SpawnAhead(player, EnemyType.Cultist, 8f, 0f);
+            var p2 = SpawnAhead(player, EnemyType.Cultist, 8.5f, 2f);
+            yield return new WaitForSeconds(0.3f);
+            p1.Freeze(6f); p2.Freeze(6f);
+            player.LookAt(p1.Center);
+            yield return CastSequence("LDR", expectReady: "Poison Cloud");
+            ss.CastReadied();
+            yield return new WaitForSeconds(1.4f);
+            yield return Shot("23a_poison_cloud");
+            Check("Poison Cloud poisons the target and enemies in the cloud",
+                (!p1 || !p1.IsAlive || p1.IsPoisoned) && (!p2 || !p2.IsAlive || p2.IsPoisoned) && (!p2 || !p2.IsAlive || p2.HP < p2.MaxHP));
+            gs.ClearEnemies();
+            yield return new WaitForSeconds(0.6f);
+
+            // Arcane Missiles: five homing missiles spread over several targets
+            var volley = new List<Enemy> { SpawnAhead(player, EnemyType.Cultist, 8f, -3f), SpawnAhead(player, EnemyType.Cultist, 9f, 0f), SpawnAhead(player, EnemyType.Cultist, 8f, 3f) };
+            yield return new WaitForSeconds(0.3f);
+            foreach (var e in volley) e.Freeze(6f);
+            player.LookAt(volley[1].Center);
+            yield return CastSequence("RUR", expectReady: "Arcane Missiles");
+            ss.CastReadied();
+            yield return null;
+            yield return Shot("23b_arcane_missiles");
+            yield return new WaitForSeconds(1.5f);
+            float volleyDamage = volley.Sum(e => e ? e.MaxHP - Mathf.Max(0f, e.HP) : 60f);
+            Check($"Arcane Missiles home in ({volleyDamage:0} damage over {volley.Count(e => !e || e.HP < e.MaxHP)} targets)",
+                volleyDamage >= 60f && volley.Count(e => !e || e.HP < e.MaxHP) >= 2);
+            gs.ClearEnemies();
+            yield return new WaitForSeconds(0.6f);
+
+            // Blink: jump forward
+            player.Teleport(d.Current.Center + new Vector3(0f, 0.1f, -8f), 0f);
+            Vector3 before0 = player.transform.position;
+            yield return CastSequence("ULU", expectReady: "Blink");
+            ss.CastReadied();
+            yield return null;
+            Check($"Blink teleports forward ({(player.transform.position - before0).magnitude:0.0} m)", (player.transform.position - before0).z > 6f);
+
+            // Quake: stuns and damages everything around
+            var ringQ = new List<Enemy>();
+            for (int i = 0; i < 3; i++)
+            {
+                float ang = i * 120f * Mathf.Deg2Rad;
+                ringQ.Add(EnemySpawner.Instance.SpawnAt(EnemyType.Imp, player.transform.position + new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)) * 4f));
+            }
+            yield return new WaitForSeconds(0.3f);
+            yield return CastSequence("DLD", expectReady: "Quake");
+            ss.CastReadied();
+            yield return new WaitForSeconds(0.15f);
+            Check("Quake stuns and damages everything around you", ringQ.All(e => e && (!e.IsAlive || (e.IsStunned && e.HP < e.MaxHP))));
+            gs.ClearEnemies();
+            yield return new WaitForSeconds(0.6f);
+
+            // Life Drain: damage that heals
+            player.God = false;
+            player.Heal(player.MaxHP);
+            player.TakeDamage(50f);
+            float hpDrain = player.HP;
+            var drained = SpawnAhead(player, EnemyType.Cultist, 7f, 0f);
+            yield return new WaitForSeconds(0.3f);
+            drained.Freeze(4f);
+            player.LookAt(drained.Center);
+            yield return CastSequence("LUL", expectReady: "Life Drain");
+            ss.CastReadied();
+            yield return null;
+            Check($"Life Drain damages and heals you ({hpDrain:0} -> {player.HP:0})", player.HP > hpDrain && drained.HP < drained.MaxHP);
+            player.God = true;
+            gs.ClearEnemies();
+            yield return new WaitForSeconds(0.6f);
+
+            // Meteor: falls on the crosshair spot and flattens a group
+            var crater = new List<Enemy> { SpawnAhead(player, EnemyType.Imp, 9f, 0f), SpawnAhead(player, EnemyType.Imp, 9.8f, 1.5f), SpawnAhead(player, EnemyType.Imp, 9.6f, -1.5f) };
+            yield return new WaitForSeconds(0.3f);
+            foreach (var e in crater) e.Freeze(6f);
+            player.LookAt(crater[0].transform.position);
+            yield return CastSequence("RDL", expectReady: "Meteor");
+            ss.CastReadied();
+            yield return new WaitForSeconds(0.35f);
+            yield return Shot("23c_meteor");
+            yield return new WaitForSeconds(1.2f);
+            Check("Meteor kills the whole group", crater.All(e => !e || !e.IsAlive));
+            gs.ClearEnemies();
+            yield return new WaitForSeconds(0.6f);
+            ClearPickups();
+
+            // New items
+            run.Acquire(Items.Get("bolt_splitter"));
+            int bolts0 = FindObjectsByType<Projectile>(FindObjectsSortMode.None).Length;
+            player.SetLook(0f, 0f);
+            ss.FireBasic();
+            Check("Bolt Splitter: the magic bolt fires 3 bolts", FindObjectsByType<Projectile>(FindObjectsSortMode.None).Length - bolts0 == 3);
+            run.Acquire(Items.Get("gold_tooth"));
+            int goldT = run.Gold;
+            Pickup.Spawn(Items.Coin, player.transform.position + player.transform.forward * 0.6f);
+            yield return new WaitForSeconds(0.9f);
+            Check("Gold Tooth: coins are worth 2", run.Gold == goldT + 2);
+            run.Acquire(Items.Get("phoenix"));
+            player.God = false;
+            player.TakeDamage(99999f);
+            Check($"Phoenix Feather survives a lethal hit at half HP ({player.HP:0})",
+                !player.IsDead && gs.Phase == Phase.Playing && Mathf.Approximately(player.HP, player.MaxHP * 0.5f) && !run.Has("phoenix"));
+            player.God = true;
+            run.Acquire(Items.Get("toxic_vial"));
+            ss.ResetCooldowns();
+            var vialTarget = SpawnAhead(player, EnemyType.Cultist, 7f, 0f);
+            yield return new WaitForSeconds(0.3f);
+            vialTarget.Freeze(4f);
+            player.LookAt(vialTarget.Center);
+            yield return CastSequence("LUR", expectReady: "Frost Shard");
+            ss.CastReadied();
+            yield return new WaitForSeconds(0.5f);
+            Check("Toxic Vial: spell hits poison", !vialTarget.IsAlive || vialTarget.IsPoisoned);
+            run.Acquire(Items.Get("overcharge"));
+            ss.ResetCooldowns();
+            yield return CastSequence("LUR", expectReady: "Frost Shard");
+            yield return new WaitForSeconds(1.6f);
+            ss.CastReadied();
+            Check("Overcharge: a spell kept ready for 1.5s is overcharged", ss.LastMessage == "Overcharged!");
+            gs.ClearEnemies();
+            yield return new WaitForSeconds(0.6f);
+            for (int i = 0; i < Run.Slots; i++) run.Consumables[i] = null;
+            run.Acquire(Items.Get("time_scroll"));
+            run.UseConsumable(0);
+            Check("Time Scroll: enemies at half speed", Mathf.Approximately(Enemy.TimeFactor, 0.5f));
+            run.SlowTimer = 0f;
+            var smoked = SpawnAhead(player, EnemyType.Imp, 5f, 0f);
+            yield return new WaitForSeconds(0.3f);
+            run.Acquire(Items.Get("smoke_bomb"));
+            run.UseConsumable(0);
+            Check("Smoke Bomb: nearby enemies are stunned", smoked.IsStunned);
+            gs.ClearEnemies();
+            yield return new WaitForSeconds(0.4f);
+            run.Acquire(Items.Get("thorn_robe"));
+            var biter = SpawnAhead(player, EnemyType.Imp, 1.6f, 0f);
+            float tw = 0f;
+            while (tw < 5f && biter && biter.IsAlive && Mathf.Approximately(biter.HP, biter.MaxHP)) { tw += Time.deltaTime; yield return null; }
+            Check("Thorned Robe: biting the wizard hurts the imp", !biter || biter.HP < biter.MaxHP);
+            gs.ClearEnemies();
+            yield return new WaitForSeconds(0.6f);
+            ClearPickups();
+
+            // ---- practice tool ----
+            gs.ForcePlayingForTest();
+            gs.EnterPracticeForTest();
+            var practice = PracticeTool.Instance;
+            yield return new WaitForSeconds(0.6f);
+            Check($"practice tool: every spell known, a target, {Enemy.All.Count} dummies",
+                SpellBook.Available.All(s => SpellBook.Knows(s.Id)) && practice.Active && practice.Target != null && Enemy.All.Count >= PracticeTool.DummyCount);
+            var target = practice.Target;
+            ss.ResetCooldowns();
+            events.Clear();
+            yield return CastSequence(Arrows.ToText(target.Sequence), expectReady: target.Name);
+            yield return null;
+            Log($"practice target {target.Name} {Arrows.Glyphs(target.Sequence)} lockout={ss.Lockout:0.00} events: {string.Join(", ", events)} | {practice.Feedback}");
+            Check($"practice: drawing the target ({target.Name}) scores a hit and picks a new target", practice.Successes == 1 && practice.Target != target);
+            yield return Shot("23_practice");
+            ss.CastReadied();
+            Check("practice: no cooldowns", !ss.OnCooldown(target));
+            // A two-stroke start that no known spell begins with, so it must fizzle.
+            string badStart = null;
+            foreach (var a in new[] { Arrow.Up, Arrow.Down, Arrow.Left, Arrow.Right })
+            foreach (var b in new[] { Arrow.Up, Arrow.Down, Arrow.Left, Arrow.Right })
+                if (badStart == null && a != b && !SpellBook.Known.Any(sp => Arrows.HasPrefix(sp.Sequence, new[] { a, b })))
+                    badStart = Arrows.ToText(new[] { a, b });
+            yield return CastSequence(badStart, expectReady: null);
+            Check($"practice: a fizzle is reported with the strokes read ({practice.Feedback})", practice.Attempts == 2 && practice.Feedback.StartsWith("Fizzle"));
+            yield return Shot("23b_practice_fizzle");
+            ss.SetChanneling(false);
+
             // ---- death ----
             gs.ForcePlayingForTest();
             player.God = false;
             player.TakeDamage(5000f);
             yield return null;
             Check("player death shows You Died", gs.Phase == Phase.Dead && player.IsDead);
-            yield return Shot("23_death");
+            yield return Shot("24_death");
 
             Log($"SUMMARY passed={passed} failed={failed}");
             yield return new WaitForSecondsRealtime(0.3f);

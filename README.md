@@ -33,7 +33,24 @@ own these packs, download them in Unity's Package Manager (My Assets > Download)
 Only the needed files are copied into `Assets/ThirdParty/` (gitignored: Asset Store content may not
 be redistributed).
 
+## Main menu
+
+- **Start game**: a new run. The very first run opens with the tutorial.
+- **Tutorial**: five short steps in the first room (walk, magic bolt, start a rune, draw Fireball,
+  cast it) and a tips card. Enter skips it.
+- **Practice tool**: learn the runes. Every spell is unlocked, there are no cooldowns, no damage and
+  no fights, and three frozen training dummies respawn when killed. A trainer panel picks a target
+  spell, shows its rune, and after each attempt tells you which strokes it read (N: new target).
+- **Unlocks**: meta progression (below).
+- **Options**: mouse sensitivity, invert mouse Y, rune drawing size (how far the mouse moves per
+  stroke), field of view, volume, display mode, resolution, FPS counter, reset to defaults, and
+  **Controls**: rebind every action (two keys each; mouse buttons work too; a key already in use
+  swaps over). Everything is saved between sessions.
+- **Exit game**.
+
 ## Controls
+
+Defaults (rebind them in Options > Controls):
 
 | Input | Action |
 |---|---|
@@ -45,8 +62,8 @@ be redistributed).
 | **E** | Take / buy the item in front of you |
 | Hold **M** | Full map, stats and items |
 | **Tab** | Spell Forge (outside of fights; the game pauses) |
-| Esc | Release the mouse (pauses); click to resume |
-| R | New run after death or victory |
+| Esc | Pause (click to resume, Q: main menu) |
+| R / Esc | New run / main menu after death or victory |
 | K | Debug: spawn 10 enemies in this room |
 
 Every spell is a **rune**: a few straight up / down / left / right strokes drawn with the mouse
@@ -69,6 +86,37 @@ lockout). Spells on cooldown can't be readied.
   floor (and drops an item and a heart). The portal on floor 3 wins the run.
 - **Map.** The minimap shows visited rooms and their neighbours; T, $, R and B mark the special rooms.
 - **Death** ends the run. Nothing carries over between runs.
+
+### Unlocks (meta progression)
+
+18 achievements, tracked across runs, each unlock one new spell or item. Unlocked things can then
+appear in runs (runes, treasure, shops, drops). Unlocks never raise your stats; they only add
+variety. Nothing counts in the practice tool or the tutorial.
+
+| Goal | Unlocks |
+|---|---|
+| Clear 10 rooms | Poison Cloud (← ↓ →): toxic cloud that keeps poisoning |
+| Defeat 100 enemies | Arcane Missiles (→ ↑ →): five homing missiles |
+| Clear a room without getting hurt | Blink (↑ ← ↑): teleport forward |
+| Defeat a boss | Quake (↓ ← ↓): stuns and damages everything around you |
+| Heal 300 HP in total | Life Drain (← ↑ ←): beam that heals you for half its damage |
+| Reach floor 3 | Meteor (→ ↓ ←): falls on the crosshair spot, 6 m blast |
+| Die once | Thorned Robe: enemies that hit you up close take 15 damage |
+| Die 5 times | Phoenix Feather: survive one lethal hit with half your HP |
+| Defeat 50 enemies with the magic bolt | Bolt Splitter: the bolt fires 3 bolts |
+| Collect 300 gold in total | Gold Tooth: every coin is worth 1 more gold |
+| Defeat 30 enemies with poison | Toxic Vial: every spell hit poisons |
+| Cast 150 spells | Storm Crown: every 5th spell has no cooldown |
+| Defeat 3 enemies with one spell | Overcharge: a spell kept ready for 1.5 s hits 50% harder |
+| Freeze 100 enemies | Frozen Heart: getting hurt freezes enemies around you |
+| Forge a spell | Hex Mark: spells deal 30% more to burning or poisoned enemies |
+| Use 10 items | Smoke Bomb: stun every nearby enemy for 3 s |
+| Buy 5 items in shops | Time Scroll: enemies at half speed for 6 s |
+| Learn 8 spells from runes | Rune Stone: learn a random spell you don't know |
+
+New Forge synergies: Fire + Poison = **Combustion** (hits burst into flame), Earth + Storm =
+**Tremor** (hits stun). Goals and rewards live in `Core/Progress.cs`; locked content is marked
+`StartsLocked` in `Spells/SpellBook.cs` and `Loot/Items.cs`.
 
 ### Obstacles
 

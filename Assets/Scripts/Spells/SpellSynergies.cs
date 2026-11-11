@@ -19,7 +19,8 @@ namespace Spellcaster
             public bool First;
         }
 
-        static bool Damaging(HashSet<Element> e) => e.Contains(Element.Fire) || e.Contains(Element.Storm) || e.Contains(Element.Frost);
+        static bool Damaging(HashSet<Element> e) =>
+            e.Contains(Element.Fire) || e.Contains(Element.Storm) || e.Contains(Element.Frost) || e.Contains(Element.Poison) || e.Contains(Element.Earth);
 
         public static readonly List<Rule> Rules = new List<Rule>
         {
@@ -39,6 +40,14 @@ namespace Spellcaster
             new Rule { Name = "Lifesteal",
                 Requires = e => e.Contains(Element.Life) && Damaging(e),
                 Make = () => new LifestealEffect(0.25f) },
+            // Fire meets poison gas: every hit bursts into flame around the target.
+            new Rule { Name = "Combustion",
+                Requires = e => e.Contains(Element.Fire) && e.Contains(Element.Poison),
+                Make = () => new ExplodeEffect(radius: 2.5f, falloff: 0.6f) },
+            // Lightning through the ground: struck enemies are stunned.
+            new Rule { Name = "Tremor",
+                Requires = e => e.Contains(Element.Earth) && e.Contains(Element.Storm),
+                Make = () => new StunEffect(1.2f) },
         };
     }
 }

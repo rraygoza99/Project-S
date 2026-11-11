@@ -43,8 +43,11 @@ namespace Spellcaster
         public override Element Element => element;
         public override SpellEffect Scaled(float p) => new DamageEffect(Amount * p, element);
         public override string Describe() => $"{Amount:0} {element.ToString().ToLower()} dmg";
-        public override void ApplyTo(SpellCast cast, Enemy target, float scale) =>
-            cast.DamageDealt += target.TakeDamage(Amount * scale * cast.Power, element);
+        public override void ApplyTo(SpellCast cast, Enemy target, float scale)
+        {
+            float hex = (target.IsBurning || target.IsPoisoned) ? 1f + cast.Stats.HexBonus : 1f; // Hex Mark
+            cast.DamageDealt += target.TakeDamage(Amount * scale * cast.Power * hex, element);
+        }
     }
 
     public class FreezeEffect : SpellEffect
@@ -57,6 +60,7 @@ namespace Spellcaster
         public override string Describe() => $"freeze {Seconds:0.#}s";
         public override void ApplyTo(SpellCast cast, Enemy target, float scale)
         {
+            if (!target.IsFrozen) Progress.Add("freezes");
             target.Freeze(Seconds * Mathf.Max(0.5f, scale));
             Fx.Flash(target.Center, new Color(0.6f, 0.9f, 1f), 1.6f, 0.4f, 0.6f);
         }

@@ -15,6 +15,15 @@ namespace Spellcaster
         System.Action<Vector3> onExpire;
         Transform visual;
         float baseSize, gravity;
+        Enemy homingTarget;
+        float turnRate;
+
+        /// <summary>Steers toward the enemy (degrees per second) while it lives.</summary>
+        public void Home(Enemy target, float degreesPerSecond)
+        {
+            homingTarget = target;
+            turnRate = degreesPerSecond;
+        }
 
         public static Projectile Spawn(Vector3 position, Vector3 velocity, Color color, float size, float radius,
             int mask, HitHandler onHit, float life = 4f, System.Action<Vector3> onExpire = null, float gravity = 0f)
@@ -47,6 +56,11 @@ namespace Spellcaster
             }
 
             velocity.y -= gravity * dt;
+            if (homingTarget && homingTarget.IsAlive)
+            {
+                Vector3 want = (homingTarget.Center - transform.position).normalized * velocity.magnitude;
+                velocity = Vector3.RotateTowards(velocity, want, turnRate * Mathf.Deg2Rad * dt, 0f);
+            }
             Vector3 step = velocity * dt;
             float len = step.magnitude;
             if (len > 1e-5f)
