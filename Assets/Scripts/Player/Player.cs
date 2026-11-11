@@ -1,0 +1,184 @@
+using UnityEngine;
+
+namespace Spellcaster
+{
+    /// <summary>First-person movement, mouse look, health.</summary>
+    [RequireComponent(typeof(CharacterController))]
+    public class Player : MonoBehaviour
+    {
+        public static Player Instance { get; private set; }
+
+        public const float MaxHP = 100f;
+        public float HP { get; private set; } = MaxHP;
+        public bool IsDead => HP <= 0f;
+        public bool God;
+
+        public float MoveSpeed = 6.5f;
+        public float Acceleration = 50f;
+        public float MouseSensitivity = 2f;
+        /// <summary>Speed multiplier applied while channeling a spell.</summary>
+        public float ChannelSpeedFactor = 0.3f;
+
+        /// <summary>Set by SpellSystem. While true, WASD are spell inputs, not movement.</summary>
+        public bool Channeling { get; set; }
+
+        public Camera Cam { get; private set; }
+        public float Yaw { get; private set; }
+        public float Pitch { get; private set; }
+        public float PlanarSpeed => planarVelocity.magnitude;
+        public float HurtFlash { get; private set; }
+        public float HealFlash { get; private set; }
+
+        /// <summary>True when gameplay input should be read (cursor captured, not the click that captured it).</summary>
+        public bool InputEnabled => AutoTest.Active || (Cursor.lockState == CursorLockMode.Locked && Time.frameCount != lockClickFrame && !IsDead);
+
+        CharacterController cc;
+        Vector3 planarVelocity;
+        Vector3 channelWish;
+        float verticalVelocity;
+        int lockClickFrame = -1;
+
+        public static Player Create(Vector3 position)
+        {
+            var go = new GameObject("Player") { layer = Layers.Player };
+            go.transform.position = position;
+            var cc = go.AddComponent<CharacterController>();
+            cc.height = 1.8f;
+            cc.radius = 0.4f;
+            cc.center = new Vector3(0, 0.9f, 0);
+            cc.stepOffset = 0.3f;
+            cc.skinWidth = 0.05f;
+
+            var camGo = new GameObject("Camera");
+            camGo.transform.SetParent(go.transform, false);
+            camGo.transform.localPosition = new Vector3(0, 1.6f, 0);
+            var cam = camGo.AddComponent<Camera>();
+            cam.fieldOfView = 75f;
+            cam.nearClipPlane = 0.05f;
+            cam.farClipPlane = 80f;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Bootstrap.FogColor;
+            camGo.AddComponent<AudioListener>();
+            camGo.AddComponent<RetroView>();
+
+            var p = go.AddComponent<Player>();
+            p.Cam = cam;
+            go.AddComponent<WizardHands>();
+            return p;
+        }
+
+        void Awake()
+        {
+            Instance = this;
+            cc = GetComponent<CharacterController>();
+            Yaw = transform.eulerAngles.y;
+        }
+
+        void Start()
+        {
+            if (!AutoTest.Active && GameState.SkipTitleOnLoad) LockCursor();
+        }
+
+        void Update()
+        {
+            float dt = Time.deltaTime;
+            HurtFlash = Mathf.Max(0f, HurtFlash - dt * 2.5f);
+            HealFlash = Mathf.Max(0f, HealFlash - dt * 1.5f);
+            HandleCursor();
+            if (IsDead) return;
+
+            bool gameplay = GameState.Instance.AcceptsGameplayInput;
+            if (Cursor.lockState == CursorLockMode.Locked && InputEnabled && gameplay)
+            {
+                Yaw += Input.GetAxisRaw("Mouse X") * MouseSensitivity;
+                Pitch = Mathf.Clamp(Pitch - Input.GetAxisRaw("Mouse Y") * MouseSensitivity, -85f, 85f);
+            }
+            ApplyLook();
+
+            Vector3 wish;
+            if (!Channeling)
+            {
+                wish = Vector3.zero;
+                if (InputEnabled && gameplay)
+                {
+                    if (Input.GetKey(KeyCode.W)) wish.z += 1;
+                    if (Input.GetKey(KeyCode.S)) wish.z -= 1;
+                    if (Input.GetKey(KeyCode.D)) wish.x += 1;
+                    if (Input.GetKey(KeyCode.A)) wish.x -= 1;
+                }
+                if (wish.sqrMagnitude > 1f) wish.Normalize();
+                channelWish = wish;
+            }
+            else
+            {
+                // WASD are spell inputs now; keep drifting the way we were going, at reduced speed.
+                wish = channelWish * ChannelSpeedFactor;
+            }
+
+            Vector3 target = transform.TransformDirection(wish) * MoveSpeed;
+            planarVelocity = Vector3.MoveTowards(planarVelocity, target, Acceleration * dt);
+            verticalVelocity = cc.isGrounded ? -2f : verticalVelocity - 20f * dt;
+            cc.Move((planarVelocity + Vector3.up * verticalVelocity) * dt);
+        }
+
+        void HandleCursor()
+        {
+            if (AutoTest.Active) return;
+            if (Input.GetKeyDown(KeyCode.Escape) && !GameState.Instance.ForgeOpen)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+            else if (Cursor.lockState != CursorLockMode.Locked && Input.GetMouseButtonDown(0) && !IsDead)
+            {
+                LockCursor();
+                lockClickFrame = Time.frameCount;
+            }
+        }
+
+        static void LockCursor()
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+
+        void ApplyLook()
+        {
+            transform.rotation = Quaternion.Euler(0f, Yaw, 0f);
+            Cam.transform.localRotation = Quaternion.Euler(Pitch, 0f, 0f);
+        }
+
+        public void SetLook(float yaw, float pitch)
+        {
+            Yaw = yaw;
+            Pitch = Mathf.Clamp(pitch, -85f, 85f);
+            ApplyLook();
+        }
+
+        public void LookAt(Vector3 worldPoint)
+        {
+            Vector3 d = worldPoint - Cam.transform.position;
+            float yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
+            float pitch = -Mathf.Atan2(d.y, new Vector2(d.x, d.z).magnitude) * Mathf.Rad2Deg;
+            SetLook(yaw, pitch);
+        }
+
+        public Vector3 ChestPosition => transform.position + Vector3.up * 1.3f;
+
+        public void TakeDamage(float amount)
+        {
+            if (IsDead || amount <= 0f) return;
+            HurtFlash = 1f;
+            Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f));
+            HP = Mathf.Max(God ? 1f : 0f, HP - amount);
+            if (HP <= 0f) GameState.Instance.OnPlayerDied();
+        }
+
+        public void Heal(float amount)
+        {
+            if (IsDead) return;
+            HP = Mathf.Min(MaxHP, HP + amount);
+            HealFlash = 1f;
+        }
+    }
+}

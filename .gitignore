@@ -1,0 +1,27 @@
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/AutoTest/
+.vs/
+.idea/
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.pidb
+*.booproj
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+crashlytics-build.properties
+
+# Asset Store content (not redistributable) - recreate with tools/import-assets.ps1
+/Assets/ThirdParty/
+/Assets/ThirdParty.meta
