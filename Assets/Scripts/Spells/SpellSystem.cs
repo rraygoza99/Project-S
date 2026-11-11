@@ -4,8 +4,8 @@ using UnityEngine;
 namespace Spellcaster
 {
     /// <summary>
-    /// Stratagem-style casting. Hold Left Ctrl / Right Mouse to channel; WASD or arrow keys enter
-    /// directions. A full match readies the spell (one at a time); Left Click fires it. Input that
+    /// Stratagem-style casting. Hold Left Ctrl / Right Mouse to channel; the arrow keys enter
+    /// directions (WASD keeps moving, slowed). A full match readies the spell (one at a time); Left Click fires it. Input that
     /// matches no available spell fizzles with a short lockout. Left Click with nothing readied fires
     /// the basic bolt.
     /// </summary>
@@ -38,10 +38,8 @@ namespace Spellcaster
 
         static readonly (KeyCode key, Arrow arrow)[] Keys =
         {
-            (KeyCode.W, Arrow.Up), (KeyCode.UpArrow, Arrow.Up),
-            (KeyCode.S, Arrow.Down), (KeyCode.DownArrow, Arrow.Down),
-            (KeyCode.A, Arrow.Left), (KeyCode.LeftArrow, Arrow.Left),
-            (KeyCode.D, Arrow.Right), (KeyCode.RightArrow, Arrow.Right),
+            (KeyCode.UpArrow, Arrow.Up), (KeyCode.DownArrow, Arrow.Down),
+            (KeyCode.LeftArrow, Arrow.Left), (KeyCode.RightArrow, Arrow.Right),
         };
 
         void Awake() => Instance = this;

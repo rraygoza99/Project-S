@@ -19,7 +19,7 @@ namespace Spellcaster
         /// <summary>Speed multiplier applied while channeling a spell.</summary>
         public float ChannelSpeedFactor = 0.3f;
 
-        /// <summary>Set by SpellSystem. While true, WASD are spell inputs, not movement.</summary>
+        /// <summary>Set by SpellSystem. While true, movement is slowed to ChannelSpeedFactor.</summary>
         public bool Channeling { get; set; }
 
         public Camera Cam { get; private set; }
@@ -34,7 +34,6 @@ namespace Spellcaster
 
         CharacterController cc;
         Vector3 planarVelocity;
-        Vector3 channelWish;
         float verticalVelocity;
         int lockClickFrame = -1;
 
@@ -95,25 +94,17 @@ namespace Spellcaster
             }
             ApplyLook();
 
-            Vector3 wish;
-            if (!Channeling)
+            // WASD always moves (arrow keys are the spell inputs); channeling slows you down.
+            Vector3 wish = Vector3.zero;
+            if (InputEnabled && gameplay)
             {
-                wish = Vector3.zero;
-                if (InputEnabled && gameplay)
-                {
-                    if (Input.GetKey(KeyCode.W)) wish.z += 1;
-                    if (Input.GetKey(KeyCode.S)) wish.z -= 1;
-                    if (Input.GetKey(KeyCode.D)) wish.x += 1;
-                    if (Input.GetKey(KeyCode.A)) wish.x -= 1;
-                }
-                if (wish.sqrMagnitude > 1f) wish.Normalize();
-                channelWish = wish;
+                if (Input.GetKey(KeyCode.W)) wish.z += 1;
+                if (Input.GetKey(KeyCode.S)) wish.z -= 1;
+                if (Input.GetKey(KeyCode.D)) wish.x += 1;
+                if (Input.GetKey(KeyCode.A)) wish.x -= 1;
             }
-            else
-            {
-                // WASD are spell inputs now; keep drifting the way we were going, at reduced speed.
-                wish = channelWish * ChannelSpeedFactor;
-            }
+            if (wish.sqrMagnitude > 1f) wish.Normalize();
+            if (Channeling) wish *= ChannelSpeedFactor;
 
             Vector3 target = transform.TransformDirection(wish) * MoveSpeed;
             planarVelocity = Vector3.MoveTowards(planarVelocity, target, Acceleration * dt);

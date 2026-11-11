@@ -70,7 +70,7 @@ namespace Spellcaster
             }
 
             Shadowed(new Rect(0, H - pad - 1.6f * u, W, 2 * u),
-                "Hold Ctrl / RMB: channel   WASD / arrows: input   LMB: cast / bolt   Tab: Spell Forge", Small.Center());
+                "Hold Ctrl / RMB: channel   Arrows: input   LMB: cast / bolt   Tab: Spell Forge", Small.Center());
 
             if (gs.Phase == Phase.Intermission)
                 Shadowed(new Rect(0, H * 0.28f, W, 3 * u),
@@ -98,7 +98,7 @@ namespace Spellcaster
             Fill(new Rect(0, 0, W, H), new Color(0.03f, 0.01f, 0.05f, 0.65f));
             Shadowed(new Rect(0, H * 0.18f, W, H * 0.15f), "SPELLCASTER", Title);
             Shadowed(new Rect(W * 0.15f, H * 0.36f, W * 0.7f, H * 0.4f),
-                "Hold Ctrl or Right Mouse to channel, then type the arrows with WASD / arrow keys.\n" +
+                "Hold Ctrl or Right Mouse to channel, then type the arrows with the arrow keys.\n" +
                 "A full sequence readies the spell - Left Click to cast it.\n" +
                 "Left Click with nothing readied fires a magic bolt.\n" +
                 "Tab opens the Spell Forge: fuse two spells into a new one.\n\nClick to begin", Centered);

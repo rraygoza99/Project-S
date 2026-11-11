@@ -38,8 +38,8 @@ be redistributed).
 |---|---|
 | Mouse | Look |
 | W A S D | Move |
-| Hold **Left Ctrl** or **Right Mouse** | Channel (hands raise, movement drifts at 30%) |
-| W A S D / arrow keys while channeling | Enter ↑ ← ↓ → |
+| Hold **Left Ctrl** or **Right Mouse** | Channel (hands raise, movement slows to 30%; WASD still steers) |
+| Arrow keys while channeling | Enter ↑ ← ↓ → |
 | **Left Click** | Cast the readied spell, or fire the basic bolt (hold for auto-fire) |
 | **Tab** | Open the Spell Forge (game pauses) |
 | Enter | Start the next wave early during a break |
