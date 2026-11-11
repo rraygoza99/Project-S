@@ -73,7 +73,8 @@ rune glows in front of you while you draw, and the spell panel shows each spell'
 
 Casting rules: a full sequence **readies** the spell (hands glow in its colour); releasing the button keeps
 it readied; only one spell can be readied. Input that matches no available spell **fizzles** (0.3 s
-lockout). Spells on cooldown can't be readied.
+lockout). Spells on cooldown can't be readied, and cooldowns only count down during a fight (they pause in
+cleared rooms, so you can't wait out Heal between fights).
 
 ## The run
 
@@ -173,7 +174,7 @@ Every run starts with **Fireball**; the others are learned from **runes** (rune 
 | Fireball | ↓ → ↑ | U | Projectile, explodes for area damage | 3 s |
 | Lightning | → ↓ → | Z bolt | Instant hit, chains to 2 nearby enemies | 6 s |
 | Frost Nova | ↓ ← ↑ → | loop | Freezes everything around you for 3 s | 10 s |
-| Heal | ↑ ↓ ↑ ↓ | zig-zag | Restore 40 HP | 15 s |
+| Heal | ↑ ↓ ↑ ↓ | zig-zag | Restore 25 HP | 15 s |
 | Frost Shard | ← ↑ → | arch | Fast projectile, freezes for 1.2 s | 2.5 s |
 | Thunder Ring | ↑ → ↓ | cap ∩ | Storm nova that throws enemies back | 8 s |
 

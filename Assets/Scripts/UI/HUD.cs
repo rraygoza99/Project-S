@@ -411,7 +411,10 @@ namespace Spellcaster
                 {
                     float k = ss.CooldownFraction(s);
                     Fill(new Rect(iconRect.x, iconRect.y, iconRect.width, iconRect.height * k), new Color(0, 0, 0, 0.65f));
-                    Shadowed(iconRect, cd.ToString(cd < 10f ? "0.0" : "0"), Small.Center());
+                    // Grey-blue while paused out of combat, so it's clear the timer isn't running.
+                    var cdStyle = SpellSystem.CooldownsTick ? Small.Center() : new GUIStyle(Small.Center());
+                    if (!SpellSystem.CooldownsTick) cdStyle.normal.textColor = new Color(0.6f, 0.7f, 0.85f);
+                    Shadowed(iconRect, cd.ToString(cd < 10f ? "0.0" : "0"), cdStyle);
                 }
 
                 float tx = iconRect.xMax + 0.5f * u;

@@ -321,8 +321,20 @@ namespace Spellcaster
             yield return CastSequence("UDUD", expectReady: "Heal");
             ss.CastReadied();
             yield return null;
-            Check($"Heal restored 40 HP ({before:0} -> {player.HP:0})", Mathf.Approximately(player.HP, Mathf.Min(player.MaxHP, before + 40f)));
+            Check($"Heal restored 25 HP ({before:0} -> {player.HP:0})", Mathf.Approximately(player.HP, Mathf.Min(player.MaxHP, before + 25f)));
             player.God = true;
+            gs.ClearEnemies();
+            // Out of combat the cooldown is frozen; it resumes once enemies are around.
+            yield return null;
+            float healCd = ss.CooldownRemaining(Spell("Heal"));
+            yield return new WaitForSeconds(1f);
+            Check($"cooldowns pause out of combat ({healCd:0.0}s -> {ss.CooldownRemaining(Spell("Heal")):0.0}s)",
+                !SpellSystem.CooldownsTick && healCd > 0f && Mathf.Approximately(ss.CooldownRemaining(Spell("Heal")), healCd));
+            var idle = SpawnAhead(player, EnemyType.Imp, 12f, 0f);
+            idle.Freeze(5f);
+            yield return new WaitForSeconds(1f);
+            Check($"cooldowns run again in combat ({healCd:0.0}s -> {ss.CooldownRemaining(Spell("Heal")):0.0}s)",
+                SpellSystem.CooldownsTick && ss.CooldownRemaining(Spell("Heal")) < healCd - 0.5f);
             gs.ClearEnemies();
             yield return new WaitForSeconds(1f);
 

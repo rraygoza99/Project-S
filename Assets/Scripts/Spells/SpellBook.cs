@@ -68,7 +68,7 @@ namespace Spellcaster
                 Sequence = Arrows.Parse("↑↓↑↓"), Cooldown = 15f, IconKey = "heal",
                 Color = new Color(0.35f, 1f, 0.45f),
                 Delivery = new SelfDelivery(),
-                Payload = { new HealEffect(40f) },
+                Payload = { new HealEffect(25f) },
             },
             new SpellDefinition
             {

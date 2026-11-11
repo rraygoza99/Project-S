@@ -34,7 +34,8 @@ namespace Spellcaster
         /// <summary>Raised whenever an arrow is accepted, a spell readies, fizzles or casts (for tests/UI).</summary>
         public event System.Action<string> Event;
 
-        readonly Dictionary<SpellDefinition, float> cooldownEnds = new Dictionary<SpellDefinition, float>();
+        readonly Dictionary<SpellDefinition, float> cooldownLeft = new Dictionary<SpellDefinition, float>();
+        readonly List<SpellDefinition> cooldownKeys = new List<SpellDefinition>();
         readonly Dictionary<SpellDefinition, float> cooldownLengths = new Dictionary<SpellDefinition, float>();
         static PlayerStats Stats => Run.Instance ? Run.Instance.Stats : new PlayerStats();
         float boltCooldown;
@@ -56,6 +57,7 @@ namespace Spellcaster
         {
             float dt = Time.deltaTime;
             boltCooldown -= dt;
+            if (CooldownsTick) TickCooldowns(dt);
             Lockout = Mathf.Max(0f, Lockout - dt);
             FizzleFlash = Mathf.Max(0f, FizzleFlash - dt * 3f);
             ReadyFlash = Mathf.Max(0f, ReadyFlash - dt * 2f);
@@ -156,8 +158,28 @@ namespace Spellcaster
             Gesture.Restart(); // overshooting the final stroke must not start a new rune with it
         }
 
+        /// <summary>
+        /// Spell cooldowns only count down during a fight (a locked room, live enemies or the tutorial),
+        /// so waiting in a cleared room can't refill Heal over and over.
+        /// </summary>
+        public static bool CooldownsTick =>
+            GameState.TutorialMode || Enemy.All.Count > 0 || (Dungeon.Instance && Dungeon.Instance.InCombat);
+
+        void TickCooldowns(float dt)
+        {
+            if (cooldownLeft.Count == 0) return;
+            cooldownKeys.Clear();
+            cooldownKeys.AddRange(cooldownLeft.Keys);
+            foreach (var k in cooldownKeys)
+            {
+                float left = cooldownLeft[k] - dt;
+                if (left <= 0f) cooldownLeft.Remove(k);
+                else cooldownLeft[k] = left;
+            }
+        }
+
         public float CooldownRemaining(SpellDefinition s) =>
-            cooldownEnds.TryGetValue(s, out var end) ? Mathf.Max(0f, end - Time.time) : 0f;
+            cooldownLeft.TryGetValue(s, out var left) ? Mathf.Max(0f, left) : 0f;
 
         public bool OnCooldown(SpellDefinition s) => CooldownRemaining(s) > 0f;
 
@@ -236,7 +258,7 @@ namespace Spellcaster
             if (stats.FreeCastEvery > 0 && castCount % stats.FreeCastEvery == 0) { cd = 0f; Flash("Free cast!"); } // Storm Crown
             float power = stats.Power;
             if (stats.Overcharge && Time.time - readiedAt >= 1.5f) { power *= 1.5f; Flash("Overcharged!"); }
-            cooldownEnds[s] = Time.time + cd;
+            if (cd > 0f) cooldownLeft[s] = cd; else cooldownLeft.Remove(s);
             cooldownLengths[s] = cd;
             Sfx.Play("cast", 0.6f);
             WizardHands.Instance.Kick();
@@ -258,7 +280,7 @@ namespace Spellcaster
         }
 
         /// <summary>Clears all cooldowns (debug / tests).</summary>
-        public void ResetCooldowns() => cooldownEnds.Clear();
+        public void ResetCooldowns() => cooldownLeft.Clear();
 
         /// <summary>Drops a readied spell (debug / tests).</summary>
         public void ClearReadied() => Readied = null;
