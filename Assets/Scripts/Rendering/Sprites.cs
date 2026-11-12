@@ -189,6 +189,86 @@ namespace Spellcaster
             };
         }
 
+        // ---------- Newer enemies (Pixel Monsters Vol.2; recoloured built-in art as fallback) ----------
+
+        static Dictionary<char, Color32> Recolor(Dictionary<char, Color32> pal, Dictionary<char, Color32> changes)
+        {
+            var d = new Dictionary<char, Color32>(pal);
+            foreach (var kv in changes) d[kv.Key] = kv.Value;
+            return d;
+        }
+
+        static SpriteSet ImpLike(string key, Dictionary<char, Color32> pal, float heightUnits) => ProceduralSet(key,
+            PixelArt.Cached(key + "_walk0", () => PixelArt.FromAscii(Concat(ImpHead, ImpBody, ImpLegsA), pal)),
+            PixelArt.Cached(key + "_walk1", () => PixelArt.FromAscii(Concat(ImpHead, ImpBody, ImpLegsB), pal)),
+            PixelArt.Cached(key + "_attack", () => PixelArt.FromAscii(ImpAttack, pal)), heightUnits, 0.14f);
+
+        static SpriteSet CultistLike(string key, Dictionary<char, Color32> pal, float heightUnits) => ProceduralSet(key,
+            PixelArt.Cached(key + "_walk0", () => PixelArt.FromAscii(Concat(CultistTop, CultistArms, CultistRobe, CultistFeetA), pal)),
+            PixelArt.Cached(key + "_walk1", () => PixelArt.FromAscii(Concat(CultistTop, CultistArms, CultistRobe, CultistFeetB), pal)),
+            PixelArt.Cached(key + "_attack", () => PixelArt.FromAscii(Concat(CultistTop, CultistArmsUp, CultistRobe, CultistFeetA), pal)), heightUnits, 0.2f);
+
+        /// <summary>Flame Skull: "monster 18", a flaming skull (96px cells, body ~30px).</summary>
+        public static SpriteSet Skull(float heightUnits)
+        {
+            var fly = LoadSheet("skull_fly");
+            if (!fly) return ImpLike("skull", Recolor(ImpPalette, new Dictionary<char, Color32> { { 'r', C(250, 140, 40) }, { 'd', C(236, 226, 200) }, { 'o', C(255, 220, 80) } }), heightUnits);
+            return new SpriteSet
+            {
+                Walk = SpriteAnim.Sheet(fly, 96, 96, 10, 16f),
+                Hit = SpriteAnim.Sheet(LoadSheet("skull_hit"), 96, 96, 3, 15f, false),
+                Dead = SpriteAnim.Sheet(LoadSheet("skull_dead"), 96, 96, 22, 30f, false),
+                PixelsPerUnit = 30f / heightUnits, FeetPx = 30f, FacesRight = false,
+            };
+        }
+
+        /// <summary>Horned Beetle: "monster 4" (74px cells, body ~33px). Special = the alert pose before a charge.</summary>
+        public static SpriteSet Beetle(float heightUnits)
+        {
+            var walk = LoadSheet("beetle_walk");
+            if (!walk) return ImpLike("beetle", Recolor(ImpPalette, new Dictionary<char, Color32> { { 'r', C(40, 70, 110) }, { 'd', C(20, 34, 60) }, { 'o', C(70, 130, 120) }, { 'y', C(255, 120, 40) } }), heightUnits);
+            return new SpriteSet
+            {
+                Walk = SpriteAnim.Sheet(walk, 74, 74, 8, 10f),
+                Run = SpriteAnim.Sheet(LoadSheet("beetle_run"), 74, 74, 8, 18f),
+                Special = SpriteAnim.Sheet(LoadSheet("beetle_alert"), 74, 74, 8, 12f),
+                Attack = SpriteAnim.Sheet(LoadSheet("beetle_attack"), 74, 74, 10, 20f, false),
+                Hit = SpriteAnim.Sheet(LoadSheet("beetle_hit"), 74, 74, 4, 15f, false),
+                Dead = SpriteAnim.Sheet(LoadSheet("beetle_dead"), 74, 74, 12, 15f, false),
+                PixelsPerUnit = 33f / heightUnits, FeetPx = 21f, FacesRight = false,
+            };
+        }
+
+        /// <summary>Hornet: "monster 11", a giant wasp (64px cells, body ~35px).</summary>
+        public static SpriteSet Hornet(float heightUnits)
+        {
+            var fly = LoadSheet("hornet_fly");
+            if (!fly) return CultistLike("hornet", Recolor(CultistPalette, new Dictionary<char, Color32> { { 'p', C(214, 170, 60) }, { 'q', C(70, 50, 20) }, { 'g', C(255, 60, 40) } }), heightUnits);
+            return new SpriteSet
+            {
+                Walk = SpriteAnim.Sheet(fly, 64, 64, 4, 18f),
+                Attack = SpriteAnim.Sheet(LoadSheet("hornet_attack"), 64, 64, 16, 30f, false),
+                Hit = SpriteAnim.Sheet(LoadSheet("hornet_hit"), 64, 64, 4, 15f, false),
+                Dead = SpriteAnim.Sheet(LoadSheet("hornet_dead"), 64, 64, 4, 8f, false),
+                PixelsPerUnit = 35f / heightUnits, FeetPx = 12f, FacesRight = false,
+            };
+        }
+
+        /// <summary>Shade: "monster 13", a shadow blob (96px cells, body ~15px tall, 28px wide).</summary>
+        public static SpriteSet Shade(float heightUnits)
+        {
+            var walk = LoadSheet("shade_walk");
+            if (!walk) return ImpLike("shade" + heightUnits.ToString("0.0"), Recolor(ImpPalette, new Dictionary<char, Color32> { { 'r', C(40, 30, 60) }, { 'd', C(20, 14, 32) }, { 'o', C(80, 60, 110) }, { 'h', C(60, 50, 90) }, { 'y', C(200, 255, 120) } }), heightUnits);
+            return new SpriteSet
+            {
+                Walk = SpriteAnim.Sheet(walk, 96, 96, 6, 10f),
+                Attack = SpriteAnim.Sheet(LoadSheet("shade_attack"), 96, 96, 6, 12f, false),
+                Hit = SpriteAnim.Sheet(LoadSheet("shade_hit"), 96, 96, 3, 15f, false),
+                Dead = SpriteAnim.Sheet(LoadSheet("shade_dead"), 96, 96, 13, 20f, false),
+                PixelsPerUnit = 15f / heightUnits, FeetPx = 25f, FacesRight = false,
+            };
+        }
+
         // ---------- Wizard hands (first-person "weapon" sprite) ----------
         public const int HandsW = 64, HandsH = 48;
         /// <summary>Pixel position (from bottom-left) of the staff orb / casting focus, used for glow.</summary>

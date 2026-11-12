@@ -429,6 +429,127 @@ namespace Spellcaster
                 gs.ClearEnemies();
                 yield return null;
             }
+
+            // ---- new enemy types ----
+            {
+                // Line-up screenshot of every regular enemy.
+                var ntLine = new List<Enemy>();
+                for (int i = 0; i < EnemyType.Regulars.Length; i++)
+                {
+                    var ntE = SpawnAhead(player, EnemyType.Regulars[i], 7.5f, (i - (EnemyType.Regulars.Length - 1) * 0.5f) * 1.9f);
+                    ntE.Freeze(3f);
+                    ntLine.Add(ntE);
+                }
+                yield return new WaitForSeconds(0.4f);
+                foreach (var ntE in ntLine) ntE.ConsumeFreeze();
+                yield return Shot("05c_enemy_lineup");
+                gs.ClearEnemies();
+                yield return null;
+
+                // Flame Skull: rushes in and explodes.
+                player.Heal(player.MaxHP);
+                player.God = false;
+                float ntHp = player.HP;
+                var ntSkull = SpawnAhead(player, EnemyType.Skull, 9f, 0f);
+                float ntT = 0f;
+                while (ntT < 5f && ntSkull && ntSkull.IsAlive) { ntT += Time.deltaTime; yield return null; }
+                Check($"Flame Skull rushes you and explodes ({ntHp:0} -> {player.HP:0} HP, {ntT:0.0} s)", ntSkull && !ntSkull.IsAlive && ntSkull.SelfDestructed && player.HP < ntHp);
+                player.God = true;
+                player.Heal(player.MaxHP);
+                gs.ClearEnemies();
+                yield return null;
+
+                // ...killed at range, its blast hurts its neighbours instead.
+                var ntSkull2 = SpawnAhead(player, EnemyType.Skull, 10f, 0f);
+                var ntImp = SpawnAhead(player, EnemyType.Imp, 10.6f, 1.2f);
+                ntSkull2.Freeze(5f);
+                ntImp.Freeze(5f);
+                yield return new WaitForSeconds(0.2f);
+                ntSkull2.TakeDamage(999f, Element.Arcane);
+                yield return null;
+                Check($"a Flame Skull killed at range blows up its neighbours ({ntImp.HP:0}/{ntImp.MaxHP:0} HP left)", ntImp.HP < ntImp.MaxHP && !ntSkull2.SelfDestructed);
+                gs.ClearEnemies();
+                yield return null;
+
+                // Horned Beetle: braces, then charges and rams you.
+                player.God = false;
+                player.Heal(player.MaxHP);
+                ntHp = player.HP;
+                var ntBeetle = SpawnAhead(player, EnemyType.Beetle, 10f, 0f);
+                yield return null;
+                float ntTop = 0f;
+                bool ntCharged = false;
+                Vector3 ntLast = ntBeetle.transform.position;
+                ntT = 0f;
+                while (ntT < 7f && player.HP >= ntHp)
+                {
+                    yield return null;
+                    ntT += Time.deltaTime;
+                    var ntPos = ntBeetle.transform.position;
+                    if (Time.deltaTime > 0f) ntTop = Mathf.Max(ntTop, Vector3.Distance(ntPos, ntLast) / Time.deltaTime);
+                    ntLast = ntPos;
+                    ntCharged |= ntBeetle.IsDashing;
+                }
+                Check($"Horned Beetle charges ({ntTop:0.0} m/s) and rams you ({ntHp:0} -> {player.HP:0} HP)", ntCharged && ntTop > 9f && player.HP < ntHp);
+                player.God = true;
+                player.Heal(player.MaxHP);
+                gs.ClearEnemies();
+                yield return null;
+
+                // ...and a wall in its path dazes it.
+                var ntB2 = SpawnAhead(player, EnemyType.Beetle, 10f, 0f);
+                ntT = 0f;
+                while (ntT < 7f && !ntB2.IsDashing) { ntT += Time.deltaTime; yield return null; }
+                Vector3 ntDir = player.transform.position - ntB2.transform.position;
+                ntDir.y = 0f;
+                ntDir.Normalize();
+                var ntWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                ntWall.name = "TestCover";
+                ntWall.layer = Layers.World;
+                ntWall.transform.position = ntB2.transform.position + ntDir * 2.6f + Vector3.up * 2f;
+                ntWall.transform.rotation = Quaternion.LookRotation(ntDir);
+                ntWall.transform.localScale = new Vector3(4f, 4f, 0.6f);
+                ntT = 0f;
+                while (ntT < 2f && !ntB2.IsStunned) { ntT += Time.deltaTime; yield return null; }
+                Check($"a charging beetle that hits a wall is dazed ({ntB2.LastEvent})", ntB2.IsStunned && ntB2.LastEvent == "dazed" && !ntB2.IsCharging);
+                UnityEngine.Object.Destroy(ntWall);
+                gs.ClearEnemies();
+                yield return null;
+
+                // Hornet: bursts of three stingers.
+                var ntHornet = SpawnAhead(player, EnemyType.Hornet, 9f, 0f);
+                ntT = 0f;
+                while (ntT < 6f && ntHornet.ShotsFired < 3) { ntT += Time.deltaTime; yield return null; }
+                Check($"Hornet fires a burst of 3 stingers ({ntHornet.ShotsFired} shots from {ntHornet.AttacksDone} attack)", ntHornet.ShotsFired >= 3 && ntHornet.AttacksDone == 1);
+                gs.ClearEnemies();
+                yield return new WaitForSeconds(0.3f);
+                ClearPickups();
+
+                // Shade: splits into two shadelings, which drop nothing.
+                var ntShade = SpawnAhead(player, EnemyType.Shade, 8f, 0f);
+                ntShade.Freeze(3f);
+                yield return new WaitForSeconds(0.2f);
+                ntShade.TakeDamage(999f);
+                yield return null;
+                var ntLings = Enemy.All.Where(x => x.Type == EnemyType.Shadeling).ToList();
+                Check($"Shade splits into 2 shadelings ({ntLings.Count})", ntLings.Count == 2);
+                int ntPickups = Pickup.All.Count;
+                foreach (var l in ntLings) l.TakeDamage(999f);
+                yield return new WaitForSeconds(0.3f);
+                Check($"shadelings drop no loot ({Pickup.All.Count - ntPickups} new pickups)", Pickup.All.Count == ntPickups && Enemy.All.Count == 0);
+                ClearPickups();
+
+                // Encounter tables: skulls and beetles start on floor 2; floor 3 has everything.
+                var ntF1 = new HashSet<EnemyType>();
+                var ntF3 = new HashSet<EnemyType>();
+                for (int i = 0; i < 3000; i++)
+                {
+                    ntF1.Add(EnemyType.PickForEncounter(1, 4, () => UnityEngine.Random.value, 0));
+                    ntF3.Add(EnemyType.PickForEncounter(3, 4, () => UnityEngine.Random.value, 0));
+                }
+                Check($"floor 1 rooms mix {string.Join(", ", ntF1.Select(x => x.Name))}; floor 3 adds {string.Join(", ", ntF3.Except(ntF1).Select(x => x.Name))}",
+                    ntF1.Count == 4 && !ntF1.Contains(EnemyType.Skull) && !ntF1.Contains(EnemyType.Beetle) && ntF3.Count == 6);
+            }
             yield return new WaitForSeconds(1f);
 
             // ---- new base spells ----

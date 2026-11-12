@@ -182,6 +182,7 @@ namespace Spellcaster
 
         void OnKilled(Enemy e)
         {
+            if (e.SelfDestructed) return; // a flame skull that blew itself up wasn't your kill
             Progress.Add("kills");
             if (e.LastHitByBolt) Progress.Add("bolt_kills");
             if (e.LastElement == Element.Poison) Progress.Add("poison_kills");

@@ -330,9 +330,13 @@ namespace Spellcaster
             int count = 3 + 2 * Floor + Random.Range(0, 3) + Mathf.Min(room.Depth, 4) / 2;
             // Big rooms hold bigger fights.
             if (room.IsBig) count = Mathf.Min(Mathf.RoundToInt(count * (room.CellCount >= 4 ? 2.1f : 1.6f)), 22);
-            float rangedChance = Mathf.Min(0.2f + 0.1f * Floor + 0.03f * room.Depth, 0.5f);
+            int beetles = 0;
             for (int i = 0; i < count; i++)
-                pending.Enqueue((Random.value < rangedChance ? EnemyType.Cultist : EnemyType.Imp, RandomSpawnPoint(room, player, 7f)));
+            {
+                var type = EnemyType.PickForEncounter(Floor, room.Depth, () => Random.value, beetles);
+                if (type == EnemyType.Beetle) beetles++;
+                pending.Enqueue((type, RandomSpawnPoint(room, player, type.Kamikaze ? 10f : 7f)));
+            }
         }
 
         public void ClearCurrent()

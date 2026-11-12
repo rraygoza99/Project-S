@@ -32,7 +32,7 @@ namespace Spellcaster
 
         const float FadeDuration = 0.35f;
 
-        enum State { Walk, Attack, Dead }
+        enum State { Walk, Attack, Charge, Dead }
         State state = State.Walk;
 
         CharacterController cc;
@@ -57,6 +57,21 @@ namespace Spellcaster
         /// <summary>True while a ranged enemy is moving around cover to find the player.</summary>
         public bool IsFlanking => flanking;
         public int AttacksDone => attacksDone;
+
+        // Special behaviours (see EnemyType)
+        const float ChargeBrace = 0.75f;
+        float chargeCd, burstTimer, hpMult = 1f;
+        int burstLeft;
+        Vector3 chargeDir;
+        bool chargeHit, exploded;
+        CollisionFlags lastFlags;
+        /// <summary>A kamikaze that blew itself up (no loot for that).</summary>
+        public bool SelfDestructed { get; private set; }
+        /// <summary>Charger: true while bracing or dashing / only while dashing.</summary>
+        public bool IsCharging => state == State.Charge;
+        public bool IsDashing => state == State.Charge && stateTimer >= ChargeBrace;
+        /// <summary>Projectiles fired so far (tests).</summary>
+        public int ShotsFired { get; private set; }
 
         static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         static readonly int MainTexStId = Shader.PropertyToID("_MainTex_ST");
@@ -88,6 +103,8 @@ namespace Spellcaster
             var e = go.AddComponent<Enemy>();
             e.Type = type;
             e.MaxHP = e.HP = type.MaxHP * hpMult;
+            e.hpMult = hpMult;
+            e.chargeCd = Random.Range(1f, 2.5f);
             e.DamageMult = dmgMult;
             e.cc = cc;
             e.visual = quad.transform;
@@ -150,6 +167,17 @@ namespace Spellcaster
             else
             {
                 attackCooldown -= dt;
+                chargeCd -= dt;
+                if (burstLeft > 0 && state != State.Dead)
+                {
+                    burstTimer -= dt;
+                    if (burstTimer <= 0f)
+                    {
+                        burstLeft--;
+                        burstTimer = Type.BurstGap;
+                        if (SeesPlayer && !player.IsDead) FireVolley(player);
+                    }
+                }
                 Vector3 toPlayer = player.transform.position - transform.position;
                 toPlayer.y = 0f;
                 float dist = toPlayer.magnitude;
@@ -162,13 +190,29 @@ namespace Spellcaster
                     {
                         attackFired = true;
                         PerformAttack(player, dist);
+                        if (state == State.Dead) return; // a kamikaze blew itself up
                     }
                     if (stateTimer >= Type.Windup + Type.Recover) state = State.Walk;
+                    if (Type.Kamikaze && !attackFired) hurtFlash = Mathf.Repeat(stateTimer * 14f, 1f) < 0.5f ? 0.05f : 0f; // about to blow
+                }
+                else if (state == State.Charge)
+                {
+                    move = UpdateCharge(player, dir, dist, dt);
+                    animTime += dt;
                 }
                 else
                 {
                     move = Steer(player, dir, dist, dt);
-                    if (attackCooldown <= 0f && !player.IsDead && CanAttack(player, dist))
+                    if (Type.ChargeSpeed > 0f && chargeCd <= 0f && !player.IsDead && dist >= Type.ChargeMin && dist <= Type.ChargeMax && HasLineOfSight(player))
+                    {
+                        state = State.Charge;
+                        stateTimer = 0f;
+                        chargeDir = dir;
+                        chargeHit = false;
+                        move = Vector3.zero;
+                        Sfx.Play("boss", 0.45f, 1.7f);
+                    }
+                    else if (attackCooldown <= 0f && !player.IsDead && CanAttack(player, dist))
                     {
                         state = State.Attack;
                         stateTimer = 0f;
@@ -183,11 +227,16 @@ namespace Spellcaster
             verticalVelocity = cc.isGrounded ? -1f : verticalVelocity - 20f * dt;
             Vector3 velocity = move * Type.Speed + knockback;
             lastMove = velocity;
-            cc.Move((velocity + Vector3.up * verticalVelocity) * dt);
+            lastFlags = cc.Move((velocity + Vector3.up * verticalVelocity) * dt);
 
             // Pick the animation frame.
             bool held = frozenTimer > 0f || stunTimer > 0f;
-            if (state == State.Attack && !held && set.Attack != null)
+            if (state == State.Charge && !held)
+            {
+                if (IsDashing) { var run = set.Run ?? set.Walk; ApplyVisual(run, run.FrameAt(animTime * (set.Run != null ? 1f : 3f)), 1f); }
+                else { var brace = set.Special ?? set.Walk; ApplyVisual(brace, brace.FrameAt(stateTimer), 1f); }
+            }
+            else if (state == State.Attack && !held && set.Attack != null)
                 ApplyVisual(set.Attack, set.Attack.FrameAtNormalized(stateTimer / (Type.Windup + Type.Recover)), 1f);
             else if (hitAnimTimer > 0f && set.Hit != null)
                 ApplyVisual(set.Hit, set.Hit.FrameAt(set.Hit.Duration - hitAnimTimer), 1f);
@@ -220,7 +269,7 @@ namespace Spellcaster
         {
             if (!IsAlive) return;
             stunTimer = Mathf.Max(stunTimer, seconds);
-            if (state == State.Attack) state = State.Walk;
+            if (state == State.Attack || state == State.Charge) state = State.Walk;
         }
 
         void UpdateBurn(float dt)
@@ -363,6 +412,69 @@ namespace Spellcaster
             flankPoint = bestPoint;
         }
 
+        /// <summary>Charger: brace (turning to track you), then dash in a straight line.</summary>
+        Vector3 UpdateCharge(Player player, Vector3 dir, float dist, float dt)
+        {
+            stateTimer += dt;
+            if (stateTimer < ChargeBrace)
+            {
+                if (stateTimer < ChargeBrace - 0.2f) chargeDir = dir; // locks on just before it goes
+                return Vector3.zero;
+            }
+            float dashT = stateTimer - ChargeBrace;
+            if (dashT > Type.ChargeTime) { EndCharge(); return Vector3.zero; }
+
+            // Ran into you?
+            if (!chargeHit && dist < Type.Radius + 1.0f)
+            {
+                chargeHit = true;
+                player.TakeDamage(Type.ChargeDamage * DamageMult);
+                Sfx.Play("claw", 0.6f, 0.7f);
+                Fx.Flash(player.ChestPosition, new Color(1f, 0.6f, 0.3f), 1.2f, 0.25f, 1.2f);
+                EndCharge();
+                return Vector3.zero;
+            }
+            // Slammed into a wall or pillar: dazed.
+            if (dashT > 0.08f && (lastFlags & CollisionFlags.Sides) != 0)
+            {
+                EndCharge();
+                Stun(1.8f);
+                Sfx.Play("crate", 0.7f, 0.6f);
+                Fx.Flash(Center + chargeDir * Type.Radius, new Color(1f, 0.92f, 0.55f), 1.5f, 0.3f, 1.5f);
+                Raise("dazed");
+                return Vector3.zero;
+            }
+            return chargeDir * (Type.ChargeSpeed / Type.Speed);
+        }
+
+        void EndCharge()
+        {
+            state = State.Walk;
+            chargeCd = Type.ChargeCooldown;
+            attackCooldown = Mathf.Max(attackCooldown, 0.6f);
+        }
+
+        /// <summary>Test hook: what just happened to this enemy ("dazed").</summary>
+        public string LastEvent { get; private set; }
+        void Raise(string e) => LastEvent = e;
+
+        /// <summary>Kamikaze blast: hurts you, other enemies and props in the radius.</summary>
+        void Explode()
+        {
+            Vector3 c = Center;
+            float r = Type.ExplodeRadius, dmg = Type.ExplodeDamage * DamageMult;
+            Fx.Flash(c, new Color(1f, 0.55f, 0.15f), r * 0.9f, 0.4f, 2f);
+            Fx.Ring(transform.position + Vector3.up * 0.1f, new Color(1f, 0.5f, 0.1f), r, 0.4f);
+            Sfx.Play("explode", 0.7f, 1.15f);
+            var player = Player.Instance;
+            if (player && !player.IsDead && (player.ChestPosition - c).sqrMagnitude <= r * r
+                && !Physics.Linecast(c, player.ChestPosition, Layers.WorldMask, QueryTriggerInteraction.Ignore))
+                player.TakeDamage(dmg);
+            foreach (var o in All.ToArray())
+                if (o && o.IsAlive && (o.Center - c).sqrMagnitude <= r * r) o.TakeDamage(Type.ExplodeDamage, Element.Fire);
+            Combat.DamageProps(c, r, Type.ExplodeDamage);
+        }
+
         bool CanAttack(Player player, float dist)
         {
             if (!Type.Ranged) return dist <= Type.AttackRange;
@@ -374,6 +486,12 @@ namespace Spellcaster
 
         void PerformAttack(Player player, float dist)
         {
+            if (Type.Kamikaze)
+            {
+                SelfDestructed = true;
+                TakeDamage(HP + 1f, Element.Fire, silent: true);
+                return;
+            }
             if (!Type.Ranged)
             {
                 attackCooldown = Type.AttackCooldown;
@@ -404,6 +522,13 @@ namespace Spellcaster
                 Sfx.Play("boss", 0.6f, 1.3f);
                 return;
             }
+            FireVolley(player);
+            burstLeft = Type.Burst - 1;
+            burstTimer = Type.BurstGap;
+        }
+
+        void FireVolley(Player player)
+        {
             Vector3 origin = Center;
             Vector3 toChest = (player.ChestPosition - origin).normalized;
             origin += toChest * (0.6f + Type.Radius * 0.5f);
@@ -413,6 +538,7 @@ namespace Spellcaster
             {
                 float ang = Type.Shots > 1 ? Mathf.Lerp(-Type.SpreadDeg * 0.5f, Type.SpreadDeg * 0.5f, i / (Type.Shots - 1f)) : 0f;
                 Vector3 dir = Quaternion.AngleAxis(ang, Vector3.up) * toChest;
+                ShotsFired++;
                 Projectile.Spawn(origin, dir * Type.ProjectileSpeed, color, Type.IsBoss ? 0.8f : 0.6f, 0.18f,
                     Layers.WorldMask | Layers.PlayerMask | Layers.PropMask, (point, col) =>
                     {
@@ -444,7 +570,7 @@ namespace Spellcaster
         {
             if (!IsAlive) return;
             frozenTimer = Mathf.Max(frozenTimer, seconds);
-            if (state == State.Attack) state = State.Walk;
+            if (state == State.Attack || state == State.Charge) state = State.Walk;
         }
 
         /// <summary>Removes the freeze (used by Shatter). Returns true if the enemy was frozen.</summary>
@@ -480,8 +606,25 @@ namespace Spellcaster
             stunTimer = 0f;
             deathTimer = 0f;
             All.Remove(this);
+            burstLeft = 0;
             Sfx.Play(Type.SoundPrefix + "_death", 0.5f, Random.Range(0.9f, 1.1f), fallback: "death");
             Killed?.Invoke(this);
+            if (Type.Kamikaze && !exploded) { exploded = true; Explode(); }
+            if (Type.SplitInto != null && EnemySpawner.Instance) Split();
+        }
+
+        void Split()
+        {
+            var room = Dungeon.Instance ? Dungeon.Instance.RoomAt(transform.position) : null;
+            Vector3 side = Player.Instance ? Vector3.Cross(Vector3.up, (Player.Instance.transform.position - transform.position).normalized) : Vector3.right;
+            for (int i = 0; i < Type.SplitCount; i++)
+            {
+                float s = Type.SplitCount == 1 ? 0f : Mathf.Lerp(-1f, 1f, i / (Type.SplitCount - 1f));
+                var at = transform.position + side * s * 0.9f;
+                if (room != null && !room.Contains(at, 1f)) at = transform.position;
+                var child = EnemySpawner.Instance.SpawnAt(Type.SplitInto, at + Vector3.up * 0.05f, hpMult, DamageMult);
+                child.Knockback(side * s * 5f);
+            }
         }
 
         void ApplyVisual(SpriteAnim anim, int frame, float alpha, float squash = 1f)

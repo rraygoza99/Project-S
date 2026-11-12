@@ -9,7 +9,7 @@ namespace Spellcaster
 
         public static void OnEnemyKilled(Enemy e, Run run)
         {
-            if (!Dungeon.Instance || e.Type.IsBoss || GameState.PracticeMode || GameState.TutorialMode) return;
+            if (!Dungeon.Instance || e.Type.IsBoss || !e.Type.DropsLoot || e.SelfDestructed || GameState.PracticeMode || GameState.TutorialMode) return;
             // Boss rooms pay out only through the boss itself (its item and heart), so the endlessly
             // summoned minions can't be farmed for gold and hearts.
             var room = Dungeon.Instance.RoomAt(e.transform.position);

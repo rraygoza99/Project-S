@@ -43,6 +43,8 @@ namespace Spellcaster
     public class SpriteSet
     {
         public SpriteAnim Walk, Attack, Hit, Dead;
+        /// <summary>Optional: Run (fast movement, e.g. a charge) and Special (a wind-up pose).</summary>
+        public SpriteAnim Run, Special;
         public float PixelsPerUnit = 16f;
         /// <summary>Distance in sheet pixels from the bottom of a cell to the character's feet.</summary>
         public float FeetPx;

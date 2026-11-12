@@ -25,7 +25,7 @@ own these packs, download them in Unity's Package Manager (My Assets > Download)
 
 | Pack | Used for |
 |---|---|
-| Pixel Monsters Vol.2 (Ismartal) | Imp = "monster 8", ranged enemy and boss = "monster 16" (floating eye) |
+| Pixel Monsters Vol.2 (Ismartal) | Imp = "monster 8", ranged enemy and boss = "monster 16" (floating eye), Flame Skull = 18, Horned Beetle = 4, Hornet = 11, Shade = 13 |
 | SpellBook Megapack (Rexard) | Spell icons |
 | Monster Sounds Pack (Cafofo) | Enemy hit / death / attack sounds |
 | Lightning Bolt Effect (Digital Ruby) | Lightning bolts (used via reflection; built-in fallback) |
@@ -130,6 +130,20 @@ New Forge synergies: Fire + Poison = **Combustion** (hits burst into flame), Ear
 | Explosive barrel | Breaks in one bolt; blasts enemies, you and other barrels (4 m) |
 | Crate | Breakable; may drop gold, a heart or an item |
 | Spike trap | Rises every few seconds after a short warning; hurts you and walking enemies |
+
+### Enemies
+
+| Enemy | From | Behaviour |
+|---|---|---|
+| Imp | floor 1 | Runs at you and claws |
+| Cultist | floor 1 | Keeps its distance and shoots; walks around cover to find you |
+| Hornet | floor 1 | Darting flyer that fires bursts of 3 stingers |
+| Shade | floor 1 (deeper rooms) | Splits into 2 fast shadelings when it dies (they drop nothing) |
+| Flame Skull | floor 2 | Rushes you and explodes (18 damage, 3 m); also explodes when killed, hurting nearby enemies, so kill it at range |
+| Horned Beetle | floor 2 | Tough; braces, then charges in a straight line (20 damage). Dodge it into a wall and it's dazed |
+| The Watcher | boss | Fans of bolts, summons imps |
+
+Ranged and newer enemies get more common on deeper floors and further from the start.
 
 ### Loot
 
