@@ -127,14 +127,83 @@ namespace Spellcaster
             yield return new WaitForSeconds(0.3f);
 
             // ---- floor generation ----
-            var rooms = d.Rooms.Values.ToList();
-            Log($"floor 1: {rooms.Count} rooms, " + string.Join(" ", rooms.Where(r => r.Type != RoomType.Combat).Select(r => $"{r.Type}@{r.Cell.x},{r.Cell.y}(d{r.Depth})")));
+            // Generator stress test: 300 floors of every size, checked for overlaps, doors and room kinds.
+            {
+                int badFloors = 0, big = 0, floors = 0;
+                var shapes = new HashSet<Vector2Int>();
+                for (int seed = 1; seed <= 300; seed++)
+                {
+                    int n = 10 + 2 * (seed % 3);
+                    var plan = FloorGenerator.Generate(n, new System.Random(seed));
+                    floors++;
+                    var owner = new Dictionary<Vector2Int, int>();
+                    bool ok = plan.Rooms.Count == n && plan.Doors.Count == n - 1;
+                    for (int i = 0; i < plan.Rooms.Count; i++)
+                        foreach (var c in plan.Rooms[i].Cells) { if (owner.ContainsKey(c)) ok = false; owner[c] = i; }
+                    foreach (var dr in plan.Doors)
+                        ok &= owner.TryGetValue(dr.Cell, out var a) && a == dr.A && owner.TryGetValue(dr.Cell + dr.Dir, out var b) && b == dr.B;
+                    foreach (var r in plan.Rooms)
+                    {
+                        if (r.Size != Vector2Int.one) { big++; shapes.Add(r.Size); }
+                        if (r.Type != RoomType.Combat && r.Type != RoomType.Boss && r.Size != Vector2Int.one) ok = false;
+                    }
+                    ok &= plan.Rooms.Count(r => r.Type == RoomType.Boss) == 1 && plan.Rooms.Any(r => r.Type == RoomType.Shop)
+                          && plan.Rooms.Any(r => r.Type == RoomType.Treasure) && plan.Rooms.Any(r => r.Type == RoomType.Shrine);
+                    if (!ok) badFloors++;
+                }
+                Check($"300 generated floors: no overlaps, one door per room, specials are 1x1 ({badFloors} bad, {big} big rooms, shapes {string.Join(" ", shapes.Select(s => $"{s.x}x{s.y}"))})",
+                    badFloors == 0 && big >= floors / 2 && shapes.Count == 3);
+            }
+
+            // Make sure floor 1 has a big room to test (rebuild with another seed if this one has none).
+            for (int seed = 11; !d.AllRooms.Any(r => r.IsBig && r.Type == RoomType.Combat) && seed < 200; seed++)
+            {
+                d.BuildFloor(1, seed);
+                yield return null;
+            }
+            var rooms = d.AllRooms.ToList();
+            Log($"floor 1: {rooms.Count} rooms, " + string.Join(" ", rooms.Where(r => r.Type != RoomType.Combat || r.IsBig).Select(r => $"{r.Type}@{r.Cell.x},{r.Cell.y}({r.Size.x}x{r.Size.y},d{r.Depth})")));
             Check("floor 1 has 10 rooms", rooms.Count == 10);
             Check("floor has start, boss, treasure, shop and rune shrine",
                 new[] { RoomType.Start, RoomType.Boss, RoomType.Treasure, RoomType.Shop, RoomType.Shrine }.All(t => rooms.Any(r => r.Type == t)));
             Check("every room is reachable through doors", Reachable(d) == rooms.Count);
             Check("boss room is at least 3 rooms from the start", d.FirstOfType(RoomType.Boss).Depth >= 3);
             Check("run starts in the start room, doors open, no enemies", d.Current?.Type == RoomType.Start && !d.DoorsLocked && Enemy.All.Count == 0);
+
+            // ---- big rooms ----
+            {
+                var bigRoom = rooms.First(r => r.IsBig && r.Type == RoomType.Combat);
+                // No wall or lintel inside the room: every pair of neighbouring cells is open.
+                int inner = 0;
+                foreach (var c in bigRoom.Cells)
+                foreach (var dir in FloorGenerator.Directions)
+                {
+                    if (!bigRoom.Owns(c + dir)) continue;
+                    var from = Room.CellCenter(c) + Vector3.up * 1.5f;
+                    var to = Room.CellCenter(c + dir) + Vector3.up * 1.5f;
+                    inner += Physics.RaycastAll(from, to - from, Vector3.Distance(from, to), Layers.WorldMask)
+                        .Count(h => h.collider.name == "Wall" || h.collider.name == "Lintel");
+                }
+                var bigDoor = bigRoom.Doors[0];
+                Vector3 inward = new Vector3(bigDoor.Dir.x, 0, bigDoor.Dir.y) * (bigDoor.A == bigRoom ? -1f : 1f);
+                player.Teleport(bigDoor.Position + inward * 3.5f + Vector3.up * 0.1f, 0f);
+                player.LookAt(bigRoom.Center + Vector3.up * 1.5f);
+                yield return new WaitForSeconds(3f);
+                Check($"a {bigRoom.Size.x}x{bigRoom.Size.y} room is one open space ({inner} walls inside) and holds a bigger fight ({Enemy.All.Count} enemies)",
+                    inner == 0 && d.Current == bigRoom && d.DoorsLocked && Enemy.All.Count >= 8);
+                Check("enemies spawn all over the big room",
+                    Enemy.All.Select(e => Room.CellAt(e.transform.position)).Distinct().Count() >= 2 && Enemy.All.All(e => bigRoom.Contains(e.transform.position)));
+                HUD.ShowMap = true;
+                yield return Shot("01b_big_room_map");
+                HUD.ShowMap = false;
+                yield return Shot("01c_big_room");
+                gs.ClearEnemies();
+                d.ClearCurrent();
+                yield return new WaitForSeconds(0.5f);
+                ClearPickups();
+                player.Teleport(d.FirstOfType(RoomType.Start).Center + new Vector3(0f, 0.1f, -3f), 0f);
+                yield return new WaitForSeconds(0.3f);
+            }
             Check("run starts knowing only Fireball", SpellBook.Known.Count == 1 && SpellBook.Known[0].Id == "fireball");
             foreach (var p in Prop.All.ToArray()) Destroy(p.gameObject); // keep the test range clear
             yield return Shot("01_start_room");
@@ -336,6 +405,30 @@ namespace Spellcaster
             Check($"cooldowns run again in combat ({healCd:0.0}s -> {ss.CooldownRemaining(Spell("Heal")):0.0}s)",
                 SpellSystem.CooldownsTick && ss.CooldownRemaining(Spell("Heal")) < healCd - 0.5f);
             gs.ClearEnemies();
+
+            // ---- ranged enemies walk around cover to find you ----
+            {
+                var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                wall.name = "TestCover";
+                wall.layer = Layers.World;
+                wall.transform.position = AheadPoint(player, 2.2f, 0f) + Vector3.up * 2f;
+                wall.transform.rotation = Quaternion.LookRotation(player.transform.forward);
+                wall.transform.localScale = new Vector3(4f, 4f, 0.5f);
+                var hunter = SpawnAhead(player, EnemyType.Cultist, 10f, 0f);
+                yield return new WaitForSeconds(0.5f);
+                bool hiddenAtStart = !hunter.SeesPlayer;
+                Vector3 startPos = hunter.transform.position;
+                int shotsBefore = hunter.AttacksDone;
+                float coverWait = 0f;
+                while (coverWait < 10f && hunter && hunter.AttacksDone == shotsBefore) { coverWait += Time.deltaTime; yield return null; }
+                yield return Shot("05b_cultist_flanked");
+                float moved = hunter ? Vector3.Distance(startPos, hunter.transform.position) : 0f;
+                Check($"a cultist behind cover walks around it and shoots again (hidden {hiddenAtStart}, moved {moved:0.0} m, {coverWait:0.0} s)",
+                    hiddenAtStart && hunter && hunter.AttacksDone > shotsBefore && moved > 1.5f);
+                UnityEngine.Object.Destroy(wall);
+                gs.ClearEnemies();
+                yield return null;
+            }
             yield return new WaitForSeconds(1f);
 
             // ---- new base spells ----
@@ -529,7 +622,7 @@ namespace Spellcaster
 
             // ---- rooms: doors lock, encounter, clear ----
             var combat = d.Current.Doors.Select(x => x.Other(d.Current)).FirstOrDefault(r => r.Type == RoomType.Combat)
-                         ?? d.Rooms.Values.First(r => r.Type == RoomType.Combat);
+                         ?? d.AllRooms.First(r => r.Type == RoomType.Combat && !r.Cleared);
             EnterRoom(player, combat);
             yield return new WaitForSeconds(1.6f);
             Check($"entering a combat room locks its doors ({combat.Doors.Count} doors)", d.Current == combat && d.DoorsLocked && d.InCombat);
@@ -601,7 +694,7 @@ namespace Spellcaster
             yield return Shot("20_portal");
             player.Teleport(d.PortalPosition + Vector3.up * 0.1f, 0f);
             yield return new WaitForSeconds(1f);
-            Check("portal leads to floor 2", d.Floor == 2 && d.Current?.Type == RoomType.Start && d.Rooms.Count == 12);
+            Check("portal leads to floor 2", d.Floor == 2 && d.Current?.Type == RoomType.Start && d.AllRooms.Count == 12);
             Check("gold, spells and items carry over to the next floor",
                 run.Gold == goldBefore && SpellBook.Known.Count == spellsBefore && run.Items.Count == itemsBefore);
             player.SetLook(0f, 0f);
@@ -915,8 +1008,8 @@ namespace Spellcaster
         {
             var room = Dungeon.Instance.Current;
             Vector3 pos = p.transform.position + p.transform.forward * distance + p.transform.right * side;
-            pos.x = Mathf.Clamp(pos.x, room.Center.x - 11f, room.Center.x + 11f);
-            pos.z = Mathf.Clamp(pos.z, room.Center.z - 11f, room.Center.z + 11f);
+            pos.x = Mathf.Clamp(pos.x, room.Center.x - room.HalfX + 2f, room.Center.x + room.HalfX - 2f);
+            pos.z = Mathf.Clamp(pos.z, room.Center.z - room.HalfZ + 2f, room.Center.z + room.HalfZ - 2f);
             pos.y = 0.05f;
             return pos;
         }

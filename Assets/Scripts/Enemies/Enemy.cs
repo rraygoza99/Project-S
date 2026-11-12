@@ -48,6 +48,16 @@ namespace Spellcaster
         float bobPhase;
         int attacksDone;
 
+        // Ranged hunting: when the player hides, walk to a spot that can see them again.
+        float losTimer, flankRepick;
+        bool flanking;
+        Vector3 flankPoint;
+        /// <summary>Whether this enemy could see the player at its last check (ranged enemies).</summary>
+        public bool SeesPlayer { get; private set; } = true;
+        /// <summary>True while a ranged enemy is moving around cover to find the player.</summary>
+        public bool IsFlanking => flanking;
+        public int AttacksDone => attacksDone;
+
         static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         static readonly int MainTexStId = Shader.PropertyToID("_MainTex_ST");
         static readonly int ColorId = Shader.PropertyToID("_Color");
@@ -157,7 +167,7 @@ namespace Spellcaster
                 }
                 else
                 {
-                    move = Steer(dir, dist, dt);
+                    move = Steer(player, dir, dist, dt);
                     if (attackCooldown <= 0f && !player.IsDead && CanAttack(player, dist))
                     {
                         state = State.Attack;
@@ -226,11 +236,35 @@ namespace Spellcaster
             }
         }
 
-        Vector3 Steer(Vector3 dir, float dist, float dt)
+        Vector3 Steer(Player player, Vector3 dir, float dist, float dt)
         {
             Vector3 desire;
             if (Type.Ranged)
             {
+                losTimer -= dt;
+                if (losTimer <= 0f)
+                {
+                    losTimer = 0.2f;
+                    SeesPlayer = player.IsDead || HasLineOfSight(player);
+                }
+            }
+            if (Type.Ranged && !SeesPlayer)
+            {
+                // The player is behind cover: circle around to a spot that has a clear shot.
+                flankRepick -= dt;
+                Vector3 toFlank = flankPoint - transform.position;
+                toFlank.y = 0f;
+                if (!flanking || flankRepick <= 0f || toFlank.sqrMagnitude < 0.8f * 0.8f)
+                {
+                    PickFlankPoint(player);
+                    toFlank = flankPoint - transform.position;
+                    toFlank.y = 0f;
+                }
+                desire = toFlank.sqrMagnitude > 0.04f ? toFlank.normalized : dir;
+            }
+            else if (Type.Ranged)
+            {
+                flanking = false;
                 strafeTimer -= dt;
                 if (strafeTimer <= 0f)
                 {
@@ -284,6 +318,49 @@ namespace Spellcaster
             desire += sep * 2f;
             if (desire.sqrMagnitude > 1f) desire.Normalize();
             return desire;
+        }
+
+        /// <summary>
+        /// Picks the closest point around the player, at shooting distance and inside the room, that has
+        /// a clear line to them. Points the enemy can walk to in a straight line are preferred; if none
+        /// can see the player, it just closes in.
+        /// </summary>
+        void PickFlankPoint(Player player)
+        {
+            flanking = true;
+            flankRepick = 1.2f;
+            Vector3 p = player.transform.position, me = transform.position;
+            var room = Dungeon.Instance ? Dungeon.Instance.Current : null;
+            float eyeUp = Type.Hover + Type.Height * 0.5f;
+            Vector3 chest = player.ChestPosition;
+            Vector3 fromPlayer = me - p;
+            fromPlayer.y = 0f;
+            float baseAngle = Mathf.Atan2(fromPlayer.z, fromPlayer.x);
+            float mid = (Type.PreferredMin + Type.PreferredMax) * 0.5f;
+
+            float best = float.MaxValue;
+            Vector3 bestPoint = p;
+            const int Steps = 16;
+            for (int ring = 0; ring < 2; ring++)
+            {
+                float radius = ring == 0 ? Mathf.Clamp(fromPlayer.magnitude, Type.PreferredMin, mid) : Type.PreferredMin * 0.75f;
+                for (int i = 0; i < Steps; i++)
+                {
+                    // Alternate sides outward from the enemy's own bearing, starting with its strafe side.
+                    int k = (i + 1) / 2;
+                    float sign = (i % 2 == 0 ? 1f : -1f) * strafeSign;
+                    float a = baseAngle + sign * k * (Mathf.PI * 2f / Steps);
+                    var c = new Vector3(p.x + Mathf.Cos(a) * radius, me.y, p.z + Mathf.Sin(a) * radius);
+                    if (room != null && !room.Contains(c, Type.Radius + 0.8f)) continue;
+                    var eye = c + Vector3.up * eyeUp;
+                    if (Physics.CheckSphere(eye, Type.Radius, Layers.SolidMask, QueryTriggerInteraction.Ignore)) continue;
+                    if (Physics.Linecast(eye, chest, Layers.WorldMask, QueryTriggerInteraction.Ignore)) continue;
+                    float cost = Vector3.Distance(me, c);
+                    if (Physics.Linecast(Center, eye, Layers.SolidMask, QueryTriggerInteraction.Ignore)) cost += 6f;
+                    if (cost < best) { best = cost; bestPoint = c; }
+                }
+            }
+            flankPoint = bestPoint;
         }
 
         bool CanAttack(Player player, float dist)

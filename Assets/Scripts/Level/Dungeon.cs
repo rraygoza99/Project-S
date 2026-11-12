@@ -20,7 +20,10 @@ namespace Spellcaster
         public const int FinalFloor = 3;
 
         public int Floor { get; private set; }
+        /// <summary>Room by grid cell (a big room is listed under each of its cells).</summary>
         public readonly Dictionary<Vector2Int, Room> Rooms = new Dictionary<Vector2Int, Room>();
+        /// <summary>Every room once.</summary>
+        public readonly List<Room> AllRooms = new List<Room>();
         public Room Current { get; private set; }
         public bool InCombat { get; private set; }
         public Enemy Boss { get; private set; }
@@ -106,6 +109,7 @@ namespace Spellcaster
             foreach (var p in FindObjectsByType<Projectile>(FindObjectsSortMode.None)) Destroy(p.gameObject);
             if (LevelRoot) Destroy(LevelRoot.gameObject);
             Rooms.Clear();
+            AllRooms.Clear();
             doors.Clear();
             Pickup.All.Clear();
             Prop.All.Clear();
@@ -123,21 +127,29 @@ namespace Spellcaster
             LevelRoot = new GameObject("Floor " + floor).transform;
             LevelRoot.SetParent(transform, false);
             var rng = new System.Random(seed != 0 ? seed : Random.Range(1, int.MaxValue));
-            var layout = FloorGenerator.Generate(8 + 2 * floor, rng);
+            var plan = FloorGenerator.Generate(8 + 2 * floor, rng);
 
-            foreach (var kv in layout)
+            foreach (var pr in plan.Rooms)
             {
                 var room = new Room
                 {
-                    Cell = kv.Key, Type = kv.Value.type, Depth = kv.Value.depth,
-                    Center = new Vector3(kv.Key.x * Spacing, 0f, kv.Key.y * Spacing),
+                    Cell = pr.Min, Size = pr.Size, Type = pr.Type, Depth = pr.Depth,
+                    Center = Room.CellCenter(pr.Min) + new Vector3((pr.Size.x - 1) * Spacing * 0.5f, 0f, (pr.Size.y - 1) * Spacing * 0.5f),
                 };
-                room.Root = new GameObject($"Room {kv.Key} {room.Type}").transform;
+                room.Root = new GameObject($"Room {pr.Min} {pr.Size.x}x{pr.Size.y} {room.Type}").transform;
                 room.Root.SetParent(LevelRoot, false);
-                Rooms[kv.Key] = room;
+                foreach (var c in room.Cells) Rooms[c] = room;
+                AllRooms.Add(room);
             }
-            foreach (var room in Rooms.Values) BuildRoom(room);
-            foreach (var room in Rooms.Values)
+            foreach (var pd in plan.Doors)
+            {
+                var door = new Door { A = AllRooms[pd.A], B = AllRooms[pd.B], Cell = pd.Cell, Dir = pd.Dir };
+                doors.Add(door);
+                door.A.Doors.Add(door);
+                door.B.Doors.Add(door);
+            }
+            foreach (var room in AllRooms) BuildRoom(room);
+            foreach (var room in AllRooms)
             {
                 RoomLayouts.Furnish(room, pal, rng, floor);
                 StockRoom(room);
@@ -154,48 +166,47 @@ namespace Spellcaster
         {
             var root = room.Root;
             Vector3 c = room.Center;
-            Box(root, "Floor", c + new Vector3(0, -0.5f, 0), new Vector3(Spacing, 1, Spacing), pal.Floor);
-            Box(root, "Ceiling", c + new Vector3(0, WallH + 0.5f, 0), new Vector3(Spacing, 1, Spacing), pal.Ceiling);
+            var span = new Vector3(room.Size.x * Spacing, 1, room.Size.y * Spacing);
+            Box(root, "Floor", c + new Vector3(0, -0.5f, 0), span, pal.Floor);
+            Box(root, "Ceiling", c + new Vector3(0, WallH + 0.5f, 0), span, pal.Ceiling);
 
-            foreach (var dir in FloorGenerator.Directions)
+            // Walls go on every cell edge that leads out of the room; edges between the room's own cells stay open.
+            foreach (var cell in room.Cells)
             {
-                var d3 = new Vector3(dir.x, 0, dir.y);
-                var along = new Vector3(Mathf.Abs(dir.y), 0, Mathf.Abs(dir.x)); // wall runs perpendicular to dir
-                Vector3 wallCenter = c + d3 * (Half + 0.5f) + Vector3.up * WallH * 0.5f;
-                bool open = Rooms.TryGetValue(room.Cell + dir, out var other);
-                Vector3 thick = new Vector3(Mathf.Abs(dir.x), 0, Mathf.Abs(dir.y)); // 1 m thickness axis
-                if (!open)
+                Vector3 cc = Room.CellCenter(cell);
+                foreach (var dir in FloorGenerator.Directions)
                 {
-                    Box(root, "Wall", wallCenter, along * Spacing + thick + Vector3.up * WallH, pal.Wall);
-                    continue;
-                }
-                float seg = (Spacing - DoorW) * 0.5f;
-                foreach (float s in new[] { -1f, 1f })
-                    Box(root, "Wall", wallCenter + along * s * (DoorW * 0.5f + seg * 0.5f), along * seg + thick + Vector3.up * WallH, pal.Wall);
-                float lintel = WallH - DoorH;
-                Box(root, "Lintel", c + d3 * (Half + 0.5f) + Vector3.up * (DoorH + lintel * 0.5f), along * DoorW + thick + Vector3.up * lintel, pal.Wall);
+                    if (room.Owns(cell + dir)) continue;
+                    var d3 = new Vector3(dir.x, 0, dir.y);
+                    var along = new Vector3(Mathf.Abs(dir.y), 0, Mathf.Abs(dir.x)); // wall runs perpendicular to dir
+                    Vector3 wallCenter = cc + d3 * (Half + 0.5f) + Vector3.up * WallH * 0.5f;
+                    Vector3 thick = new Vector3(Mathf.Abs(dir.x), 0, Mathf.Abs(dir.y)); // 1 m thickness axis
+                    var door = room.Doors.FirstOrDefault(dr => (dr.Cell == cell && dr.Dir == dir) || (dr.Cell == cell + dir && dr.Dir == -dir));
 
-                // One gate per doorway, owned by the room with the lower cell.
-                if (Compare(room.Cell, other.Cell) < 0)
-                {
-                    var door = new Door { A = room, B = other };
-                    Vector3 gatePos = c + d3 * (Spacing * 0.5f) + Vector3.up * (-DoorH * 0.5f - 0.05f);
-                    door.Gate = Box(LevelRoot, "Gate", gatePos, along * DoorW + new Vector3(Mathf.Abs(dir.x), 0, Mathf.Abs(dir.y)) * 1.8f + Vector3.up * DoorH, pal.Gate).transform;
-                    doors.Add(door);
-                    room.Doors.Add(door);
-                    other.Doors.Add(door);
-                }
-            }
+                    // wall torches for atmosphere
+                    foreach (float s in new[] { -1f, 1f })
+                    {
+                        var q = Fx.CreateQuad(root, new Color(1f, 0.55f, 0.2f, 0.8f), 0.9f);
+                        q.transform.position = cc + d3 * (Half - 0.15f) + along * s * 7f + Vector3.up * 3.2f;
+                    }
 
-            // wall torches for atmosphere
-            foreach (var dir in FloorGenerator.Directions)
-            {
-                var d3 = new Vector3(dir.x, 0, dir.y);
-                var along = new Vector3(Mathf.Abs(dir.y), 0, Mathf.Abs(dir.x));
-                foreach (float s in new[] { -1f, 1f })
-                {
-                    var q = Fx.CreateQuad(root, new Color(1f, 0.55f, 0.2f, 0.8f), 0.9f);
-                    q.transform.position = c + d3 * (Half - 0.15f) + along * s * 7f + Vector3.up * 3.2f;
+                    if (door == null)
+                    {
+                        Box(root, "Wall", wallCenter, along * Spacing + thick + Vector3.up * WallH, pal.Wall);
+                        continue;
+                    }
+                    float seg = (Spacing - DoorW) * 0.5f;
+                    foreach (float s in new[] { -1f, 1f })
+                        Box(root, "Wall", wallCenter + along * s * (DoorW * 0.5f + seg * 0.5f), along * seg + thick + Vector3.up * WallH, pal.Wall);
+                    float lintel = WallH - DoorH;
+                    Box(root, "Lintel", cc + d3 * (Half + 0.5f) + Vector3.up * (DoorH + lintel * 0.5f), along * DoorW + thick + Vector3.up * lintel, pal.Wall);
+
+                    // One gate per doorway, built by the door's A room.
+                    if (door.A == room)
+                    {
+                        Vector3 gatePos = door.Position + Vector3.up * (-DoorH * 0.5f - 0.05f);
+                        door.Gate = Box(LevelRoot, "Gate", gatePos, along * DoorW + thick * 1.8f + Vector3.up * DoorH, pal.Gate).transform;
+                    }
                 }
             }
 
@@ -206,8 +217,6 @@ namespace Spellcaster
                 sigil.transform.rotation = Quaternion.Euler(90, 0, 0);
             }
         }
-
-        static int Compare(Vector2Int a, Vector2Int b) => a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y);
 
         /// <summary>Puts the items on the pedestals of treasure rooms, shops and rune shrines.</summary>
         void StockRoom(Room room)
@@ -268,7 +277,7 @@ namespace Spellcaster
             if (!gs || gs.Phase != Phase.Playing || !player || LevelRoot == null) return;
 
             var pos = player.transform.position;
-            var cell = new Vector2Int(Mathf.RoundToInt(pos.x / Spacing), Mathf.RoundToInt(pos.z / Spacing));
+            var cell = Room.CellAt(pos);
             if (Rooms.TryGetValue(cell, out var room) && room != Current && room.Contains(pos, 1.2f)) Enter(room);
 
             if (InCombat)
@@ -319,6 +328,8 @@ namespace Spellcaster
                 return;
             }
             int count = 3 + 2 * Floor + Random.Range(0, 3) + Mathf.Min(room.Depth, 4) / 2;
+            // Big rooms hold bigger fights.
+            if (room.IsBig) count = Mathf.Min(Mathf.RoundToInt(count * (room.CellCount >= 4 ? 2.1f : 1.6f)), 22);
             float rangedChance = Mathf.Min(0.2f + 0.1f * Floor + 0.03f * room.Depth, 0.5f);
             for (int i = 0; i < count; i++)
                 pending.Enqueue((Random.value < rangedChance ? EnemyType.Cultist : EnemyType.Imp, RandomSpawnPoint(room, player, 7f)));
@@ -398,7 +409,8 @@ namespace Spellcaster
             Vector3 best = room.Center;
             for (int t = 0; t < 40; t++)
             {
-                var p = room.Center + new Vector3(Random.Range(-11f, 11f), 0.05f, Random.Range(-11f, 11f));
+                float hx = room.HalfX - 2f, hz = room.HalfZ - 2f;
+                var p = room.Center + new Vector3(Random.Range(-hx, hx), 0.05f, Random.Range(-hz, hz));
                 if (!room.IsFree(p, 0.9f)) continue;
                 best = p;
                 Vector3 d = p - avoid;
@@ -423,11 +435,10 @@ namespace Spellcaster
 
         public Room RoomAt(Vector3 pos)
         {
-            var cell = new Vector2Int(Mathf.RoundToInt(pos.x / Spacing), Mathf.RoundToInt(pos.z / Spacing));
-            return Rooms.TryGetValue(cell, out var r) ? r : null;
+            return Rooms.TryGetValue(Room.CellAt(pos), out var r) ? r : null;
         }
 
-        public Room FirstOfType(RoomType t) => Rooms.Values.FirstOrDefault(r => r.Type == t);
+        public Room FirstOfType(RoomType t) => AllRooms.FirstOrDefault(r => r.Type == t);
 
         /// <summary>Is the room drawn on the map? Visited rooms and their neighbours are.</summary>
         public bool IsRevealed(Room r) => r.Visited || r.Doors.Any(d => d.Other(r).Visited);

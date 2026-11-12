@@ -214,21 +214,27 @@ namespace Spellcaster
         {
             Vector2 center = area.center;
             mapIcon ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
-            foreach (var room in d.Rooms.Values)
+            var prevGroup = GUI.matrix;
+            GUI.BeginClip(area);
+            center -= area.position;
+            foreach (var room in d.AllRooms)
             {
                 if (!d.IsRevealed(room)) continue;
                 var rel = room.Cell - origin;
-                if (range > 0 && (Mathf.Abs(rel.x) > range || Mathf.Abs(rel.y) > range)) continue;
-                Vector2 c = center + new Vector2(rel.x, -rel.y) * cell;
-                float s = cell * 0.78f;
-                var rect = new Rect(c.x - s / 2, c.y - s / 2, s, s);
+                if (range > 0 && (rel.x > range || rel.y > range || rel.x + room.Size.x - 1 < -range || rel.y + room.Size.y - 1 < -range)) continue;
+                // Big rooms are one block spanning their cells.
+                Vector2 mid0 = new Vector2(rel.x + (room.Size.x - 1) * 0.5f, -(rel.y + (room.Size.y - 1) * 0.5f));
+                Vector2 c = center + mid0 * cell;
+                float gap = cell * 0.22f;
+                float sw = room.Size.x * cell - gap, sh = room.Size.y * cell - gap;
+                var rect = new Rect(c.x - sw / 2, c.y - sh / 2, sw, sh);
                 Fill(rect, room == d.Current ? MapCurrent : (room.Visited ? MapVisited : MapUnknown));
                 foreach (var door in room.Doors)
                 {
                     var o = door.Other(room);
                     if (!room.Visited && !o.Visited) continue;
-                    var dir = o.Cell - room.Cell;
-                    Vector2 mid = c + new Vector2(dir.x, -dir.y) * cell * 0.5f;
+                    var dc = door.Cell - origin;
+                    Vector2 mid = center + (new Vector2(dc.x, -dc.y) + new Vector2(door.Dir.x, -door.Dir.y) * 0.5f) * cell;
                     float t = Mathf.Max(2f, cell * 0.18f);
                     Fill(new Rect(mid.x - t / 2, mid.y - t / 2, t, t), door.Locked ? new Color(0.9f, 0.2f, 0.2f) : MapVisited);
                 }
@@ -241,6 +247,8 @@ namespace Spellcaster
                 }
             }
             DrawPlayerMarker(center, cell, origin);
+            GUI.EndClip();
+            GUI.matrix = prevGroup;
         }
 
         static readonly Color MarkerColor = new Color(1f, 0.25f, 0.2f);
@@ -270,7 +278,8 @@ namespace Spellcaster
             const int range = 3;
             var area = new Rect(u, u, cell * (range * 2 + 1), cell * (range * 2 + 1));
             Fill(area, new Color(0, 0, 0, 0.45f));
-            if (d.Current != null) DrawRooms(area, cell, d.Current.Cell, d, range);
+            // Centre on the player's own cell, so a big room scrolls as you cross it.
+            if (d.Current != null && Player.Instance) DrawRooms(area, cell, Room.CellAt(Player.Instance.transform.position), d, range);
             var north = new GUIStyle(Small) { alignment = TextAnchor.UpperCenter, fontStyle = FontStyle.Bold };
             north.normal.textColor = new Color(1f, 0.85f, 0.45f, 0.9f);
             Shadowed(new Rect(area.x, area.y, area.width, 2f * u), "N", north);

@@ -83,6 +83,9 @@ cleared rooms, so you can't wait out Heal between fights).
   gold), a **rune shrine** (a new spell) and a **boss room** at the far end.
 - **Rooms.** Walking into an uncleared room drops iron gates over its doors and summons the fight.
   Clear it to open the doors; cleared rooms sometimes leave a reward.
+- **Room sizes.** Most rooms are one grid cell (26 x 26 m). Some combat rooms are big: long halls
+  (2x1 or 1x2) and 2x2 arenas, with a cover layout in each cell and more enemies (1.6x / 2.1x).
+  The start room, its neighbours and the special rooms are always one cell.
 - **Boss.** The Watcher fires fans of bolts and summons imps. Killing it opens a portal to the next
   floor (and drops an item and a heart). The portal on floor 3 wins the run.
 - **Map.** The minimap shows visited rooms and their neighbours; T, $, R and B mark the special rooms.
