@@ -6,7 +6,20 @@ floors room by room, collect spell runes, relics and items, and fuse your spells
 Built in Unity 6 (6000.3, Built-in render pipeline). The whole game is built from code at runtime:
 no hand-made scenes or prefabs.
 
-## Run it
+## Play it
+
+**[Download the game from the Releases page](https://github.com/rraygoza99/Project-S/releases)** (Windows 64-bit):
+
+1. On the newest release, under **Assets**, download **Spellcaster-Windows.zip**.
+   Don't download "Source code": that's for building the game, and it needs Unity.
+2. Right-click the zip → **Extract All**, then open the extracted `Spellcaster` folder.
+   (Running it from inside the zip without extracting won't work.)
+3. Double-click **Spellcaster.exe**. If Windows says it protected your PC, click
+   **More info → Run anyway**.
+
+## Build from source (developers)
+
+Needs Unity 6000.3.5f1.
 
 ```
 play.bat

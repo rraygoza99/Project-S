@@ -17,7 +17,25 @@ if (-not $unity) {
     }
     $unity = "C:\Program Files\Unity\Hub\Editor\$version\Editor\Unity.exe"
 }
-if (-not (Test-Path $unity)) { Write-Error "Unity Editor not found at $unity (set `$env:UNITY_EDITOR)"; exit 1 }
+if (-not (Test-Path $unity)) {
+    $releases = 'https://github.com/rraygoza99/Project-S/releases'
+    Write-Host ''
+    Write-Host 'This folder is the game''s SOURCE CODE. Building it needs the Unity Editor,' -ForegroundColor Yellow
+    Write-Host 'which was not found on this PC.' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host 'Just want to play? Download the ready-to-play game instead:' -ForegroundColor Cyan
+    Write-Host "  1. Open $releases"
+    Write-Host '  2. Under Assets on the newest release, download Spellcaster-Windows.zip'
+    Write-Host '  3. Extract it and double-click Spellcaster.exe'
+    Write-Host ''
+    Write-Host "(Developers: install Unity, or set `$env:UNITY_EDITOR to Unity.exe. Looked for: $unity)" -ForegroundColor DarkGray
+    if (-not $AutoTest -and -not $BuildOnly) {
+        Start-Process $releases
+        Write-Host ''
+        Read-Host 'Opened the download page in your browser. Press Enter to close'
+    }
+    exit 1
+}
 
 $exe = Join-Path $root 'Build\Spellcaster.exe'
 $needsBuild = $Rebuild -or -not (Test-Path $exe)
