@@ -110,6 +110,7 @@ namespace Spellcaster
             if (tick > 0f) return;
             tick = 0.5f;
             Vector3 c = transform.position;
+            DevMode.Ring(c + Vector3.up * 0.1f, radius, DevMode.SpellArea, 0.5f);
             foreach (var e in Enemy.All.ToArray())
             {
                 if (!e.IsAlive) continue;

@@ -31,6 +31,11 @@ namespace Spellcaster
 
         public void Launch() => Spell.Delivery.Launch(this);
 
+        /// <summary>Most HP one cast can heal through lifesteal.</summary>
+        public const float MaxLifestealPerCast = 12f;
+        /// <summary>HP this cast healed through lifesteal (tests).</summary>
+        public float LifestealHealed { get; private set; }
+
         public bool WasHit(Enemy e) => hit.Contains(e);
 
         public void Resolve(Enemy primary, Vector3 point) =>
@@ -53,8 +58,17 @@ namespace Spellcaster
             foreach (var effect in Spell.Payload)
                 if (effect.Role == EffectRole.Caster) effect.ApplyToCaster(this);
 
-            // Leech Sigil relic
-            if (Stats.SpellLifesteal > 0f && DamageDealt > 0f && Caster) Caster.Heal(DamageDealt * Stats.SpellLifesteal);
+            // Lifesteal: the spell's largest lifesteal effect (they don't stack) plus the Leech Sigil relic,
+            // capped per cast so area spells can't heal you to full.
+            float steal = 0f;
+            foreach (var effect in Spell.Payload)
+                if (effect is LifestealEffect l) steal = Mathf.Max(steal, l.Fraction);
+            steal += Stats.SpellLifesteal;
+            if (steal > 0f && DamageDealt > 0f && Caster)
+            {
+                LifestealHealed = Mathf.Min(DamageDealt * steal, MaxLifestealPerCast);
+                Caster.Heal(LifestealHealed);
+            }
         }
 
         /// <summary>Applies every Direct effect to one enemy (once per cast).</summary>

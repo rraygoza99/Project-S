@@ -105,7 +105,8 @@ namespace Spellcaster
             Add("shatter", 0.4f, (t, d) => (Noise() * 0.4f + Sin(3700 * t) * 0.2f + Sin(5100 * t) * 0.15f) * Env(t, d, 3));
 
             // --- generic creature fallbacks ---
-            Add("hit", 0.09f, (t, d) => Noise() * 0.45f * Env(t, d, 3) + Sq(170 * t) * 0.2f * Env(t, d, 2));
+            // hit: a dry thwack, a 5 ms click plus a fast low thump, no tail
+            Add("hit", 0.055f, (t, d) => Noise() * 0.6f * Env(t, 0.006f, 1) + Noise() * 0.18f * Env(t, d, 6) + Sin(Slide(t, d, 190, 70)) * 0.65f * Env(t, d, 2.5f));
             Add("death", 0.45f, (t, d) => Saw(Slide(t, d, 420, 55)) * 0.3f * Env(t, d, 1) + Noise() * 0.15f * Env(t, d, 2));
             Add("hurt", 0.2f, (t, d) => Sq(Slide(t, d, 150, 80)) * 0.3f * Env(t, d, 1) + Noise() * 0.2f * Env(t, d, 3));
             Add("claw", 0.12f, (t, d) => Noise() * 0.35f * Mathf.Sin(Mathf.PI * t / d));

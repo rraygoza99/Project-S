@@ -98,7 +98,7 @@ namespace Spellcaster
             GameAction.Item2 => "Use item 2",
             GameAction.Item3 => "Use item 3",
             GameAction.Interact => "Take / buy",
-            GameAction.Map => "Map (hold)",
+            GameAction.Map => "Map",
             _ => "Spell Forge",
         };
 

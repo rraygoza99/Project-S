@@ -282,6 +282,15 @@ namespace Spellcaster
         /// <summary>Clears all cooldowns (debug / tests).</summary>
         public void ResetCooldowns() => cooldownLeft.Clear();
 
+        /// <summary>A spell left the book (forgotten in the Forge): drop any state that refers to it.</summary>
+        public void OnForgotten(SpellDefinition s)
+        {
+            if (Readied == s) Readied = null;
+            cooldownLeft.Remove(s);
+            cooldownLengths.Remove(s);
+            UpdateHands();
+        }
+
         /// <summary>Drops a readied spell (debug / tests).</summary>
         public void ClearReadied() => Readied = null;
 

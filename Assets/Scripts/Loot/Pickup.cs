@@ -23,7 +23,11 @@ namespace Spellcaster
         MaterialPropertyBlock mpb;
         Vector3 velocity;
         float baseY, bobPhase, age;
-        bool grounded;
+        bool grounded, vacuum;
+        /// <summary>Coins within this distance drift to you.</summary>
+        public const float CoinMagnetRadius = 7f;
+        /// <summary>Flying to you because the room was cleared (tests).</summary>
+        public bool Vacuuming => vacuum;
 
         static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         static readonly int MainTexStId = Shader.PropertyToID("_MainTex_ST");
@@ -117,10 +121,18 @@ namespace Spellcaster
             Vector3 to = player.transform.position - transform.position;
             to.y = 0f;
             float dist = to.magnitude;
-            if (Item.Kind == ItemKind.Coin && dist < 3.5f)
+            if (Item.Kind == ItemKind.Coin && !vacuum)
             {
-                // coins fly to you
-                transform.position += to.normalized * Mathf.Min(dist, (10f - dist * 2f) * dt);
+                // Once the fight in this room is over, every coin left in it comes to you.
+                var dg = Dungeon.Instance;
+                var room = dg ? dg.Current : null;
+                if (room != null && room.HasEnemies && room.Cleared && room.Contains(transform.position)) vacuum = true;
+            }
+            if (Item.Kind == ItemKind.Coin && (vacuum || dist < CoinMagnetRadius))
+            {
+                // coins fly to you: gently at the edge of the magnet, fast up close, fast when vacuumed
+                float speed = vacuum ? 16f : Mathf.Lerp(12f, 3f, dist / CoinMagnetRadius);
+                transform.position += to.normalized * Mathf.Min(dist, speed * dt);
                 grounded = true;
             }
             if (dist < 1.1f && Run.Instance && Run.Instance.CanAcquire(Item, out _)) TryCollect(Run.Instance, quiet: true);

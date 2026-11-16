@@ -39,7 +39,7 @@ namespace Spellcaster
             // Life magic woven into an attack drains health from what it hits.
             new Rule { Name = "Lifesteal",
                 Requires = e => e.Contains(Element.Life) && Damaging(e),
-                Make = () => new LifestealEffect(0.25f) },
+                Make = () => new LifestealEffect(0.15f) },
             // Fire meets poison gas: every hit bursts into flame around the target.
             new Rule { Name = "Combustion",
                 Requires = e => e.Contains(Element.Fire) && e.Contains(Element.Poison),

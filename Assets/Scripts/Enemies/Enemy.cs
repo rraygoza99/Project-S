@@ -36,6 +36,10 @@ namespace Spellcaster
         State state = State.Walk;
 
         CharacterController cc;
+        CapsuleCollider hitbox;
+        float nextVoice;
+        /// <summary>The collider shots and blasts hit (centred on the sprite).</summary>
+        public CapsuleCollider Hitbox => hitbox;
         Transform visual;
         Renderer rend;
         MaterialPropertyBlock mpb;
@@ -80,7 +84,8 @@ namespace Spellcaster
 
         public static Enemy Spawn(EnemyType type, Vector3 position, float hpMult = 1f, float dmgMult = 1f)
         {
-            var go = new GameObject(type.Name) { layer = Layers.Enemy };
+            Layers.Setup();
+            var go = new GameObject(type.Name) { layer = Layers.EnemyBody };
             go.transform.position = position;
             var cc = go.AddComponent<CharacterController>();
             cc.radius = type.Radius;
@@ -89,6 +94,14 @@ namespace Spellcaster
             cc.stepOffset = 0.2f;
             cc.skinWidth = 0.04f;
             cc.minMoveDistance = 0f;
+
+            // What shots and blasts hit: a capsule around the sprite, including its flying height.
+            var hitGo = new GameObject("Hitbox") { layer = Layers.Enemy };
+            hitGo.transform.SetParent(go.transform, false);
+            var hitbox = hitGo.AddComponent<CapsuleCollider>();
+            hitbox.radius = type.Radius;
+            hitbox.height = Mathf.Max(type.Height, type.Radius * 2f);
+            hitbox.center = new Vector3(0, type.Hover + type.Height * 0.5f, 0);
 
             var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
             DestroyImmediate(quad.GetComponent<Collider>());
@@ -107,6 +120,7 @@ namespace Spellcaster
             e.chargeCd = Random.Range(1f, 2.5f);
             e.DamageMult = dmgMult;
             e.cc = cc;
+            e.hitbox = hitbox;
             e.visual = quad.transform;
             e.rend = r;
             e.mpb = new MaterialPropertyBlock();
@@ -465,7 +479,9 @@ namespace Spellcaster
             float r = Type.ExplodeRadius, dmg = Type.ExplodeDamage * DamageMult;
             Fx.Flash(c, new Color(1f, 0.55f, 0.15f), r * 0.9f, 0.4f, 2f);
             Fx.Ring(transform.position + Vector3.up * 0.1f, new Color(1f, 0.5f, 0.1f), r, 0.4f);
+            Fx.AreaMarker(c, new Color(1f, 0.35f, 0.1f, 0.9f), r, 0.7f);
             Sfx.Play("explode", 0.7f, 1.15f);
+            DevMode.Sphere(c, r, DevMode.EnemyArea);
             var player = Player.Instance;
             if (player && !player.IsDead && (player.ChestPosition - c).sqrMagnitude <= r * r
                 && !Physics.Linecast(c, player.ChestPosition, Layers.WorldMask, QueryTriggerInteraction.Ignore))
@@ -495,6 +511,7 @@ namespace Spellcaster
             if (!Type.Ranged)
             {
                 attackCooldown = Type.AttackCooldown;
+                DevMode.Ring(transform.position + Vector3.up * 0.1f, Type.AttackRange + 0.5f, DevMode.EnemyArea, 0.35f);
                 if (dist <= Type.AttackRange + 0.5f)
                 {
                     player.TakeDamage(Type.Damage * DamageMult);
@@ -562,7 +579,16 @@ namespace Spellcaster
             hurtFlash = 0.1f;
             if (!silent) hitAnimTimer = Type.Sprites.Hit != null ? Type.Sprites.Hit.Duration : 0f;
             if (HP <= 0f) Die();
-            else if (!silent) Sfx.Play(Type.SoundPrefix + "_hit", 0.45f, Random.Range(0.9f, 1.15f), fallback: "hit");
+            else if (!silent)
+            {
+                // Every hit: the dry impact. The creature's (reverby) pain voice only now and then.
+                Sfx.Play("hit", 0.6f, Random.Range(0.92f, 1.08f));
+                if (Time.time >= nextVoice && Random.value < 0.35f)
+                {
+                    nextVoice = Time.time + 1.2f;
+                    Sfx.Play(Type.SoundPrefix + "_hit", 0.25f, Random.Range(0.95f, 1.15f));
+                }
+            }
             return dealt;
         }
 
@@ -600,6 +626,7 @@ namespace Spellcaster
             DiedFrozen = frozenTimer > 0f;
             state = State.Dead;
             cc.enabled = false;
+            hitbox.enabled = false;
             frozenTimer = 0f;
             burnTimer = 0f;
             poisonTimer = 0f;

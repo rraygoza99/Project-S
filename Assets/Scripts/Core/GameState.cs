@@ -16,10 +16,13 @@ namespace Spellcaster
         public string Banner { get; private set; }
         public float BannerTimer { get; private set; }
         public bool Paused { get; private set; }
+        /// <summary>The window lost focus mid-run: paused until you click back in.</summary>
+        public bool FocusPaused { get; private set; }
+        int resumeFrame = -10;
 
         public bool ForgeOpen => SpellForgeUI.Instance && SpellForgeUI.Instance.IsOpen;
         // The click that pressed "Start game" must not also fire a bolt.
-        public bool AcceptsGameplayInput => Phase == Phase.Playing && !ForgeOpen && !Paused && Time.frameCount > beganFrame + 1;
+        public bool AcceptsGameplayInput => Phase == Phase.Playing && !ForgeOpen && !Paused && Time.frameCount > beganFrame + 1 && Time.frameCount > resumeFrame + 1;
         int beganFrame = -10;
         public bool InRun => Phase == Phase.Playing;
 
@@ -41,6 +44,23 @@ namespace Spellcaster
 
         void OnDestroy() => Enemy.Killed -= OnKilled;
 
+        void OnApplicationFocus(bool focus) => SetFocus(focus);
+
+        /// <summary>Alt-tab / focus loss: pause the run (test hook too). The game resumes when you click back in.</summary>
+        public void SetFocus(bool focus)
+        {
+            Debug.Log($"[Spellcaster] window focus {(focus ? "regained" : "lost")} ({Screen.width}x{Screen.height}, {Screen.fullScreenMode})");
+            if (focus || !InRun || ForgeOpen) return;
+            FocusPaused = true;
+            if (!AutoTest.Active) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+        }
+
+        public void ClearFocusPause()
+        {
+            FocusPaused = false;
+            resumeFrame = Time.frameCount; // the click that resumes must not also cast
+        }
+
         void Start()
         {
             if (skipTitle && !AutoTest.Active) Begin();
@@ -49,7 +69,8 @@ namespace Spellcaster
         void Update()
         {
             BannerTimer = Mathf.Max(0f, BannerTimer - Time.unscaledDeltaTime);
-            Paused = InRun && !AutoTest.Active && Cursor.lockState != CursorLockMode.Locked && !ForgeOpen;
+            if (FocusPaused && Application.isFocused && !AutoTest.Active && Input.GetMouseButtonDown(0)) ClearFocusPause();
+            Paused = InRun && !ForgeOpen && (FocusPaused || (!AutoTest.Active && Cursor.lockState != CursorLockMode.Locked));
             Time.timeScale = (Paused || ForgeOpen || Phase == Phase.Dead || Phase == Phase.Victory) ? 0f : 1f;
             if (Phase == Phase.Playing) RunTime += Time.deltaTime;
 

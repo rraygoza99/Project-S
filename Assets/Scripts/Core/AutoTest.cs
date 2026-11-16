@@ -475,7 +475,7 @@ namespace Spellcaster
                 player.God = false;
                 player.Heal(player.MaxHP);
                 ntHp = player.HP;
-                var ntBeetle = SpawnAhead(player, EnemyType.Beetle, 10f, 0f);
+                var ntBeetle = SpawnAhead(player, EnemyType.Beetle, 14f, 0f); // far enough that its first charge is always ready before it is too close
                 yield return null;
                 float ntTop = 0f;
                 bool ntCharged = false;
@@ -497,7 +497,7 @@ namespace Spellcaster
                 yield return null;
 
                 // ...and a wall in its path dazes it.
-                var ntB2 = SpawnAhead(player, EnemyType.Beetle, 10f, 0f);
+                var ntB2 = SpawnAhead(player, EnemyType.Beetle, 14f, 0f);
                 ntT = 0f;
                 while (ntT < 7f && !ntB2.IsDashing) { ntT += Time.deltaTime; yield return null; }
                 Vector3 ntDir = player.transform.position - ntB2.transform.position;
@@ -549,6 +549,126 @@ namespace Spellcaster
                 }
                 Check($"floor 1 rooms mix {string.Join(", ", ntF1.Select(x => x.Name))}; floor 3 adds {string.Join(", ", ntF3.Except(ntF1).Select(x => x.Name))}",
                     ntF1.Count == 4 && !ntF1.Contains(EnemyType.Skull) && !ntF1.Contains(EnemyType.Beetle) && ntF3.Count == 6);
+
+                // Dev mode: hitbox wireframes over enemies, projectiles and spell areas.
+                bool dvWasOn = Settings.DevMode;
+                DevMode.Toggle();
+                var dvTypes = new[] { EnemyType.Imp, EnemyType.Cultist, EnemyType.Beetle, EnemyType.Skull };
+                for (int i = 0; i < dvTypes.Length; i++)
+                    SpawnAhead(player, dvTypes[i], 8f, (i - 1.5f) * 2.6f).Freeze(5f);
+                int dvRec = DevMode.Recorded;
+                Vector3 dvAt = player.transform.position + player.transform.forward * 5f + Vector3.up * 1f;
+                Combat.Explode(dvAt + player.transform.right * 2.5f, 2.5f, 0f, 0f, Combat.BombColor);
+                var dvShot = Projectile.Spawn(dvAt - player.transform.right * 1.5f, player.transform.forward * 0.5f, Color.yellow, 0.4f, 0.3f, Layers.PlayerShotMask, null, life: 3f);
+                yield return null;
+                yield return null;
+                yield return Shot("05d_dev_hitboxes");
+                Check($"dev mode (F3) draws hitboxes ({DevMode.Recorded - dvRec} spell area, {Projectile.All.Count} projectile, {Enemy.All.Count} enemies)",
+                    !dvWasOn && Settings.DevMode && DevMode.Recorded > dvRec && Projectile.All.Contains(dvShot));
+                DevMode.Toggle();
+                int dvOff = DevMode.Recorded;
+                Combat.Explode(dvAt, 1f, 0f, 0f, Combat.BombColor);
+                Check("dev mode off records nothing", !Settings.DevMode && DevMode.Recorded == dvOff);
+                if (dvShot) UnityEngine.Object.Destroy(dvShot.gameObject);
+                gs.ClearEnemies();
+                yield return null;
+
+                // ---- playtest fixes ----
+                // #1 Flying enemies: the hitbox sits on the sprite, so bolts at the sprite hit and bolts at the floor under it miss.
+                DevMode.Toggle();
+                var fxTypes = new[] { EnemyType.Hornet, EnemyType.Cultist, EnemyType.Skull }; // the skull last: it explodes when killed
+                var fxFlyers = new List<Enemy>();
+                for (int i = 0; i < fxTypes.Length; i++)
+                {
+                    var fe = SpawnAhead(player, fxTypes[i], 8f, (i - 1f) * 3f);
+                    fe.Freeze(8f);
+                    fxFlyers.Add(fe);
+                }
+                yield return new WaitForSeconds(0.2f);
+                player.LookAt(fxFlyers[0].Center);
+                yield return Shot("05e_flyer_hitboxes");
+                bool fxAligned = fxFlyers.All(f => Vector3.Distance(f.Hitbox.bounds.center, f.Center) < 0.05f);
+                bool fxRayHits = true, fxFloorMisses = true;
+                Vector3 fxEye = player.Cam.transform.position;
+                foreach (var f in fxFlyers)
+                {
+                    fxRayHits &= Physics.Raycast(fxEye, (f.Center - fxEye).normalized, out var fh, 30f, Layers.PlayerShotMask, QueryTriggerInteraction.Ignore)
+                                 && fh.collider.GetComponentInParent<Enemy>() == f;
+                    Vector3 fxFeet = f.transform.position + Vector3.up * 0.25f;
+                    bool hitFeet = Physics.Raycast(fxEye, (fxFeet - fxEye).normalized, out var fh2, 30f, Layers.PlayerShotMask, QueryTriggerInteraction.Ignore)
+                                   && fh2.collider.GetComponentInParent<Enemy>() == f;
+                    if (f.Type.Hover >= 0.9f) fxFloorMisses &= !hitFeet;
+                }
+                Check($"flying enemies' hitboxes sit on their sprites ({string.Join(", ", fxFlyers.Select(f => f.Type.Name))})", fxAligned && fxRayHits);
+                Check("shots at the floor under a flying enemy miss it", fxFloorMisses);
+                // A real magic bolt aimed at each sprite hits it.
+                bool fxBoltsHit = true;
+                foreach (var f in fxFlyers)
+                {
+                    float fxHp = f.HP;
+                    player.LookAt(f.Center);
+                    yield return null;
+                    ss.FireBasic();
+                    float fxT = 0f;
+                    while (fxT < 1f && f && f.IsAlive && f.HP >= fxHp) { fxT += Time.deltaTime; yield return null; }
+                    fxBoltsHit &= !f || !f.IsAlive || f.HP < fxHp;
+                    yield return new WaitForSeconds(0.3f);
+                }
+                Check("magic bolts aimed at a Hornet, Cultist and Flame Skull hit them", fxBoltsHit);
+                DevMode.Toggle();
+                gs.ClearEnemies();
+                yield return null;
+
+                // #2 Flying enemies ignore spike traps; walking ones don't.
+                var fxHornet = SpawnAhead(player, EnemyType.Hornet, 6f, -2f);
+                var fxImp = SpawnAhead(player, EnemyType.Imp, 6f, 2f);
+                yield return new WaitForSeconds(0.2f);
+                fxHornet.Freeze(8f);
+                fxImp.Freeze(8f);
+                var fxTrapH = SpikeTrap.Create(Dungeon.Instance.Current.Root, fxHornet.transform.position, 0.5f);
+                var fxTrapI = SpikeTrap.Create(Dungeon.Instance.Current.Root, fxImp.transform.position, 0.5f);
+                yield return new WaitForSeconds(SpikeTrap.Cycle * 2f + 0.3f);
+                Check($"spike traps skip Flying enemies (Hornet {fxHornet.HP:0}/{fxHornet.MaxHP:0}) but hurt walkers (Imp {fxImp.HP:0}/{fxImp.MaxHP:0})",
+                    EnemyType.Hornet.Flying && fxHornet.HP == fxHornet.MaxHP && (!fxImp || fxImp.HP < fxImp.MaxHP));
+                UnityEngine.Object.Destroy(fxTrapH.gameObject);
+                UnityEngine.Object.Destroy(fxTrapI.gameObject);
+                gs.ClearEnemies();
+                yield return null;
+
+                // #3 Losing window focus pauses the run; a dropped render texture is rebuilt.
+                gs.SetFocus(false);
+                yield return null;
+                bool fxPaused = gs.Paused && gs.FocusPaused && Time.timeScale == 0f;
+                gs.ClearFocusPause();
+                yield return null;
+                Check("losing window focus pauses the game; clicking back resumes it", fxPaused && !gs.Paused && Time.timeScale == 1f);
+                RetroView.DropForTest();
+                bool fxDropped = !RetroView.Ready;
+                yield return null;
+                yield return null;
+                Check("a lost render texture is recreated (no white screen)", fxDropped && RetroView.Ready);
+
+                // #8 Healing pulses the health bar (with +N) instead of flashing the screen.
+                player.God = false;
+                player.TakeDamage(30f);
+                player.Heal(18f);
+                Check($"healing shows +{player.LastHeal:0} on the health bar", Mathf.Approximately(player.LastHeal, 18f) && player.HealFlash > 0f);
+                yield return Shot("05f_heal_bar");
+                player.God = true;
+                player.Heal(player.MaxHP);
+
+                // #10 Aiming at an explosive barrel shows its blast radius on the floor.
+                var fxBarrel = Prop.Create(PropKind.Barrel, Dungeon.Instance.Current.Root, AheadPoint(player, 7f, 0f));
+                player.LookAt(fxBarrel.Center);
+                yield return new WaitForSeconds(0.4f);
+                Check("aiming at a barrel shows its blast radius ring", Prop.Aimed == fxBarrel && fxBarrel.ShowingBlastRing);
+                yield return Shot("05g_barrel_radius");
+                UnityEngine.Object.Destroy(fxBarrel.gameObject);
+                var fxNova = SpellBook.Known.FirstOrDefault(s => s.Name == "Frost Nova");
+                var fxBolt = SpellBook.Known.FirstOrDefault(s => s.Name == "Lightning");
+                Check($"area spells are tagged ({fxNova?.Name}: {fxNova?.AreaTag}; {fxBolt?.Name}: none)",
+                    fxNova != null && fxNova.AreaTag != null && fxNova.AreaTag.StartsWith("AREA") && fxBolt != null && fxBolt.AreaTag == null);
+                yield return null;
             }
             yield return new WaitForSeconds(1f);
 
@@ -589,6 +709,34 @@ namespace Spellcaster
             forge.Toggle(IndexOf("Fireball"));
             Check("Forge rejects picking the same spell twice", forge.Forge() == null);
             forge.Close();
+            forge.Open();
+            yield return null;
+            yield return null; // let the HUD lay out the Forge's clickable areas
+            forge.Click(forge.RowRect(IndexOf("Frost Nova")).center);
+            string fgMissing = forge.Missing;
+            forge.Click(forge.RowRect(IndexOf("Lightning")).center);
+            yield return null;
+            yield return Shot("07b_forge_ui");
+            int fgCount = SpellBook.Known.Count;
+            forge.Click(forge.ForgeButtonRect.center);
+            Check($"Forge UI: clicking spells and the Forge button fuses them (first said \"{fgMissing}\")",
+                fgMissing.Contains("second") && SpellBook.Known.Count == fgCount + 1);
+            var fgVictim = SpellBook.Known[SpellBook.Known.Count - 1];
+            forge.Toggle(SpellBook.Known.Count - 1);
+            yield return null;
+            forge.Click(forge.ForgetButtonRect.center);
+            bool fgStillKnown = SpellBook.Knows(fgVictim.Id);
+            forge.Click(forge.ForgetButtonRect.center);
+            var fgRune = Pickup.All.FirstOrDefault(p => p.Item.Spell == fgVictim);
+            Check($"Forget asks to confirm, then removes {fgVictim.Name} and drops its rune", fgStillKnown && !SpellBook.Knows(fgVictim.Id) && fgRune);
+            forge.Close();
+            if (fgRune)
+            {
+                run.Acquire(fgRune.Item);
+                Destroy(fgRune.gameObject);
+            }
+            Check("picking the rune back up relearns the forgotten spell", SpellBook.Knows(fgVictim.Id));
+            SpellBook.Known.Remove(fgVictim); // leave the book as the later checks expect it
             bool conflictFree = true;
             var book = SpellBook.Known;
             for (int i = 0; i < book.Count; i++)
@@ -758,6 +906,23 @@ namespace Spellcaster
             EnterRoom(player, combat);
             yield return new WaitForSeconds(0.5f);
             Check("cleared rooms stay cleared", !d.InCombat && Enemy.All.Count == 0);
+            {
+                var trImp = SpawnAhead(player, EnemyType.Imp, 6f, 0f);
+                yield return new WaitForSeconds(0.2f);
+                trImp.Freeze(8f);
+                var trTrap = SpikeTrap.Create(combat.Root, trImp.transform.position, 0.5f);
+                yield return new WaitForSeconds(SpikeTrap.Cycle + 0.4f);
+                Check("spike traps stop once their room is cleared", trTrap.Disarmed && !trTrap.IsUp && trImp.HP == trImp.MaxHP);
+                Destroy(trTrap.gameObject);
+                gs.ClearEnemies();
+                yield return new WaitForSeconds(0.6f);
+                ClearPickups();
+                int trGold = run.Gold;
+                var trFar = Pickup.Spawn(Items.Coin, combat.Center + new Vector3(combat.HalfX - 2.5f, 0f, combat.HalfZ - 2.5f));
+                float trT = 0f;
+                while (trT < 4f && trFar) { trT += Time.deltaTime; yield return null; }
+                Check($"after a room is cleared, coins anywhere in it fly to you ({trT:0.0} s)", !trFar && run.Gold > trGold);
+            }
 
             // ---- special rooms ----
             var treasure = d.FirstOfType(RoomType.Treasure);
@@ -937,6 +1102,26 @@ namespace Spellcaster
             ss.CastReadied();
             yield return null;
             Check($"Life Drain damages and heals you ({hpDrain:0} -> {player.HP:0})", player.HP > hpDrain && drained.HP < drained.MaxHP);
+            gs.ClearEnemies();
+            yield return null;
+            // An area spell with two lifesteal effects on a crowd: only the larger counts, and the cast heals at most the cap.
+            var lsSpell = new SpellDefinition
+            {
+                Id = "test_lifesteal_nova", Name = "Test Drain Nova", Color = Color.red, Sequence = new Arrow[0],
+                Delivery = new NovaDelivery(8f),
+                Payload = { new DamageEffect(40f, Element.Life), new LifestealEffect(0.35f), new LifestealEffect(0.15f) },
+            };
+            for (int i = 0; i < 5; i++) SpawnAhead(player, EnemyType.Imp, 4f, (i - 2f) * 1.4f).Freeze(4f);
+            yield return new WaitForSeconds(0.2f);
+            player.Heal(player.MaxHP);
+            player.TakeDamage(60f);
+            float lsHp = player.HP;
+            var lsCast = new SpellCast(lsSpell, player);
+            lsCast.Launch();
+            yield return null;
+            Check($"lifesteal is capped per cast ({lsCast.DamageDealt:0} dmg -> healed {lsCast.LifestealHealed:0}, cap {SpellCast.MaxLifestealPerCast:0})",
+                lsCast.DamageDealt * 0.35f > SpellCast.MaxLifestealPerCast && Mathf.Approximately(lsCast.LifestealHealed, SpellCast.MaxLifestealPerCast)
+                && Mathf.Abs(player.HP - lsHp - SpellCast.MaxLifestealPerCast) < 0.01f);
             player.God = true;
             gs.ClearEnemies();
             yield return new WaitForSeconds(0.6f);
@@ -967,6 +1152,16 @@ namespace Spellcaster
             Pickup.Spawn(Items.Coin, player.transform.position + player.transform.forward * 0.6f);
             yield return new WaitForSeconds(0.9f);
             Check("Gold Tooth: coins are worth 2", run.Gold == goldT + 2);
+            int mgGold = run.Gold;
+            var mgCoin = Pickup.Spawn(Items.Coin, player.transform.position + player.transform.forward * (Pickup.CoinMagnetRadius - 1f));
+            float mgT = 0f;
+            while (mgT < 3f && mgCoin) { mgT += Time.deltaTime; yield return null; }
+            Check($"coins {Pickup.CoinMagnetRadius - 1f:0} m away drift to you ({mgT:0.0} s)", !mgCoin && run.Gold > mgGold);
+            gs.SetFocus(false);
+            yield return null;
+            yield return Shot("21b_pause_items");
+            gs.ClearFocusPause();
+            yield return null;
             run.Acquire(Items.Get("phoenix"));
             player.God = false;
             player.TakeDamage(99999f);

@@ -30,10 +30,12 @@ namespace Spellcaster
         {
             Fx.Flash(point, color, radius * 1.4f, 0.45f, 0.6f);
             Fx.Flash(point, new Color(1f, 0.95f, 0.7f), radius * 0.6f, 0.2f, 0.8f);
+            Fx.AreaMarker(point, new Color(1f, 0.5f, 0.15f, 0.9f), radius, 0.8f);
             Sfx.Play("explode", 0.8f, Random.Range(0.85f, 1.05f));
+            DevMode.Sphere(point, radius, playerDamage > 0f ? DevMode.EnemyArea : DevMode.SpellArea);
             foreach (var col in Physics.OverlapSphere(point, radius, Layers.EnemyMask, QueryTriggerInteraction.Ignore))
             {
-                var e = col.GetComponent<Enemy>();
+                var e = col.GetComponentInParent<Enemy>();
                 if (!e || !e.IsAlive) continue;
                 e.TakeDamage(enemyDamage, Element.Fire);
                 Vector3 d = e.transform.position - point;

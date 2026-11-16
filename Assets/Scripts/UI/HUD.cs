@@ -17,11 +17,22 @@ namespace Spellcaster
 
         /// <summary>Test hook: draw the full map as if M were held.</summary>
         public static bool ShowMap;
+        /// <summary>Map open in toggle mode (Options > Map key: Toggle).</summary>
+        public static bool MapToggled;
 
         void Update()
         {
             float dt = Mathf.Max(Time.unscaledDeltaTime, 1e-4f);
             fps = Mathf.Lerp(fps, 1f / dt, 0.05f);
+            if (Input.GetKeyDown(DevMode.ToggleKey)) DevMode.Toggle();
+            DevMode.Tick(Time.deltaTime);
+            Prop.UpdateAim();
+
+            // Map key in toggle mode: press once to open, again to close.
+            var gsm = GameState.Instance;
+            bool mapAllowed = Settings.MapToggle && gsm && gsm.InRun && !gsm.Paused && !gsm.ForgeOpen;
+            if (!mapAllowed) MapToggled = false;
+            else if (Bindings.Pressed(GameAction.Map)) MapToggled = !MapToggled;
         }
 
         public static void EnsureStyles()
@@ -44,7 +55,7 @@ namespace Spellcaster
             {
                 // The menu needs mouse/keyboard events, not just repaints.
                 EnsureStyles();
-                if (Event.current.type == EventType.Repaint && RetroView.RT)
+                if (Event.current.type == EventType.Repaint && RetroView.Ready)
                     GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), RetroView.RT, ScaleMode.StretchToFill, false);
                 MainMenu.Instance.DrawGUI(Screen.width, Screen.height);
                 return;
@@ -60,16 +71,16 @@ namespace Spellcaster
             var run = Run.Instance;
             var dungeon = Dungeon.Instance;
 
-            if (RetroView.RT) GUI.DrawTexture(new Rect(0, 0, W, H), RetroView.RT, ScaleMode.StretchToFill, false);
+            if (RetroView.Ready) GUI.DrawTexture(new Rect(0, 0, W, H), RetroView.RT, ScaleMode.StretchToFill, false);
+            else Fill(new Rect(0, 0, W, H), Color.black);
 
             if (WizardHands.Instance) WizardHands.Instance.Draw(px);
+            DevMode.DrawOverlay(W, H, u);
 
             if (player)
             {
                 if (player.HurtFlash > 0f) Fill(new Rect(0, 0, W, H), new Color(0.8f, 0f, 0f, 0.35f * player.HurtFlash));
-                if (player.HealFlash > 0f) Fill(new Rect(0, 0, W, H), new Color(0.2f, 1f, 0.3f, 0.25f * player.HealFlash));
             }
-            if (spells && spells.FizzleFlash > 0f) Fill(new Rect(0, 0, W, H), new Color(1f, 0.3f, 0.1f, 0.12f * spells.FizzleFlash));
 
             if (!spells || !spells.Channeling) DrawCrosshair(W, H, px); // while drawing, the rune's pen is the focus
             if (player) DrawHealth(H, px, u, player, run);
@@ -91,7 +102,7 @@ namespace Spellcaster
             }
 
             if (player && gs.InRun) DrawInteractPrompt(W, H, u, player);
-            if (run && run.ToastTimer > 0f) DrawToast(W, H, u, run);
+            if (run && run.ToastTimer > 0f && !gs.Paused) DrawToast(W, H, u, run);
 
             Shadowed(new Rect(0, H - pad - 1.6f * u, W, 2 * u),
                 $"Hold {Bindings.Short(GameAction.Channel)} + draw: rune   {Bindings.Short(GameAction.Cast)}: cast   " +
@@ -106,7 +117,7 @@ namespace Spellcaster
                 Title.normal.textColor = c;
             }
 
-            bool showMap = ShowMap || (gs.InRun && !gs.Paused && !gs.ForgeOpen && Bindings.Held(GameAction.Map));
+            bool showMap = ShowMap || (gs.InRun && !gs.Paused && !gs.ForgeOpen && (Settings.MapToggle ? MapToggled : Bindings.Held(GameAction.Map)));
             if (showMap && dungeon) DrawBigMap(W, H, u, dungeon, run);
 
             if (SpellForgeUI.Instance) SpellForgeUI.Instance.Draw();
@@ -115,8 +126,9 @@ namespace Spellcaster
             else if (gs.Phase == Phase.Victory) DrawEnd(W, H, u, gs, true);
             else if (gs.Paused)
             {
-                Fill(new Rect(0, 0, W, H), new Color(0, 0, 0, 0.5f));
-                Shadowed(new Rect(0, 0, W, H), "Paused - click to resume\nQ: main menu", Centered);
+                Fill(new Rect(0, 0, W, H), new Color(0, 0, 0, 0.6f));
+                Shadowed(new Rect(0, H * 0.08f, W, 6 * u), (gs.FocusPaused ? "Paused (window lost focus)" : "Paused") + " - click to resume\nQ: main menu", Centered);
+                if (run) DrawItemList(W * 0.3f, H * 0.24f, W * 0.4f, u, run, true);
             }
         }
 
@@ -165,6 +177,17 @@ namespace Spellcaster
             float k = Mathf.Clamp01(player.HP / player.MaxHP);
             Fill(new Rect(bar.x, bar.y, bar.width * k, bar.height), Color.Lerp(new Color(0.9f, 0.1f, 0.1f), new Color(0.2f, 0.85f, 0.25f), k));
             Shadowed(new Rect(bar.x + 2 * px, bar.y - 1.25f * bh, bw, bh * 1.2f), $"HP {Mathf.CeilToInt(player.HP)}/{Mathf.RoundToInt(player.MaxHP)}", Label);
+            if (player.HealFlash > 0f)
+            {
+                // Healing: the bar itself glows and pulses, and "+N" rises from its end (no full-screen flash).
+                float hf = player.HealFlash;
+                float pulse = 0.5f + 0.5f * Mathf.Cos((1f - hf) * Mathf.PI * 6f);
+                Fill(bar, new Color(0.6f, 1f, 0.65f, 0.45f * hf * pulse));
+                Frame(new Rect(bar.x - 2 * px, bar.y - 2 * px, bar.width + 4 * px, bar.height + 4 * px), new Color(0.45f, 1f, 0.55f, hf), Mathf.Max(2f, px));
+                var hs = new GUIStyle(Label) { alignment = TextAnchor.LowerRight };
+                hs.normal.textColor = new Color(0.55f, 1f, 0.6f, Mathf.Clamp01(hf * 1.5f));
+                Shadowed(new Rect(bar.xMax - 8 * u, bar.y - 1.3f * bh - (1f - hf) * 1.5f * u, 8 * u, bh * 1.2f), $"+{Mathf.Max(1, Mathf.RoundToInt(player.LastHeal))}", hs);
+            }
             if (!run) return;
             float cy = bar.y - 1.25f * bh - 2.8f * u;
             GUI.DrawTexture(new Rect(bar.x, cy + 0.2f * u, 1.8f * u, 1.8f * u), Items.Coin.Icon);
@@ -320,15 +343,40 @@ namespace Spellcaster
             y += 2.8f * u;
             foreach (var l in lines) { Shadowed(new Rect(x, y, w, lh), l, Small); y += lh * 0.85f; }
             y += u;
-            Shadowed(new Rect(x, y, w, 2.5f * u), "ITEMS & RELICS", Label);
-            y += 2.8f * u;
-            if (run.Items.Count == 0) Shadowed(new Rect(x, y, w, lh), "none yet", Small);
-            foreach (var it in run.Items)
+            DrawItemList(x, y, w, u, run, false);
+        }
+
+        /// <summary>Items & relics (and, on the pause screen, consumables): icon, name and what it does.</summary>
+        public static void DrawItemList(float x, float y, float w, float u, Run run, bool withConsumables)
+        {
+            float lh = 2.1f * u, ic = 1.8f * u;
+            var name = new GUIStyle(Small) { fontStyle = FontStyle.Bold };
+            void Row(ItemDef it, string extra)
             {
-                GUI.DrawTexture(new Rect(x, y, 1.8f * u, 1.8f * u), it.Icon, ScaleMode.ScaleToFit);
-                Shadowed(new Rect(x + 2.3f * u, y, w, lh), $"{it.Name}: {it.Desc}", Small);
+                GUI.DrawTexture(new Rect(x, y, ic, ic), it.Icon, ScaleMode.ScaleToFit);
+                name.normal.textColor = Color.Lerp(it.Color, Color.white, 0.45f);
+                var size = name.CalcSize(new GUIContent(it.Name + extra));
+                Shadowed(new Rect(x + ic + 0.5f * u, y, w, lh), it.Name + extra, name);
+                Shadowed(new Rect(x + ic + 0.5f * u + size.x + 0.6f * u, y, w - size.x - ic, lh), it.Desc, Small);
                 y += lh;
             }
+            Shadowed(new Rect(x, y, w, 2.5f * u), "ITEMS & RELICS", Label);
+            y += 2.8f * u;
+            if (run.Items.Count == 0) { Shadowed(new Rect(x, y, w, lh), "none yet", Small); y += lh; }
+            foreach (var it in run.Items) Row(it, "");
+            if (!withConsumables) return;
+            y += u;
+            Shadowed(new Rect(x, y, w, 2.5f * u), "CONSUMABLES", Label);
+            y += 2.8f * u;
+            bool any = false;
+            for (int i = 0; i < Run.Slots; i++)
+            {
+                var it = run.Consumables[i];
+                if (it == null) continue;
+                any = true;
+                Row(it, $" [{i + 1}]");
+            }
+            if (!any) Shadowed(new Rect(x, y, w, lh), "none", Small);
         }
 
         // ---------------- world-anchored labels and prompts ----------------
@@ -432,7 +480,7 @@ namespace Spellcaster
                 SetAlpha(Small, 1f);
                 var seqStyle = new GUIStyle(Small);
                 seqStyle.normal.textColor = new Color(0.8f, 0.8f, 0.85f, 0.8f * alpha);
-                Shadowed(new Rect(tx, row.y + 1.7f * u, width, 1.6f * u), Arrows.Glyphs(s.Sequence), seqStyle);
+                Shadowed(new Rect(tx, row.y + 1.7f * u, width, 1.6f * u), Arrows.Glyphs(s.Sequence) + (s.AreaTag != null ? "   " + s.AreaTag : ""), seqStyle);
 
                 // The rune's shape; strokes already drawn light up in the spell colour.
                 int lit = candidate && filtering ? ss.Entered.Count : 0;
@@ -489,7 +537,8 @@ namespace Spellcaster
         /// </summary>
         void DrawRuneCanvas(float W, float H, float u, SpellSystem ss)
         {
-            var center = new Vector2(W * 0.5f, H * 0.47f);
+            float shake = ss.FizzleFlash > 0f ? Mathf.Sin(Time.unscaledTime * 70f) * ss.FizzleFlash * 1.2f * u : 0f;
+            var center = new Vector2(W * 0.5f + shake, H * 0.47f);
             float size = 22f * u;
             var box = new Rect(center.x - size / 2, center.y - size / 2, size, size);
 
@@ -501,6 +550,7 @@ namespace Spellcaster
                 var eb = new Rect(center.x - size * grow / 2, center.y - size * grow / 2, size * grow, size * grow);
                 DrawPolyline(ss.EchoTrail, eb, 1.1f * u * grow, Mathf.Max(2f, 0.45f * u), new Color(c.r, c.g, c.b, k), true);
             }
+            if (ss.FizzleFlash > 0f) DrawTinted(box, PixelArt.RingTex, new Color(1f, 0.25f, 0.15f, 0.55f * ss.FizzleFlash));
             if (!ss.Channeling) return;
 
             float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3f);

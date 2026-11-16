@@ -14,6 +14,8 @@ namespace Spellcaster
         public float Height;
         public float Radius;
         public float Hover;                 // floating enemies hover this far above the ground
+        /// <summary>Flies: ignores floor hazards such as spike traps.</summary>
+        public bool Flying;
 
         public bool Ranged;
         public float AttackRange;           // melee reach, or max shooting range
@@ -59,7 +61,7 @@ namespace Spellcaster
         public static readonly EnemyType Cultist = new EnemyType
         {
             Name = "Cultist", SoundPrefix = "watcher", SpriteFactory = Spellcaster.Sprites.Cultist,
-            MaxHP = 60f, Speed = 2.6f, Height = 1.9f, Radius = 0.45f, Hover = 0.35f,
+            MaxHP = 60f, Speed = 2.6f, Height = 1.9f, Radius = 0.45f, Hover = 0.35f, Flying = true,
             Ranged = true, AttackRange = 24f, PreferredMin = 8f, PreferredMax = 14f,
             Windup = 0.6f, Recover = 0.35f, AttackCooldown = 2.6f, Damage = 10f,
             ProjectileSpeed = 9f, ProjectileColor = new Color(0.35f, 0.95f, 1f),
@@ -69,7 +71,7 @@ namespace Spellcaster
         public static readonly EnemyType Skull = new EnemyType
         {
             Name = "Flame Skull", SoundPrefix = "imp", SpriteFactory = Spellcaster.Sprites.Skull, MinFloor = 2,
-            MaxHP = 22f, Speed = 6.2f, Height = 0.9f, Radius = 0.4f, Hover = 1.0f,
+            MaxHP = 22f, Speed = 6.2f, Height = 0.9f, Radius = 0.4f, Hover = 1.0f, Flying = true,
             AttackRange = 1.9f, Windup = 0.3f, Recover = 0f, AttackCooldown = 0.5f, Damage = 0f,
             Kamikaze = true, ExplodeRadius = 3.2f, ExplodeDamage = 18f,
         };
@@ -87,7 +89,7 @@ namespace Spellcaster
         public static readonly EnemyType Hornet = new EnemyType
         {
             Name = "Hornet", SoundPrefix = "watcher", SpriteFactory = Spellcaster.Sprites.Hornet,
-            MaxHP = 34f, Speed = 4.4f, Height = 1.1f, Radius = 0.4f, Hover = 1.1f,
+            MaxHP = 34f, Speed = 4.4f, Height = 1.1f, Radius = 0.4f, Hover = 1.1f, Flying = true,
             Ranged = true, AttackRange = 20f, PreferredMin = 6f, PreferredMax = 11f,
             Windup = 0.45f, Recover = 0.5f, AttackCooldown = 3.0f, Damage = 5f,
             ProjectileSpeed = 15f, ProjectileColor = new Color(1f, 0.85f, 0.25f), Burst = 3, BurstGap = 0.16f,
@@ -114,7 +116,7 @@ namespace Spellcaster
         public static readonly EnemyType Boss = new EnemyType
         {
             Name = "The Watcher", SoundPrefix = "watcher", SpriteFactory = Spellcaster.Sprites.Cultist, IsBoss = true,
-            MaxHP = 650f, Speed = 2.2f, Height = 3.6f, Radius = 1.0f, Hover = 0.7f,
+            MaxHP = 650f, Speed = 2.2f, Height = 3.6f, Radius = 1.0f, Hover = 0.7f, Flying = true,
             Ranged = true, AttackRange = 30f, PreferredMin = 7f, PreferredMax = 12f,
             Windup = 0.7f, Recover = 0.5f, AttackCooldown = 1.9f, Damage = 9f,
             ProjectileSpeed = 10f, ProjectileColor = new Color(1f, 0.35f, 0.6f),

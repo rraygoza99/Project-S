@@ -27,6 +27,10 @@ namespace Spellcaster
         public static int ResolutionW { get; private set; }
         public static int ResolutionH { get; private set; }
         public static bool ShowFps { get; private set; } = true;
+        /// <summary>Dev mode: hitbox wireframes (F3).</summary>
+        public static bool DevMode { get; private set; }
+        /// <summary>Map key: false = hold to show (default), true = press to open / close.</summary>
+        public static bool MapToggle { get; private set; }
         /// <summary>Set after the tutorial has been finished or skipped once.</summary>
         public static bool TutorialDone { get; private set; }
 
@@ -46,6 +50,8 @@ namespace Spellcaster
             ResolutionW = PlayerPrefs.GetInt("res_w", 0);
             ResolutionH = PlayerPrefs.GetInt("res_h", 0);
             ShowFps = PlayerPrefs.GetInt("show_fps", 1) == 1;
+            DevMode = PlayerPrefs.GetInt("dev_mode", 0) == 1;
+            MapToggle = PlayerPrefs.GetInt("map_toggle", 0) == 1;
             TutorialDone = PlayerPrefs.GetInt("tutorial_done", 0) == 1;
             Bindings.Load();
             Apply();
@@ -57,6 +63,8 @@ namespace Spellcaster
         public static void SetFieldOfView(float v) { FieldOfView = Mathf.Clamp(Mathf.Round(v), MinFov, MaxFov); Save(); }
         public static void SetVolume(float v) { Volume = Mathf.Clamp01(Mathf.Round(v * 20f) / 20f); Apply(); Save(); }
         public static void SetShowFps(bool on) { ShowFps = on; Save(); }
+        public static void SetDevMode(bool on) { DevMode = on; Save(); }
+        public static void SetMapToggle(bool on) { MapToggle = on; Save(); }
         public static void SetTutorialDone(bool on) { TutorialDone = on; Save(); }
 
         public static void SetFullscreen(bool on)
@@ -105,6 +113,8 @@ namespace Spellcaster
             FieldOfView = DefFov;
             Volume = DefVolume;
             ShowFps = true;
+            DevMode = false;
+            MapToggle = false;
             Fullscreen = false;
             ResolutionW = ResolutionH = 0;
             Apply();
@@ -140,6 +150,8 @@ namespace Spellcaster
             PlayerPrefs.SetInt("res_w", ResolutionW);
             PlayerPrefs.SetInt("res_h", ResolutionH);
             PlayerPrefs.SetInt("show_fps", ShowFps ? 1 : 0);
+            PlayerPrefs.SetInt("dev_mode", DevMode ? 1 : 0);
+            PlayerPrefs.SetInt("map_toggle", MapToggle ? 1 : 0);
             PlayerPrefs.SetInt("tutorial_done", TutorialDone ? 1 : 0);
             PlayerPrefs.Save();
         }

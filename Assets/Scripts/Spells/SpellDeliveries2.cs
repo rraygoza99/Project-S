@@ -64,7 +64,10 @@ namespace Spellcaster
                 point = ground.point;
             else point.y = 0f;
             var color = cast.Spell.Color;
-            Fx.Ring(point + Vector3.up * 0.05f, color, 5f, 0.6f);
+            // Warning: the real blast size, held until it lands.
+            float blast = cast.Spell.AreaRadius > 0f ? cast.Spell.AreaRadius : 5f;
+            Fx.Ring(point + Vector3.up * 0.05f, color, blast, 0.6f);
+            Fx.AreaMarker(point, color, blast, 1.1f);
             Vector3 start = point + new Vector3(0.6f, Dungeon.WallH - 0.4f, 0.6f);
             Projectile.Spawn(start, (point - start).normalized * 8f, color, 1.8f, 0.4f, Layers.WorldMask,
                 (p, col) =>

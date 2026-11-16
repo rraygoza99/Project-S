@@ -132,13 +132,15 @@ namespace Spellcaster
         {
             float radius = Radius * cast.Stats.AreaMult;
             Fx.Flash(point, Color.Lerp(cast.Spell.Color, new Color(1f, 0.6f, 0.2f), 0.5f), radius * 1.3f, 0.45f, 0.6f);
+            Fx.AreaMarker(point, new Color(1f, 0.6f, 0.25f, 0.9f), radius, 0.7f);
             Fx.Flash(point, new Color(1f, 0.95f, 0.7f), radius * 0.6f, 0.2f, 0.8f);
             Sfx.Play("explode", 0.7f, Random.Range(0.9f, 1.1f));
             Combat.DamageProps(point, radius, 30f * cast.Power);
+            DevMode.Sphere(point, radius, DevMode.SpellArea);
             var hits = Physics.OverlapSphere(point, radius, Layers.EnemyMask, QueryTriggerInteraction.Ignore);
             foreach (var col in hits)
             {
-                var e = col.GetComponent<Enemy>();
+                var e = col.GetComponentInParent<Enemy>();
                 if (e && e != from) cast.ApplyDirect(e, Falloff);
             }
         }
@@ -172,6 +174,7 @@ namespace Spellcaster
                 if (!next) break;
                 scale *= Falloff;
                 LightningFx.Bolt(pos, next.Center, cast.Spell.Color, 0.25f);
+                DevMode.Line(pos, next.Center, DevMode.SpellRay);
                 pos = next.Center;
                 cast.ApplyDirect(next, scale);
             }
@@ -206,9 +209,7 @@ namespace Spellcaster
         public override EffectRole Role => EffectRole.Caster;
         public override SpellEffect Scaled(float p) => new LifestealEffect(Fraction);
         public override string Describe() => $"lifesteal {Fraction * 100:0}%";
-        public override void ApplyToCaster(SpellCast cast)
-        {
-            if (cast.DamageDealt > 0f) cast.Caster.Heal(cast.DamageDealt * Fraction);
-        }
+        // Applied centrally by SpellCast.Resolve: only the largest lifesteal in a spell counts, capped per cast.
+        public override void ApplyToCaster(SpellCast cast) { }
     }
 }

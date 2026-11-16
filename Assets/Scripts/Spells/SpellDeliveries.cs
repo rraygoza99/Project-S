@@ -75,6 +75,7 @@ namespace Spellcaster
                 if (prop) prop.TakeDamage(30f * cast.Power);
             }
             LightningFx.Bolt(origin, end, cast.Spell.Color, 0.3f);
+            DevMode.Line(origin, end, DevMode.SpellRay);
             Fx.Flash(end, cast.Spell.Color, 1.4f, 0.3f, 1f);
             Sfx.Play("zap", 0.7f, Random.Range(0.95f, 1.05f));
             cast.Resolve(target, end);
@@ -94,6 +95,8 @@ namespace Spellcaster
             Vector3 center = cast.Caster.transform.position;
             float radius = Radius * cast.Stats.AreaMult;
             Fx.Ring(center + Vector3.up * 0.1f, cast.Spell.Color, radius, 0.45f);
+            Fx.AreaMarker(center, cast.Spell.Color, radius, 0.6f);
+            DevMode.Ring(center + Vector3.up * 0.1f, radius, DevMode.SpellArea);
             Fx.Flash(center + Vector3.up * 1f, cast.Spell.Color, radius * 0.8f, 0.35f, 1.2f);
             if (cast.Spell.Payload.Exists(e => e is DamageEffect)) Combat.DamageProps(center + Vector3.up, radius, 20f * cast.Power);
             Sfx.Play(cast.Spell.Payload.Exists(e => e is FreezeEffect) ? "freeze" : "explode", 0.7f);

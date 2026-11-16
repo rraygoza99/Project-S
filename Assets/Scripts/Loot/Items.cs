@@ -18,6 +18,8 @@ namespace Spellcaster
         public string Shape;
         public int Value = 1;
         public string SpellId;
+        /// <summary>A forgotten spell (base or forged) this rune gives back exactly.</summary>
+        public SpellDefinition Spell;
         public Action<Run> OnAcquire;
         /// <summary>Consumables: returns false if it can't be used right now (the item is kept).</summary>
         public Func<Run, bool> Use;
@@ -134,6 +136,7 @@ namespace Spellcaster
                 {
                     var p = Player.Instance.transform.position;
                     Fx.Ring(p + Vector3.up * 0.1f, new Color(0.6f, 0.9f, 1f), 16f, 0.6f);
+                    DevMode.Ring(p + Vector3.up * 0.1f, 16f, DevMode.SpellArea);
                     Sfx.Play("freeze", 0.8f);
                     foreach (var e in Enemy.All.ToArray())
                         if (e.IsAlive && (e.transform.position - p).sqrMagnitude < 16f * 16f) e.Freeze(4f);
@@ -149,6 +152,7 @@ namespace Spellcaster
                 {
                     var p = Player.Instance.transform.position;
                     Fx.Ring(p + Vector3.up * 0.1f, new Color(0.8f, 0.8f, 0.85f), 14f, 0.6f);
+                    DevMode.Ring(p + Vector3.up * 0.1f, 14f, DevMode.SpellArea);
                     Fx.Flash(p + Vector3.up, new Color(0.7f, 0.7f, 0.75f), 6f, 0.6f, 1.5f);
                     Sfx.Play("explode", 0.5f, 1.5f);
                     foreach (var e in Enemy.All.ToArray())
@@ -181,6 +185,13 @@ namespace Spellcaster
             runes[spellId] = r;
             return r;
         }
+
+        /// <summary>The rune a spell leaves behind when you forget it in the Forge.</summary>
+        public static ItemDef ForgottenRune(SpellDefinition s) => new ItemDef
+        {
+            Id = "forgotten_" + s.Id, Name = s.Name + " Rune", Kind = ItemKind.Rune, SpellId = s.Id, Spell = s,
+            Desc = $"Relearn {s.Name}: rune {Arrows.Glyphs(s.Sequence)}", Color = s.Color, IconFactory = () => s.Icon,
+        };
 
         public static ItemDef Get(string id) =>
             Passives.Concat(Relics).Concat(Consumables).FirstOrDefault(i => i.Id == id)

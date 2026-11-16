@@ -163,7 +163,7 @@ namespace Spellcaster
                 Step.Cast => ("Cast it", $"Fireball is ready (your hands glow). Let go of {ch}, aim at the imps and press {cast}."),
                 _ => ("You're ready", $"Clear each room to open its doors. Find runes for new spells and relics that change them.\n" +
                     $"{Bindings.Short(GameAction.Item1)}-{Bindings.Short(GameAction.Item3)}: items   {Bindings.Short(GameAction.Interact)}: take / buy   " +
-                    $"hold {Bindings.Short(GameAction.Map)}: map   {Bindings.Short(GameAction.Forge)}: Spell Forge (fuse two spells)\n\nPress Enter to begin the run."),
+                    $"{(Settings.MapToggle ? "press" : "hold")} {Bindings.Short(GameAction.Map)}: map   {Bindings.Short(GameAction.Forge)}: Spell Forge (fuse two spells)\n\nPress Enter to begin the run."),
             };
         }
 

@@ -61,6 +61,15 @@ be redistributed).
   swaps over). Everything is saved between sessions.
 - **Exit game**.
 
+### Dev mode
+
+Press **F3** in game (or Options > Dev mode) to draw hitboxes over the view, through walls:
+enemy hitboxes (green capsules around the sprite, with name and HP; flying enemies also show a faint
+ring where they touch the floor), melee reach and beetle ram contact (red rings),
+your projectiles (yellow) and enemy projectiles (magenta) at their real collision radius, and for
+a moment after each hit: spell blast areas, nova and cloud rings (orange), instant rays and chain
+jumps (blue), and enemy blasts and swings (bright red). A legend sits on the left.
+
 ## Controls
 
 Defaults (rebind them in Options > Controls):
@@ -73,9 +82,9 @@ Defaults (rebind them in Options > Controls):
 | **Left Click** | Cast the readied spell, or fire the magic bolt (hold for auto-fire) |
 | **1 2 3** | Use the item in that slot |
 | **E** | Take / buy the item in front of you |
-| Hold **M** | Full map, stats and items |
+| Hold **M** | Full map, stats and items (Options > Map key: Toggle to press once instead) |
 | **Tab** | Spell Forge (outside of fights; the game pauses) |
-| Esc | Pause (click to resume, Q: main menu) |
+| Esc | Pause: shows your items (click to resume, Q: main menu). Alt-tabbing out also pauses. |
 | R / Esc | New run / main menu after death or victory |
 | K | Debug: spawn 10 enemies in this room |
 
@@ -116,7 +125,7 @@ variety. Nothing counts in the practice tool or the tutorial.
 | Defeat 100 enemies | Arcane Missiles (→ ↑ →): five homing missiles |
 | Clear a room without getting hurt | Blink (↑ ← ↑): teleport forward |
 | Defeat a boss | Quake (↓ ← ↓): stuns and damages everything around you |
-| Heal 300 HP in total | Life Drain (← ↑ ←): beam that heals you for half its damage |
+| Heal 300 HP in total | Life Drain (← ↑ ←): beam that heals you for 35% of its damage |
 | Reach floor 3 | Meteor (→ ↓ ←): falls on the crosshair spot, 6 m blast |
 | Die once | Thorned Robe: enemies that hit you up close take 15 damage |
 | Die 5 times | Phoenix Feather: survive one lethal hit with half your HP |
@@ -140,9 +149,9 @@ New Forge synergies: Fire + Poison = **Combustion** (hits burst into flame), Ear
 | Obstacle | |
 |---|---|
 | Pillars and cover walls | Six room layouts block movement and shots |
-| Explosive barrel | Breaks in one bolt; blasts enemies, you and other barrels (4 m) |
+| Explosive barrel | Breaks in one bolt; blasts enemies, you and other barrels (4.2 m; aim at one to see the ring) |
 | Crate | Breakable; may drop gold, a heart or an item |
-| Spike trap | Rises every few seconds after a short warning; hurts you and walking enemies |
+| Spike trap | Rises every few seconds after a short warning; hurts you and walking (not flying) enemies; stops once the room is cleared |
 
 ### Enemies
 
@@ -210,8 +219,8 @@ Every run starts with **Fireball**; the others are learned from **runes** (rune 
 
 ### Spell Forge: make your own spells
 
-Press **Tab** when no fight is on, pick two spells with the number keys, check the preview, press
-**Enter**. The new spell:
+Press **Tab** when no fight is on and click two spells (or press their numbers). The top row shows
+**A + B = result** and says what's still missing; click **Forge** (or press **Enter**). The new spell:
 
 - uses the first spell's **delivery** (projectile / instant bolt / nova / self) and carries **both
   payloads** at 85% strength,
@@ -224,7 +233,14 @@ Press **Tab** when no fight is on, pick two spells with the number keys, check t
 | Fire + Frost | Shatter | Frozen targets take +45 damage (consumes the freeze) |
 | Fire + Storm | Ignite | Targets burn for 12/s over 4 s |
 | Frost + Storm | Thunderclap | Knocks targets back |
-| Life + any damage | Lifesteal | Heal 25% of the damage dealt |
+| Life + any damage | Lifesteal | Heal 15% of the damage dealt |
+
+Lifesteal never stacks inside one spell (only its largest lifesteal counts, plus the Leech Sigil), and
+one cast heals at most 12 HP.
+
+**Forget a spell** to make room (the book holds 9): pick one spell in the Forge and click **Forget**
+(or press Delete) twice. Its rune drops at your feet, so you can pick it back up if you change your
+mind. You always keep at least 2 spells.
 
 Forged spells can be forged again (tier 3, 4...), up to 12 effects and 9 known spells. Relics apply
 to forged spells too, so a Splitting Prism on a "Frozen Fireball" fires three freezing fireballs.

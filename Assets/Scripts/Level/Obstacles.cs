@@ -15,7 +15,38 @@ namespace Spellcaster
         public PropKind Kind { get; private set; }
         public float HP { get; private set; }
         public Vector3 Center => transform.position + Vector3.up * 0.6f;
+        public const float BarrelBlastRadius = 4.2f, AimRange = 20f;
         bool broken;
+        Renderer aimRing;
+        float aimGlow;
+
+        /// <summary>The explosive barrel under the crosshair (within AimRange), if any.</summary>
+        public static Prop Aimed { get; private set; }
+        /// <summary>A barrel's blast-radius ring is showing (tests).</summary>
+        public bool ShowingBlastRing => aimRing && aimRing.gameObject.activeSelf;
+
+        public static void UpdateAim()
+        {
+            Aimed = null;
+            var p = Player.Instance;
+            if (!p || !p.Cam) return;
+            var cam = p.Cam.transform;
+            if (Physics.Raycast(cam.position, cam.forward, out var hit, AimRange, Layers.PlayerShotMask, QueryTriggerInteraction.Ignore))
+            {
+                var prop = hit.collider.GetComponent<Prop>();
+                if (prop && prop.Kind == PropKind.Barrel && !prop.broken) Aimed = prop;
+            }
+        }
+
+        void UpdateAimRing()
+        {
+            aimGlow = Mathf.MoveTowards(aimGlow, Aimed == this ? 1f : 0f, Time.deltaTime * 5f);
+            if (aimGlow <= 0f) { if (aimRing) aimRing.gameObject.SetActive(false); return; }
+            if (!aimRing) aimRing = Fx.FloorRing(transform.position, new Color(1f, 0.45f, 0.15f), BarrelBlastRadius);
+            aimRing.gameObject.SetActive(true);
+            float k = aimGlow * (0.6f + 0.4f * Mathf.Sin(Time.time * 6f));
+            Materials.SetColor(aimRing, new Color(1f * k, 0.45f * k, 0.15f * k, 1f));
+        }
         Renderer rend;
         float flash;
 
@@ -56,10 +87,15 @@ namespace Spellcaster
             return p;
         }
 
-        void OnDestroy() => All.Remove(this);
+        void OnDestroy()
+        {
+            All.Remove(this);
+            if (aimRing) Destroy(aimRing.transform.parent.gameObject);
+        }
 
         void Update()
         {
+            if (Kind == PropKind.Barrel) UpdateAimRing();
             if (flash <= 0f) return;
             flash -= Time.deltaTime;
             Materials.SetColor(rend, flash > 0f ? new Color(2f, 1.6f, 1.4f) : Color.white);
@@ -83,7 +119,7 @@ namespace Spellcaster
             GetComponent<Collider>().enabled = false;
             if (Kind == PropKind.Barrel)
             {
-                Combat.Explode(Center, 4.2f, 50f, 20f, Combat.BombColor, this);
+                Combat.Explode(Center, BarrelBlastRadius, 50f, 20f, Combat.BombColor, this);
             }
             else
             {
@@ -95,7 +131,7 @@ namespace Spellcaster
         }
     }
 
-    /// <summary>Floor spikes that shoot up on a cycle, with a short warning. Hurts you and walking enemies.</summary>
+    /// <summary>Floor spikes that shoot up on a cycle, with a short warning. Hurts you and walking (not Flying) enemies.</summary>
     public class SpikeTrap : MonoBehaviour
     {
         public const float Size = 2.4f;
@@ -107,6 +143,10 @@ namespace Spellcaster
         bool wasUp, hitPlayer;
         readonly HashSet<Enemy> hitEnemies = new HashSet<Enemy>();
         public bool IsUp { get; private set; }
+        Room room;
+        bool roomLooked;
+        /// <summary>The fight in this trap's room is over: the spikes retract for good.</summary>
+        public bool Disarmed { get; private set; }
 
         public static SpikeTrap Create(Transform parent, Vector3 worldPos, float phase)
         {
@@ -149,6 +189,16 @@ namespace Spellcaster
         {
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
+            if (!roomLooked && Dungeon.Instance) { roomLooked = true; room = Dungeon.Instance.RoomAt(transform.position); }
+            Disarmed = room != null && room.HasEnemies && room.Cleared;
+            if (Disarmed)
+            {
+                IsUp = wasUp = false;
+                var down = spikes.localPosition;
+                down.y = Mathf.MoveTowards(down.y, -0.75f, 3f * dt);
+                spikes.localPosition = down;
+                return;
+            }
             t = (t + dt) % Cycle;
             IsUp = t > Cycle - UpTime;
             bool warn = !IsUp && t > Cycle - UpTime - WarnTime;
@@ -175,7 +225,7 @@ namespace Spellcaster
             }
             foreach (var e in Enemy.All.ToArray())
             {
-                if (!e.IsAlive || e.Type.Hover > 0f || hitEnemies.Contains(e) || !Inside(e.transform.position, e.Type.Radius)) continue;
+                if (!e.IsAlive || e.Type.Flying || hitEnemies.Contains(e) || !Inside(e.transform.position, e.Type.Radius)) continue;
                 hitEnemies.Add(e);
                 e.TakeDamage(EnemyDamage);
             }

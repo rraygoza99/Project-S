@@ -27,6 +27,8 @@ namespace Spellcaster
         public float PlanarSpeed => planarVelocity.magnitude;
         public float HurtFlash { get; private set; }
         public float HealFlash { get; private set; }
+        /// <summary>HP gained by the latest heal(s), shown as "+N" by the health bar.</summary>
+        public float LastHeal { get; private set; }
 
         /// <summary>True when gameplay input should be read (cursor captured, not the click that captured it).</summary>
         public bool InputEnabled => AutoTest.Active || (Cursor.lockState == CursorLockMode.Locked && Time.frameCount != lockClickFrame && !IsDead);
@@ -118,12 +120,13 @@ namespace Spellcaster
         void HandleCursor()
         {
             if (AutoTest.Active || !GameState.Instance.InRun) return; // the menu manages the cursor
-            if (Input.GetKeyDown(KeyCode.Escape) && !GameState.Instance.ForgeOpen)
+            bool forgeJustClosed = SpellForgeUI.Instance && SpellForgeUI.Instance.ClosedFrame == Time.frameCount;
+            if (Input.GetKeyDown(KeyCode.Escape) && !GameState.Instance.ForgeOpen && !forgeJustClosed)
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
             }
-            else if (Cursor.lockState != CursorLockMode.Locked && Input.GetMouseButtonDown(0) && !IsDead)
+            else if (Cursor.lockState != CursorLockMode.Locked && Input.GetMouseButtonDown(0) && !IsDead && !GameState.Instance.ForgeOpen)
             {
                 LockCursor();
                 lockClickFrame = Time.frameCount;
@@ -182,7 +185,12 @@ namespace Spellcaster
             if (IsDead) return;
             float before = HP;
             HP = Mathf.Min(MaxHP, HP + amount);
-            HealFlash = 1f;
+            float gained = HP - before;
+            if (gained > 0.05f)
+            {
+                LastHeal = HealFlash > 0.3f ? LastHeal + gained : gained;
+                HealFlash = 1f;
+            }
             healed += HP - before;
             if (healed >= 1f) { Progress.Add("heal", Mathf.FloorToInt(healed)); healed -= Mathf.Floor(healed); }
         }

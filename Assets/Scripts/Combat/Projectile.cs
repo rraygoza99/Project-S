@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Spellcaster
@@ -7,6 +8,14 @@ namespace Spellcaster
     public class Projectile : MonoBehaviour
     {
         public delegate void HitHandler(Vector3 point, Collider hit);
+
+        /// <summary>Live projectiles (dev mode hitboxes, tests).</summary>
+        public static readonly List<Projectile> All = new List<Projectile>();
+        public float Radius => radius;
+        public int Mask => mask;
+        public Vector3 Velocity => velocity;
+        void OnEnable() => All.Add(this);
+        void OnDisable() => All.Remove(this);
 
         Vector3 velocity;
         float radius, life, pulse;
@@ -69,6 +78,7 @@ namespace Spellcaster
                 if (Physics.SphereCast(transform.position, radius, dir, out var hit, len, mask, QueryTriggerInteraction.Ignore))
                 {
                     transform.position += dir * hit.distance;
+                    DevMode.Sphere(transform.position, Mathf.Max(radius, 0.1f), (mask & Layers.PlayerMask) != 0 ? DevMode.EnemyShot : DevMode.PlayerShot, 0.35f);
                     onHit?.Invoke(transform.position, hit.collider);
                     Destroy(gameObject);
                     return;

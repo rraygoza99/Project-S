@@ -30,6 +30,24 @@ namespace Spellcaster
         public bool IsAvailable => !StartsLocked || Progress.IsUnlocked("spell:" + Id);
         public bool IsForged => Tier > 1;
 
+        /// <summary>Radius of the largest area this spell hits (nova, explosion, cloud), in metres; 0 = single target.</summary>
+        public float AreaRadius
+        {
+            get
+            {
+                float r = Delivery is NovaDelivery n ? n.Radius : 0f;
+                foreach (var e in Payload)
+                {
+                    if (e is ExplodeEffect x) r = Mathf.Max(r, x.Radius);
+                    else if (e is CloudEffect c) r = Mathf.Max(r, c.Radius);
+                }
+                return r * (Run.Instance ? Run.Instance.Stats.AreaMult : 1f);
+            }
+        }
+
+        /// <summary>"AREA 8m" for area spells (spell panel, Forge), else null.</summary>
+        public string AreaTag { get { float r = AreaRadius; return r > 0f ? $"AREA {r:0.#}m" : null; } }
+
         public HashSet<Element> Elements => new HashSet<Element>(Payload.Select(e => e.Element));
 
         public string Describe()

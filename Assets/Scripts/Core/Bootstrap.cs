@@ -22,6 +22,7 @@ namespace Spellcaster
         {
             QualitySettings.vSyncCount = 1;
             Application.targetFrameRate = -1;
+            Time.maximumDeltaTime = 0.1f; // a long hitch (alt-tab, loading) is never one giant simulation step
             Materials.SetFog(FogColor, 5f, 30f);
 
             var root = new GameObject("Game");

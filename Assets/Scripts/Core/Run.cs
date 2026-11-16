@@ -104,7 +104,8 @@ namespace Spellcaster
                     Toast(item.Name, $"{item.Desc}  (key {SlotKeyName(Mathf.Max(0, slot))})", item.Color);
                     return;
                 case ItemKind.Rune:
-                    GrantSpell(item.SpellId);
+                    if (item.Spell != null) RelearnSpell(item.Spell);
+                    else GrantSpell(item.SpellId);
                     return;
                 default:
                     Items.Add(item);
@@ -119,6 +120,15 @@ namespace Spellcaster
         {
             Gold += amount;
             if (amount > 0) { GoldEarned += amount; Progress.Add("gold", amount); }
+        }
+
+        /// <summary>Puts a forgotten spell (its rune was picked back up) back in the book.</summary>
+        public void RelearnSpell(SpellDefinition s)
+        {
+            if (SpellBook.Knows(s.Id)) return;
+            SpellBook.Known.Add(s);
+            Sfx.Play("forge", 0.6f, 1.3f);
+            Toast($"Relearned {s.Name}", $"Rune {Arrows.Glyphs(s.Sequence)}   {s.Describe()}", s.Color);
         }
 
         /// <summary>Adds a base spell to the spell book (from a rune). Returns false if already known.</summary>
@@ -163,6 +173,7 @@ namespace Spellcaster
             frozenHeartCooldown = 8f;
             var p = Player.Instance.transform.position;
             Fx.Ring(p + Vector3.up * 0.1f, new Color(0.6f, 0.9f, 1f), 5f, 0.4f);
+            DevMode.Ring(p + Vector3.up * 0.1f, 5f, DevMode.SpellArea);
             Sfx.Play("freeze", 0.6f);
             foreach (var e in Enemy.All.ToArray())
                 if (e.IsAlive && (e.transform.position - p).sqrMagnitude < 25f) e.Freeze(2f);
@@ -191,6 +202,7 @@ namespace Spellcaster
             if (Stats.FrostSpread && e.DiedFrozen)
             {
                 Fx.Ring(e.transform.position + Vector3.up * 0.1f, new Color(0.6f, 0.9f, 1f), 4.5f, 0.4f);
+                DevMode.Ring(e.transform.position + Vector3.up * 0.1f, 4.5f, DevMode.SpellArea);
                 foreach (var o in Enemy.All)
                     if (o.IsAlive && (o.transform.position - e.transform.position).sqrMagnitude < 4.5f * 4.5f) o.Freeze(2f);
             }

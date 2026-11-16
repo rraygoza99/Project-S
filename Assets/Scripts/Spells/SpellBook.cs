@@ -126,7 +126,7 @@ namespace Spellcaster
                 Sequence = Arrows.Parse("←↑←"), Cooldown = 5f, IconKey = "lifedrain",
                 Color = new Color(0.85f, 0.2f, 0.4f),
                 Delivery = new HitscanDelivery(range: 35f),
-                Payload = { new DamageEffect(30f, Element.Life), new LifestealEffect(0.5f) },
+                Payload = { new DamageEffect(30f, Element.Life), new LifestealEffect(0.35f) },
             },
             new SpellDefinition
             {
