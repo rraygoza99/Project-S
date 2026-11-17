@@ -517,7 +517,13 @@ namespace Spellcaster
         public void SetGates(Room room, bool locked)
         {
             foreach (var d in room.Doors) d.Locked = locked;
+            Net.NetCombat.GatesChanged(room, locked);
         }
+
+        public Room RoomById(string id) => AllRooms.FirstOrDefault(r => r.Id == id);
+
+        /// <summary>Multiplayer client: the host's boss (its health bar).</summary>
+        public void SetBossForNet(Enemy e) => Boss = e;
 
         void AnimateGates()
         {

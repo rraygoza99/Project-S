@@ -25,8 +25,8 @@ namespace Spellcaster
 
         public override void Launch(SpellCast cast)
         {
-            Vector3 origin = SpellSystem.CastOrigin;
-            Vector3 dir = SpellSystem.AimDirection(origin);
+            Vector3 origin = SpellSystem.CastOriginFor(cast.Caster);
+            Vector3 dir = SpellSystem.AimDirectionFor(cast.Caster, origin);
             if (cast.Mods.AimYaw != 0f) dir = Quaternion.AngleAxis(cast.Mods.AimYaw, Vector3.up) * dir;
             float size = Size * cast.Mods.SizeMult;
             Fire(cast, origin, dir, size);
@@ -89,7 +89,7 @@ namespace Spellcaster
         public override void Launch(SpellCast cast)
         {
             var cam = cast.Caster.Cam.transform;
-            Vector3 origin = SpellSystem.CastOrigin;
+            Vector3 origin = SpellSystem.CastOriginFor(cast.Caster);
             Vector3 fwd = cast.Mods.AimYaw != 0f ? Quaternion.AngleAxis(cast.Mods.AimYaw, Vector3.up) * cam.forward : cam.forward;
             Vector3 end = cam.position + fwd * Range;
             Enemy target = null;
@@ -114,7 +114,7 @@ namespace Spellcaster
         {
             var hits = Physics.RaycastAll(from, fwd, Range, Layers.PlayerShotMask, QueryTriggerInteraction.Ignore);
             System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            Vector3 origin = SpellSystem.CastOrigin, last = from + fwd * Range;
+            Vector3 origin = SpellSystem.CastOriginFor(cast.Caster), last = from + fwd * Range;
             int struck = 0;
             var seen = new HashSet<Enemy>();
             foreach (var h in hits)
@@ -179,7 +179,7 @@ namespace Spellcaster
 
         public override void Launch(SpellCast cast)
         {
-            Fx.Flash(SpellSystem.CastOrigin, cast.Spell.Color, 1.5f, 0.5f, 1.5f);
+            Fx.Flash(SpellSystem.CastOriginFor(cast.Caster), cast.Spell.Color, 1.5f, 0.5f, 1.5f);
             cast.Resolve(new List<Enemy>(), cast.Caster.ChestPosition);
         }
     }

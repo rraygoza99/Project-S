@@ -38,6 +38,7 @@ namespace Spellcaster
 
         public static void Play(string name, float volume = 1f, float pitch = 1f, string fallback = null)
         {
+            if (Net.NetCombat.HostMirroring) Net.NetCombat.Sound(name, volume, pitch, fallback); // world sounds reach the other players
             if (pool == null) return;
             AudioClip clip = null;
             if (groups != null && groups.TryGetValue(name, out var g)) clip = g[rng.Next(g.Count)];

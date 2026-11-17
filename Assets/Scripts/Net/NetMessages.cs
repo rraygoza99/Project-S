@@ -50,6 +50,75 @@ namespace Spellcaster.Net
         public RosterEntry[] players;
         /// <summary>The receiving client's own entry id.</summary>
         public int yourId;
+        /// <summary>The spells every player starts with (ids); the host keeps each player's own copy.</summary>
+        public string[] spells;
+    }
+
+    // ---------------- combat (Phase 3) ----------------
+
+    /// <summary>A visual or sound the host made, replayed on clients (no gameplay).</summary>
+    public struct FxMsg : NetworkMessage
+    {
+        public byte kind;
+        public int id, target;
+        public Vector3 a, b;
+        public Color color;
+        public float f0, f1, f2;
+        public string s;
+    }
+
+    /// <summary>Host to clients: an enemy appeared.</summary>
+    public struct EnemySpawnMsg : NetworkMessage
+    {
+        public int id;
+        public string type;
+        public Vector3 pos;
+        public float hp, maxHp;
+        public bool boss;
+    }
+
+    /// <summary>One enemy as the host sees and draws it.</summary>
+    public struct EnemyStateEntry
+    {
+        public int id;
+        public Vector3 pos;
+        public float hp, alpha, squash, lift;
+        public byte anim, frame;
+        public Color32 tint;
+        public bool flash, dead;
+    }
+
+    /// <summary>Host to clients, 30 times a second (unreliable): every enemy.</summary>
+    public struct EnemyStatesMsg : NetworkMessage
+    {
+        public EnemyStateEntry[] enemies;
+    }
+
+    /// <summary>Host to clients: an enemy is gone (after its death animation).</summary>
+    public struct EnemyGoneMsg : NetworkMessage
+    {
+        public int id;
+    }
+
+    /// <summary>Client to host: cast this spell (or the magic bolt) looking this way. The host checks it.</summary>
+    public struct CastIntentMsg : NetworkMessage
+    {
+        public string spellId;   // null or empty = the magic bolt
+        public float yaw, pitch;
+    }
+
+    /// <summary>Host to clients: a room's doors locked or opened, and whether it is cleared.</summary>
+    public struct RoomGatesMsg : NetworkMessage
+    {
+        public string roomId;
+        public bool locked, cleared;
+    }
+
+    /// <summary>Host to clients: a barrel, crate or crystal broke here.</summary>
+    public struct PropBrokenMsg : NetworkMessage
+    {
+        public Vector3 pos;
+        public byte kind;
     }
 
     /// <summary>One frame of a client's movement input (see Player.MoveInput).</summary>
@@ -82,9 +151,9 @@ namespace Spellcaster.Net
     /// <summary>Test only (-netreport): a client tells the host what it sees, twice a second.</summary>
     public struct DebugReportMsg : NetworkMessage
     {
-        public Vector3 pos, otherPos;
-        public float hp, lastError;
-        public int players, corrections, states;
+        public Vector3 pos, otherPos, enemyPos;
+        public float hp, lastError, enemyHp;
+        public int players, corrections, states, enemies, fx, projectiles, gatesLocked;
     }
 
     /// <summary>Host to everyone, 30 times a second (unreliable): every player's state.</summary>

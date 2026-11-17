@@ -156,6 +156,7 @@ namespace Spellcaster
         public bool TryCollect(Run run, bool quiet = false)
         {
             if (!this || !run) return false;
+            if (Net.NetSession.IsClientOnly) return false; // loot is the host's (shared loot is the next phase)
             if (Price > run.Gold)
             {
                 Deny(run, "Not enough gold", quiet);

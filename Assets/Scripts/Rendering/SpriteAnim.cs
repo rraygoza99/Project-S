@@ -48,6 +48,23 @@ namespace Spellcaster
         /// <summary>Optional named animations for bosses ("roll", "takeoff"...).</summary>
         public readonly System.Collections.Generic.Dictionary<string, SpriteAnim> Extra = new System.Collections.Generic.Dictionary<string, SpriteAnim>();
         public SpriteAnim Get(string name) => Extra.TryGetValue(name, out var a) && a != null ? a : null;
+
+        System.Collections.Generic.List<SpriteAnim> indexed;
+        /// <summary>Every animation in a fixed order (multiplayer sends an index instead of the animation).</summary>
+        System.Collections.Generic.List<SpriteAnim> Indexed
+        {
+            get
+            {
+                if (indexed != null) return indexed;
+                indexed = new System.Collections.Generic.List<SpriteAnim> { Walk, Attack, Hit, Dead, Run, Special, Idle };
+                var keys = new System.Collections.Generic.List<string>(Extra.Keys);
+                keys.Sort(System.StringComparer.Ordinal);
+                foreach (var k in keys) indexed.Add(Extra[k]);
+                return indexed;
+            }
+        }
+        public int IndexOf(SpriteAnim a) { int i = a == null ? -1 : Indexed.IndexOf(a); return i < 0 ? 0 : i; }
+        public SpriteAnim ByIndex(int i) => i >= 0 && i < Indexed.Count ? Indexed[i] : null;
         public float PixelsPerUnit = 16f;
         /// <summary>Distance in sheet pixels from the bottom of a cell to the character's feet.</summary>
         public float FeetPx;

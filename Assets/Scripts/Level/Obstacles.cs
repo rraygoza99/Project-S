@@ -145,8 +145,18 @@ namespace Spellcaster
                     p.ChillTimer = Mathf.Max(p.ChillTimer, 2f);
         }
 
+        /// <summary>Multiplayer client: the host broke this prop (its blast and loot happened on the host).</summary>
+        public void BreakQuietly()
+        {
+            if (broken) return;
+            broken = true;
+            All.Remove(this);
+            Destroy(gameObject);
+        }
+
         void Break()
         {
+            Net.NetCombat.PropBroken(this);
             broken = true;
             All.Remove(this);
             var pos = transform.position;
@@ -238,7 +248,7 @@ namespace Spellcaster
                 spikes.localPosition = down;
                 return;
             }
-            t = (t + dt) % Cycle;
+            t = Net.NetClock.Cycle(transform.position, Cycle, t, dt);
             IsUp = t > Cycle - UpTime;
             bool warn = !IsUp && t > Cycle - UpTime - WarnTime;
             float targetY = IsUp ? 0f : (warn ? -0.55f : -0.75f);

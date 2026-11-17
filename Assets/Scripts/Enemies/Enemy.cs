@@ -151,13 +151,57 @@ namespace Spellcaster
             return e;
         }
 
-        void OnDestroy() => All.Remove(this);
+        void OnDestroy()
+        {
+            All.Remove(this);
+            Net.NetEnemies.OnDestroyed(this);
+        }
+
+        // ---------------- multiplayer ----------------
+
+        /// <summary>Network id of this enemy (0 offline).</summary>
+        public int NetId;
+        /// <summary>A client's copy of a host enemy: no AI, no hits; position and frame come from the host.</summary>
+        public bool Proxy { get; private set; }
+
+        /// <summary>What this enemy drew last (the host sends it so clients draw the same frame).</summary>
+        public struct NetVisual { public int anim, frame; public float alpha, squash, lift; public Color32 tint; public bool flash; }
+        public NetVisual LastVisual { get; private set; }
+        Vector3 proxyLastPos;
+
+        public void MakeProxy(int id, float hp, float maxHp)
+        {
+            NetId = id;
+            Proxy = true;
+            HP = hp;
+            MaxHP = maxHp;
+            if (cc) cc.enabled = false;
+            Brain = null;
+            proxyLastPos = transform.position;
+        }
+
+        /// <summary>Client: the host's view of this enemy (health, death and the exact sprite frame).</summary>
+        public void ApplyNetState(Net.EnemyStateEntry s)
+        {
+            if (s.hp < HP - 0.01f) hurtFlash = 0.12f;
+            HP = s.hp;
+            if (s.dead && state != State.Dead) { state = State.Dead; All.Remove(this); }
+            var set = Type.Sprites;
+            var anim = set.ByIndex(s.anim) ?? set.Walk;
+            int frame = Mathf.Clamp(s.frame, 0, anim.Count - 1);
+            Vector3 moved = transform.position - proxyLastPos;
+            moved.y = 0f;
+            if (moved.sqrMagnitude > 1e-4f) lastMove = moved / Mathf.Max(Time.deltaTime, 1e-3f);
+            proxyLastPos = transform.position;
+            Render(anim, frame, s.alpha, s.squash, s.lift, s.tint, s.flash);
+        }
 
         void Update()
         {
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
             hurtFlash = Mathf.Max(0f, hurtFlash - dt);
+            if (Proxy) return; // moved and drawn from the host's snapshots
             hitAnimTimer = Mathf.Max(0f, hitAnimTimer - dt);
             var set = Type.Sprites;
 
@@ -303,6 +347,7 @@ namespace Spellcaster
 
         public void Poison(float dps, float seconds)
         {
+            if (Proxy) return; // a client's copy: the host decides
             if (!IsAlive) return;
             poisonDps = Mathf.Max(poisonDps, dps);
             poisonTimer = Mathf.Max(poisonTimer, seconds);
@@ -311,6 +356,7 @@ namespace Spellcaster
         /// <summary>Stops the enemy in place (like a freeze, but not ice: Shatter and Permafrost ignore it).</summary>
         public void Stun(float seconds)
         {
+            if (Proxy) return; // a client's copy: the host decides
             if (!IsAlive || Invulnerable) return;
             stunTimer = Mathf.Max(stunTimer, seconds);
             if (state == State.Attack || state == State.Charge) state = State.Walk;
@@ -630,6 +676,7 @@ namespace Spellcaster
         /// <summary>Returns the damage actually dealt.</summary>
         public float TakeDamage(float amount, Element element = Element.Arcane, bool silent = false, bool bolt = false)
         {
+            if (Proxy) return 0f; // a client's copy: the host decides
             if (!IsAlive || amount <= 0f || Invulnerable) return 0f;
             LastElement = element;
             LastHitByBolt = bolt;
@@ -654,6 +701,7 @@ namespace Spellcaster
         /// <summary>Kills it whatever its state (tests, debug).</summary>
         public void Kill()
         {
+            if (Proxy) return; // a client's copy: the host decides
             Invulnerable = false;
             TakeDamage(HP + 1f, Element.Arcane, silent: true);
         }
@@ -661,6 +709,7 @@ namespace Spellcaster
         /// <summary>Moves it straight to a spot, through anything in between (a worm travelling underground).</summary>
         public void Warp(Vector3 position)
         {
+            if (Proxy) return; // a client's copy: the host decides
             cc.enabled = false;
             transform.position = position;
             cc.enabled = IsAlive;
@@ -685,6 +734,7 @@ namespace Spellcaster
 
         public void Freeze(float seconds)
         {
+            if (Proxy) return; // a client's copy: the host decides
             if (!IsAlive || Invulnerable) return;
             frozenTimer = Mathf.Max(frozenTimer, seconds);
             if (state == State.Attack || state == State.Charge) state = State.Walk;
@@ -701,6 +751,7 @@ namespace Spellcaster
         /// <summary>Moves and attacks at factor speed (0.5 = half) for a while.</summary>
         public void Slow(float factor, float seconds)
         {
+            if (Proxy) return; // a client's copy: the host decides
             if (!IsAlive) return;
             slowFactor = slowTimer > 0f ? Mathf.Min(slowFactor, factor) : factor;
             slowTimer = Mathf.Max(slowTimer, seconds);
@@ -709,6 +760,7 @@ namespace Spellcaster
         /// <summary>Turns this enemy into an elite: more HP, tinted.</summary>
         public void MakeElite(float hpMult)
         {
+            if (Proxy) return; // a client's copy: the host decides
             if (!IsAlive || IsElite || Type.IsBoss) return;
             IsElite = true;
             MaxHP *= hpMult;
@@ -717,6 +769,7 @@ namespace Spellcaster
 
         public void Ignite(float dps, float seconds)
         {
+            if (Proxy) return; // a client's copy: the host decides
             if (!IsAlive) return;
             burnDps = Mathf.Max(burnDps, dps);
             burnTimer = Mathf.Max(burnTimer, seconds);
@@ -724,6 +777,7 @@ namespace Spellcaster
 
         public void Knockback(Vector3 impulse)
         {
+            if (Proxy) return; // a client's copy: the host decides
             if (!IsAlive) return;
             impulse.y = 0f;
             knockback += impulse;
@@ -765,11 +819,31 @@ namespace Spellcaster
 
         void ApplyVisual(SpriteAnim anim, int frame, float alpha, float squash = 1f)
         {
+            Color tint = state == State.Dead ? Color.white
+                : frozenTimer > 0f ? new Color(0.55f, 0.85f, 1f)
+                : stunTimer > 0f ? new Color(1f, 0.92f, 0.55f)
+                : burnTimer > 0f ? new Color(1f, 0.75f + 0.25f * Mathf.Sin(Time.time * 20f), 0.55f)
+                : poisonTimer > 0f ? new Color(0.6f, 1f, 0.5f)
+                : slowTimer > 0f ? new Color(0.7f, 0.75f, 1f)
+                : IsElite ? EliteTint
+                : Color.white;
+            tint.a = alpha;
+            bool flash = hurtFlash > 0f;
+            LastVisual = new NetVisual
+            {
+                anim = Type.Sprites.IndexOf(anim), frame = frame, alpha = alpha, squash = squash,
+                lift = VisualLift, tint = tint, flash = flash,
+            };
+            Render(anim, frame, alpha, squash, VisualLift, tint, flash);
+        }
+
+        void Render(SpriteAnim anim, int frame, float alpha, float squash, float lift, Color tint, bool flash)
+        {
             var set = Type.Sprites;
             float ppu = set.PixelsPerUnit;
             float w = anim.CellPx.x / ppu, h = anim.CellPx.y / ppu * squash;
             float hover = Type.Hover > 0f && state != State.Dead ? Type.Hover + Mathf.Sin(Time.time * 2.5f + bobPhase) * 0.08f : Type.Hover * 0.3f;
-            if (state != State.Dead) hover += VisualLift;
+            if (state != State.Dead) hover += lift;
             visual.localScale = new Vector3(w, h, 1f);
             visual.localPosition = new Vector3(0f, h * 0.5f - set.FeetPx / ppu * squash + hover, 0f);
 
@@ -786,19 +860,10 @@ namespace Spellcaster
                 if (facingLeft == set.FacesRight) st = new Vector4(-st.x, st.y, st.z + st.x, st.w);
             }
 
-            Color tint = state == State.Dead ? Color.white
-                : frozenTimer > 0f ? new Color(0.55f, 0.85f, 1f)
-                : stunTimer > 0f ? new Color(1f, 0.92f, 0.55f)
-                : burnTimer > 0f ? new Color(1f, 0.75f + 0.25f * Mathf.Sin(Time.time * 20f), 0.55f)
-                : poisonTimer > 0f ? new Color(0.6f, 1f, 0.5f)
-                : slowTimer > 0f ? new Color(0.7f, 0.75f, 1f)
-                : IsElite ? EliteTint
-                : Color.white;
-            tint.a = alpha;
             mpb.SetTexture(MainTexId, anim.Texture);
             mpb.SetVector(MainTexStId, st);
             mpb.SetColor(ColorId, tint);
-            mpb.SetFloat(FlashId, hurtFlash > 0f ? 1f : 0f);
+            mpb.SetFloat(FlashId, flash || hurtFlash > 0f ? 1f : 0f);
             rend.SetPropertyBlock(mpb);
         }
     }

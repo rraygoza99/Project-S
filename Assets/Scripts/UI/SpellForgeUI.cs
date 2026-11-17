@@ -84,6 +84,11 @@ namespace Spellcaster
 
         public void Open()
         {
+            if (Net.NetSession.IsClientOnly)
+            {
+                if (SpellSystem.Instance) SpellSystem.Instance.Flash("The Forge comes to co-op later");
+                return;
+            }
             IsOpen = true;
             picks.Clear();
             forgetArmed = -1;

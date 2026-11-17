@@ -296,7 +296,7 @@ namespace Spellcaster
         public void SetNetHealth(float hp)
         {
             if (Mathf.Approximately(hp, HP)) return;
-            if (hp < HP - 0.01f) HurtFlash = 1f;
+            if (hp < HP - 0.01f) { HurtFlash = 1f; if (IsLocal) Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f)); }
             bool wasAlive = !IsDead;
             HP = Mathf.Max(0f, hp);
             if (wasAlive && IsDead && GameState.Instance) GameState.Instance.OnPlayerDied(this);
@@ -427,7 +427,7 @@ namespace Spellcaster
             if (Net.NetSession.IsClientOnly) return; // in multiplayer the host decides damage; HP comes from it
             if (Run) amount *= Run.Stats.DamageTaken;
             HurtFlash = 1f;
-            Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f));
+            if (IsLocal) Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f));
             if (Dungeon.Instance) Dungeon.Instance.NotePlayerHurt();
             if (!God && HP - amount <= 0f && Run && Run.TryRevive())
             {

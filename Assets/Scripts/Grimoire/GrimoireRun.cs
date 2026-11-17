@@ -45,7 +45,8 @@ namespace Spellcaster.Grimoire
             get
             {
                 var gs = GameState.Instance;
-                return Settings.GrimoireEnabled && gs && gs.InRun && !GameState.PracticeMode && !GameState.TutorialMode;
+                // Multiplayer: off until each player has their own deck (next step).
+                return Settings.GrimoireEnabled && gs && gs.InRun && !GameState.PracticeMode && !GameState.TutorialMode && !GameState.Multiplayer;
             }
         }
 

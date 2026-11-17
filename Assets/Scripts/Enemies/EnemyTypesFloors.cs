@@ -94,6 +94,14 @@ namespace Spellcaster
             BrainFactory = () => new BehemothBrain(),
         };
 
+        /// <summary>An enemy type by its name (multiplayer spawns), or null.</summary>
+        public static EnemyType ByName(string name)
+        {
+            foreach (var t in AllRegulars) if (t.Name == name) return t;
+            foreach (var t in new[] { Boss, Burrower, Behemoth, Shadeling }) if (t.Name == name) return t;
+            return null;
+        }
+
         /// <summary>The boss at the end of each floor.</summary>
         public static EnemyType BossFor(int floor) => floor <= 1 ? Boss : floor == 2 ? Burrower : Behemoth;
 

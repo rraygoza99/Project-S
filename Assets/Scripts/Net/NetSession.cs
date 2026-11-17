@@ -108,9 +108,15 @@ namespace Spellcaster.Net
         {
             // The pause switch follows the session (written only on change, so tests can set it too).
             bool on = InSession;
-            if (on != sessionWas) GameState.Multiplayer = on;
+            if (on != sessionWas)
+            {
+                GameState.Multiplayer = on;
+                // Players pass through enemies online: bodies a client sees slightly in the past mustn't block it.
+                Physics.IgnoreLayerCollision(Layers.Player, Layers.EnemyBody, on);
+            }
             sessionWas = on;
             NetPlayers.Tick();
+            NetEnemies.Tick();
             if (reportMode && NetPlayers.Running && NetworkClient.isConnected && (reportTimer -= Time.unscaledDeltaTime) <= 0f)
             {
                 reportTimer = 0.5f;
@@ -122,13 +128,40 @@ namespace Spellcaster.Net
                     pos = me.transform.position, hp = me.HP, players = Players.All.Count,
                     corrections = NetPlayers.Corrections, lastError = NetPlayers.LastError, states = NetPlayers.StatesReceived,
                     otherPos = other ? other.transform.position : Vector3.zero,
+                    enemies = NetEnemies.ProxyCount, fx = NetCombat.FxReceived, projectiles = NetCombat.ProjectilesSeen,
+                    enemyPos = Enemy.All.Count > 0 ? Enemy.All[0].transform.position : Vector3.zero,
+                    enemyHp = Enemy.All.Count > 0 ? Enemy.All[0].HP : 0f,
+                    gatesLocked = Dungeon.Instance && Dungeon.Instance.Current != null ? Dungeon.Instance.Current.Doors.Count(d => d.Locked) : 0,
                 });
             }
         }
 
         /// <summary>Test only: the latest report from each client (host).</summary>
         public readonly Dictionary<int, DebugReportMsg> Reports = new Dictionary<int, DebugReportMsg>();
-        bool reportMode, walkTest;
+        bool reportMode, walkTest, combatTest;
+
+        /// <summary>
+        /// Test only (-nettestcombat): once the host's enemy shows up here, look at it and cast Fireball,
+        /// then try to cast it again at once (the host must refuse), then fire the magic bolt.
+        /// </summary>
+        IEnumerator CombatTest()
+        {
+            while (NetEnemies.ProxyCount == 0) yield return null;
+            yield return new WaitForSecondsRealtime(0.4f);
+            var me = Player.Instance;
+            var target = Enemy.All.Count > 0 ? Enemy.All[0] : null;
+            var ss = SpellSystem.Instance;
+            var fireball = SpellBook.Known.FirstOrDefault(s => s.Id == "fireball");
+            if (!me || !target || !ss || fireball == null) yield break;
+            me.LookAt(target.Center);
+            yield return null;
+            ss.ReadyForTest(fireball);
+            ss.CastReadied();
+            NetCombat.SendCast(fireball); // a second cast straight away, ignoring the cooldown
+            yield return new WaitForSecondsRealtime(0.8f);
+            if (target) me.LookAt(target.Center);
+            ss.FireBasic();
+        }
         float reportTimer;
 
         /// <summary>Test only (-netwalk): a moment after the run starts, walk forward for two seconds.</summary>
@@ -259,8 +292,9 @@ namespace Spellcaster.Net
             BroadcastRoster();
             int seed = RunRandom.NewSeed();
             var players = Roster.ToArray();
+            var spells = SpellBook.Known.Where(s => SpellBook.CreateBase(s.Id) != null).Select(s => s.Id).ToArray();
             foreach (var conn in NetworkServer.connections.Values)
-                conn.Send(new StartRunMsg { seed = seed, players = players, yourId = conn.connectionId });
+                conn.Send(new StartRunMsg { seed = seed, players = players, yourId = conn.connectionId, spells = spells });
             return true;
         }
 
@@ -278,6 +312,7 @@ namespace Spellcaster.Net
             NetworkServer.ReplaceHandler<ReadyMsg>(OnReady);
             NetworkServer.ReplaceHandler<RunStartedMsg>(OnRunStarted);
             NetworkServer.ReplaceHandler<InputBatchMsg>(NetPlayers.OnInputs);
+            NetworkServer.ReplaceHandler<CastIntentMsg>(NetCombat.OnCastIntent);
             NetworkServer.ReplaceHandler<DebugReportMsg>((c, m) => { if (AutoTest.Active) Reports[c.connectionId] = m; });
         }
 
@@ -355,6 +390,12 @@ namespace Spellcaster.Net
             NetworkClient.ReplaceHandler<RejectMsg>(OnReject, false);
             NetworkClient.ReplaceHandler<StartRunMsg>(OnStartRunMsg, false);
             NetworkClient.ReplaceHandler<PlayerStatesMsg>(NetPlayers.OnStates, false);
+            NetworkClient.ReplaceHandler<FxMsg>(NetCombat.OnFx, false);
+            NetworkClient.ReplaceHandler<EnemySpawnMsg>(NetEnemies.OnSpawn, false);
+            NetworkClient.ReplaceHandler<EnemyStatesMsg>(NetEnemies.OnStates, false);
+            NetworkClient.ReplaceHandler<EnemyGoneMsg>(NetEnemies.OnGone, false);
+            NetworkClient.ReplaceHandler<RoomGatesMsg>(NetCombat.OnGates, false);
+            NetworkClient.ReplaceHandler<PropBrokenMsg>(NetCombat.OnPropBroken, false);
         }
 
         public override void OnClientConnect()
@@ -394,6 +435,7 @@ namespace Spellcaster.Net
             NetworkClient.Send(new RunStartedMsg { seed = msg.seed });
             if (quitAfterStart) StartCoroutine(QuitSoon());
             if (walkTest) StartCoroutine(WalkTest());
+            if (combatTest) StartCoroutine(CombatTest());
         }
 
         static void DefaultStartRun(StartRunMsg msg)
@@ -571,6 +613,7 @@ namespace Spellcaster.Net
                 else if (a == "-netquitafterstart") quitAfterStart = true;
                 else if (a == "-netreport") reportMode = true;
                 else if (a == "-netwalk") walkTest = true;
+                else if (a == "-nettestcombat") combatTest = true;
             }
         }
 

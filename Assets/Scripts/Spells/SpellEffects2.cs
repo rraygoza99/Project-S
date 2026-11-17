@@ -72,6 +72,7 @@ namespace Spellcaster
 
         public static void Create(Vector3 point, float radius, float seconds, float dps, Color color)
         {
+            if (Net.NetCombat.HostMirroring) Net.NetCombat.Poison(point, radius, seconds, color);
             var go = new GameObject("PoisonCloud");
             if (Dungeon.Instance && Dungeon.Instance.LevelRoot) go.transform.SetParent(Dungeon.Instance.LevelRoot, true);
             go.transform.position = point;

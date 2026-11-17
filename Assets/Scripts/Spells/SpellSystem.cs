@@ -394,6 +394,20 @@ namespace Spellcaster
             var s = Readied;
             if (s == null || !Player.Instance) return false;
             Readied = null;
+            if (Net.NetSession.IsClientOnly && Net.NetPlayers.Running)
+            {
+                // Multiplayer client: the rune was drawn here; the host checks and casts it.
+                float ccd = EffectiveCooldown(s);
+                if (ccd > 0f) cooldownLeft[s] = ccd; else cooldownLeft.Remove(s);
+                cooldownLengths[s] = ccd;
+                castCount++;
+                Progress.Add("spells_cast");
+                Sfx.Play("cast", 0.6f);
+                WizardHands.Instance.Kick();
+                Net.NetCombat.SendCast(s);
+                Raise("cast " + s.Name);
+                return true;
+            }
             var req = Request(s);
             if (req != null && req.Fizzle)
             {
@@ -498,28 +512,35 @@ namespace Spellcaster
         // ---------------- basic attack ----------------
 
         /// <summary>Aim from a point toward whatever is under the crosshair.</summary>
-        public static Vector3 AimDirection(Vector3 origin)
+        public static Vector3 AimDirection(Vector3 origin) => AimDirectionFor(Player.Instance, origin);
+        public static Vector3 CastOrigin => CastOriginFor(Player.Instance);
+
+        /// <summary>Aim for any player (the host casts for others with their own view).</summary>
+        public static Vector3 AimDirectionFor(Player caster, Vector3 origin)
         {
-            var cam = Player.Instance.Cam.transform;
+            var cam = (caster ? caster : Player.Instance).Cam.transform;
             Vector3 target = cam.position + cam.forward * 60f;
             if (Physics.Raycast(cam.position, cam.forward, out var hit, 60f, Layers.PlayerShotMask, QueryTriggerInteraction.Ignore))
                 target = hit.point;
             return (target - origin).normalized;
         }
 
-        public static Vector3 CastOrigin
+        public static Vector3 CastOriginFor(Player caster)
         {
-            get
-            {
-                var cam = Player.Instance.Cam.transform;
-                return cam.position + cam.forward * 0.6f + cam.right * 0.2f - cam.up * 0.18f;
-            }
+            var cam = (caster ? caster : Player.Instance).Cam.transform;
+            return cam.position + cam.forward * 0.6f + cam.right * 0.2f - cam.up * 0.18f;
         }
 
         public void FireBasic()
         {
             var stats = Stats;
             boltCooldown = stats.BoltInterval;
+            if (Net.NetSession.IsClientOnly && Net.NetPlayers.Running)
+            {
+                Net.NetCombat.SendCast(null); // the host fires it
+                WizardHands.Instance.Kick();
+                return;
+            }
             CastRequest req = null;
             if (BeforeCast != null)
             {
@@ -540,12 +561,14 @@ namespace Spellcaster
             if (req != null && req.EchoDelay > 0f) StartCoroutine(RequestEcho(null, 1f, req));
         }
 
-        void FireBolts(CastRequest req, bool echo)
+        void FireBolts(CastRequest req, bool echo) => FireBoltsFrom(Player.Instance, Stats, req, echo);
+
+        /// <summary>The magic bolt from any player (the host fires it for others with their stats).</summary>
+        public static void FireBoltsFrom(Player caster, PlayerStats stats, CastRequest req = null, bool echo = false)
         {
-            var stats = Stats;
             float freezeChance = stats.BoltFreezeChance;
-            Vector3 origin = CastOrigin;
-            Vector3 aim = AimDirection(origin);
+            Vector3 origin = CastOriginFor(caster);
+            Vector3 aim = AimDirectionFor(caster, origin);
             var copies = req != null ? req.Copies : null;
             int n = copies != null ? copies.Count : 1;
             for (int c = 0; c < n; c++)
@@ -563,7 +586,7 @@ namespace Spellcaster
             if (req != null && !echo) req.AfterLaunch?.Invoke();
         }
 
-        void SpawnBolt(Vector3 origin, Vector3 dir, float damage, float freezeChance, CastMods mods)
+        static void SpawnBolt(Vector3 origin, Vector3 dir, float damage, float freezeChance, CastMods mods)
         {
             Projectile.HitHandler hit = (point, col) =>
             {

@@ -45,6 +45,7 @@ namespace Spellcaster
 
         public static void Bolt(Vector3 start, Vector3 end, Color color, float duration)
         {
+            if (Net.NetCombat.HostMirroring) Net.NetCombat.Lightning(start, end, color, duration);
             var go = new GameObject("Lightning");
             var lr = go.AddComponent<LineRenderer>();
             lr.useWorldSpace = true;

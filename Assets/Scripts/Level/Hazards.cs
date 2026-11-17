@@ -79,6 +79,7 @@ namespace Spellcaster
         /// <summary>Burning ground that fades after a few seconds (no parent: it outlives nothing).</summary>
         public static LavaPool CreateTemporary(Vector3 pos, float radius, float seconds)
         {
+            if (Net.NetCombat.HostMirroring) Net.NetCombat.Lava(pos, radius, seconds);
             var go = new GameObject("BurningGround");
             go.transform.position = Fx.Ground(pos);
             if (Dungeon.Instance && Dungeon.Instance.LevelRoot) go.transform.SetParent(Dungeon.Instance.LevelRoot, true);
@@ -180,7 +181,7 @@ namespace Spellcaster
                 Materials.SetColor(warnGlow, new Color(0, 0, 0, 0));
                 return;
             }
-            t = (t + dt) % Cycle;
+            t = Net.NetClock.Cycle(transform.position, Cycle, t, dt);
             IsUp = t > Cycle - UpTime;
             bool warn = !IsUp && t > Cycle - UpTime - WarnTime;
             float w = warn ? (t - (Cycle - UpTime - WarnTime)) / WarnTime : (IsUp ? 1f : 0f);

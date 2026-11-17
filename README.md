@@ -88,8 +88,15 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
   wizards in their own colour (8 directions, so you can tell which way they face), with their name and a
   small health bar; they raise their staff and glow while casting. Your own movement is instant (the
   host checks it and corrects it if needed); the others move smoothly. Only the host applies damage.
-  Enemies and fights are still host-only for now (replicating them is the next phase), so a joining
-  player's world has no enemies yet.
+- **Combat is the host's:** enemies, their AI and attacks, damage, spells, projectiles, hazards, barrels
+  and doors run on the host. Everyone else sees the same enemies (drawn with the host's exact frames),
+  every flash, ring, lightning bolt, projectile, poison cloud and world sound, doors locking, props
+  breaking, and fire jets and spikes on a shared clock. Enemies go for the nearest player.
+- **Casting works for everyone, in both styles.** You draw or type the rune on your own PC (no lag);
+  only "cast Fireball looking this way" goes to the host, which checks you know the spell and that it's
+  off cooldown. Friendly fire is off. Online, players pass through enemies (and each other).
+- Not yet online: the Grimoire (each player's own deck is the next step), loot and shops, the Forge,
+  and moving between floors.
 - In a multiplayer session the pause menu doesn't stop the game, and only the host saves.
 
 ## Controls

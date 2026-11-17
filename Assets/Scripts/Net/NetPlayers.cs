@@ -32,6 +32,14 @@ namespace Spellcaster.Net
         /// and gives everyone their lobby id, name and colour. Called before the floor is built, so the
         /// floor places everyone in the start room.
         /// </summary>
+        /// <summary>Run start: players, then the combat side (each player's spells, enemies).</summary>
+        public static void SetupRun(StartRunMsg m)
+        {
+            SetupRun(m.players ?? new RosterEntry[0], m.yourId);
+            NetCombat.SetupRun(m.players ?? new RosterEntry[0], m.spells);
+            NetEnemies.SetupRun();
+        }
+
         public static void SetupRun(RosterEntry[] roster, int myId)
         {
             ResetState();
@@ -78,6 +86,8 @@ namespace Spellcaster.Net
             if (Player.Instance) { Player.Instance.NetId = -1; Player.Instance.ColorIndex = 0; }
             ResetState();
             Running = false;
+            NetCombat.EndRun();
+            NetEnemies.EndRun();
         }
 
         static void ResetState()

@@ -2241,7 +2241,7 @@ namespace Spellcaster
                 {
                     // This copy is mid-test (not on the menu): set up the run the way BeginNetworkRun does.
                     wsStart = m;
-                    Net.NetPlayers.SetupRun(m.players, m.yourId);
+                    Net.NetPlayers.SetupRun(m);
                     RunRandom.RunSeed = m.seed;
                     d.BuildFloor(1);
                 };
@@ -2252,7 +2252,7 @@ namespace Spellcaster
                 try
                 {
                     wsClient = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
-                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -logFile \"{Path.Combine(outDir, "net_client2.log")}\"") { UseShellExecute = false });
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -nettestcombat -logFile \"{Path.Combine(outDir, "net_client2.log")}\"") { UseShellExecute = false });
                 }
                 catch (Exception wsEx) { Debug.LogWarning("[AutoTest] couldn't start a second copy: " + wsEx.Message); }
                 float wsT = 0f;
@@ -2300,6 +2300,43 @@ namespace Spellcaster
                 ws.Reports.TryGetValue(wsClientId, out wsRep);
                 Check($"damage is the host's call and the client's health follows ({(wsOther ? wsOther.HP : 0):0} on the host, {wsRep.hp:0} on the client)",
                     wsOther && wsOther.HP < 100f && Mathf.Approximately(wsRep.hp, wsOther.HP));
+
+                // ---- combat (Phase 3): the host's enemy, a client's spells, an enemy's attack, doors ----
+                var cbImp = wsOther ? EnemySpawner.Instance.SpawnAt(EnemyType.Imp, wsOther.transform.position + new Vector3(0f, 0.05f, 5f), 30f, 1f) : null;
+                float cbT = 0f;
+                float cbOff = 99f;
+                while (cbT < 6f && cbImp)
+                {
+                    ws.Reports.TryGetValue(wsClientId, out wsRep);
+                    cbOff = Vector3.Distance(new Vector3(wsRep.enemyPos.x, 0f, wsRep.enemyPos.z), new Vector3(cbImp.transform.position.x, 0f, cbImp.transform.position.z));
+                    if (wsRep.enemies >= 1 && cbOff < 0.8f) break;
+                    cbT += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+                Check($"a client sees the host's enemy where it is ({wsRep.enemies} on the client, {cbOff:0.00} m off)", cbImp && wsRep.enemies >= 1 && cbOff < 0.8f);
+                cbT = 0f;
+                while (cbT < 8f && cbImp && cbImp.HP >= cbImp.MaxHP) { cbT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(1f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"a client's Fireball, checked and cast by the host, hurts the enemy ({(cbImp ? cbImp.HP : 0):0}/{(cbImp ? cbImp.MaxHP : 0):0}; {Net.NetCombat.RemoteCasts} casts; the client saw {wsRep.fx} effects and {wsRep.projectiles} projectiles, enemy at {wsRep.enemyHp:0} HP there)",
+                    cbImp && cbImp.HP < cbImp.MaxHP && Net.NetCombat.RemoteCasts >= 1 && wsRep.fx > 0 && wsRep.projectiles > 0 && wsRep.enemyHp < cbImp.MaxHP);
+                Check($"a second cast before the cooldown is refused by the host ({Net.NetCombat.Rejected} refused)", Net.NetCombat.Rejected >= 1);
+                float cbHp = wsOther ? wsOther.HP : 0f;
+                cbT = 0f;
+                while (cbT < 8f && wsOther && wsOther.HP >= cbHp) { cbT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(0.8f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"the enemy attacks the client: the host applies it and the client's health follows ({cbHp:0} -> {(wsOther ? wsOther.HP : 0):0}, client shows {wsRep.hp:0})",
+                    wsOther && wsOther.HP < cbHp && Mathf.Abs(wsRep.hp - wsOther.HP) < 9f);
+                d.SetGates(d.Current, true);
+                yield return new WaitForSecondsRealtime(0.8f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                int cbLocked = wsRep.gatesLocked;
+                d.SetGates(d.Current, false);
+                gs.ClearEnemies();
+                yield return new WaitForSecondsRealtime(2.5f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"doors and deaths reach the client ({cbLocked} doors locked there; {wsRep.enemies} enemies left after the kill)", cbLocked > 0 && wsRep.enemies == 0);
 
                 // The player leaves: their character goes.
                 if (Mirror.NetworkServer.connections.TryGetValue(wsClientId, out var wsConn)) wsConn.Disconnect();

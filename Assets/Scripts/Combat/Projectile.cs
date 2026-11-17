@@ -20,6 +20,13 @@ namespace Spellcaster
         Vector3 velocity;
         float radius, life, pulse;
         int mask;
+        /// <summary>Host: this projectile's copy on the other players' PCs (0 = none).</summary>
+        int netId;
+
+        void OnDestroy()
+        {
+            if (netId != 0 && Net.NetCombat.HostMirroring) Net.NetCombat.ProjectileEnded(netId, transform.position);
+        }
         HitHandler onHit;
         System.Action<Vector3> onExpire;
         Transform visual;
@@ -42,6 +49,7 @@ namespace Spellcaster
         {
             homingTarget = target;
             turnRate = degreesPerSecond;
+            if (netId != 0) Net.NetCombat.ProjectileHoming(netId, target, degreesPerSecond);
         }
 
         public static Projectile Spawn(Vector3 position, Vector3 velocity, Color color, float size, float radius,
@@ -60,6 +68,7 @@ namespace Spellcaster
             p.visual = r.transform;
             p.baseSize = size;
             p.gravity = gravity;
+            if (Net.NetCombat.HostMirroring) p.netId = Net.NetCombat.ProjectileSpawned(position, velocity, color, size, life, gravity);
             return p;
         }
 

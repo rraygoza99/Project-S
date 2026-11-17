@@ -155,7 +155,7 @@ namespace Spellcaster
         {
             if (!GameState.Instance || GameState.Instance.Phase != Phase.Title) return;
             LeaveMenu();
-            NetPlayers.SetupRun(msg.players ?? new RosterEntry[0], msg.yourId);
+            NetPlayers.SetupRun(msg);
             GameState.Instance.BeginSeeded(msg.seed, null);
             // Enemies and fights are the host's (replicated in Phase 3): a client's own world stays empty of them.
             if (NetSession.IsClientOnly && Dungeon.Instance) Dungeon.Instance.HoldEncounters = true;

@@ -24,6 +24,7 @@ namespace Spellcaster
         /// <summary>A flat ring on the floor that expands to radius and fades (novas).</summary>
         public static void Ring(Vector3 center, Color color, float radius, float duration)
         {
+            if (Net.NetCombat.HostMirroring) Net.NetCombat.Ring(center, color, radius, duration);
             var go = new GameObject("Ring");
             go.transform.position = center;
             var r = CreateQuad(go.transform, color, radius * 0.3f, billboard: false);
@@ -35,6 +36,7 @@ namespace Spellcaster
         /// <summary>A ring at exactly this radius on the floor that holds, then fades (blast size markers).</summary>
         public static void AreaMarker(Vector3 center, Color color, float radius, float duration)
         {
+            if (Net.NetCombat.HostMirroring) Net.NetCombat.Area(center, color, radius, duration);
             var go = new GameObject("AreaMarker");
             go.transform.position = Ground(center);
             var r = CreateQuad(go.transform, color, radius * 2f, billboard: false);
@@ -64,6 +66,7 @@ namespace Spellcaster
         /// <summary>A glow that grows and fades out, then destroys itself.</summary>
         public static void Flash(Vector3 position, Color color, float size, float duration, float grow = 1f)
         {
+            if (Net.NetCombat.HostMirroring) Net.NetCombat.Flash(position, color, size, duration, grow);
             var go = new GameObject("Flash");
             go.transform.position = position;
             var r = CreateQuad(go.transform, color, size);

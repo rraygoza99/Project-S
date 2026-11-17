@@ -16,7 +16,7 @@ namespace Spellcaster
         public override void Launch(SpellCast cast)
         {
             var cam = cast.Caster.Cam.transform;
-            Vector3 origin = SpellSystem.CastOrigin;
+            Vector3 origin = SpellSystem.CastOriginFor(cast.Caster);
             // Targets: living enemies in front, closest to the crosshair first.
             var targets = Enemy.All.Where(e => e.IsAlive && Vector3.Dot((e.Center - cam.position).normalized, cam.forward) > 0.2f)
                 .OrderBy(e => Vector3.Angle(cam.forward, e.Center - cam.position)).Take(Count).ToList();
