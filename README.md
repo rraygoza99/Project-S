@@ -189,7 +189,10 @@ cleared rooms, so you can't wait out Heal between fights).
   win (for unlocks and stats) and leads deeper. From floor 4 on, each floor is a scenario picked from the
   run's seed (never the same twice in a row), its boss is any boss but the last one, and its enemies mix
   the scenario's own with a couple of guests from other scenarios. Enemies keep getting tougher every
-  floor (waves stop growing at 22 enemies). New scenarios join the rotation by adding them to
+  floor, more gently after floor 3 (HP +25% and damage +12% per floor, damage capped at x3; waves stop
+  growing at 22 enemies), and deep floors pay more: more coins, two boss rewards, and a 25% heal when
+  you arrive. Every number is in `Level/Difficulty.cs`. The death screen and the main menu show your
+  deepest floor. New scenarios join the rotation by adding them to
   `Level/Scenarios.cs` (see the comment there).
   - **The Watcher** (floor 1) fires fans of bolts and summons imps.
   - **The Burrower** (floor 2) spits fans of frost, then dives underground (it can't be hurt there)

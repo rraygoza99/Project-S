@@ -16,7 +16,7 @@ namespace Spellcaster
             if (room != null && room.Type == RoomType.Boss) return;
             float luck = Luck(run);
             Vector3 p = e.transform.position;
-            float coinChance = (e.Type.Ranged ? 0.65f : 0.4f) * luck;
+            float coinChance = (e.Type.Ranged ? 0.65f : 0.4f) * luck * Difficulty.CoinChanceMult(Dungeon.Instance.Floor); // deeper = richer
             if (Random.value < coinChance) Coins(p, e.Type.Ranged ? Random.Range(1, 3) : 1);
             if (Random.value < 0.04f * luck) Pickup.Spawn(Items.Heart, p, pop: true);
             if (Random.value < 0.025f * luck) Pickup.Spawn(Items.RandomConsumable(), p, pop: true);

@@ -108,9 +108,13 @@ namespace Spellcaster
             }
         }
 
+        /// <summary>The deepest floor reached before this run (the death screen shows a new record).</summary>
+        public int BestFloorBefore { get; private set; }
+
         public void Begin()
         {
             if (Phase != Phase.Title) return;
+            BestFloorBefore = Progress.Get("max_floor");
             Phase = Phase.Playing;
             beganFrame = Time.frameCount;
             if (PracticeMode) SetupPractice();

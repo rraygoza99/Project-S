@@ -1993,6 +1993,22 @@ namespace Spellcaster
                     d.Theme == Scenarios.ThemeFor(6) && d.HpMult > enHp3 && d.AllRooms.Count >= 10 && d.AllRooms.Count <= 20
                     && d.AllRooms.Any(r => r.Type == RoomType.Boss));
                 yield return Shot("22h_floor6");
+
+                // Deep floors: a gentler curve with more reward.
+                Check($"deep floors rise more gently: enemy HP x{Difficulty.HpMult(3):0.00} on floor 3, x{Difficulty.HpMult(6):0.00} on 6, x{Difficulty.HpMult(10):0.00} on 10; damage x{Difficulty.DmgMult(10):0.00} on 10 (cap x{Difficulty.MaxDmgMult})",
+                    Mathf.Approximately(Difficulty.HpMult(3), 1.8f) && Mathf.Approximately(Difficulty.DmgMult(3), 1.5f)
+                    && Mathf.Approximately(Difficulty.HpMult(6), 1.8f + 3 * Difficulty.DeepHpPerFloor) && Difficulty.DmgMult(30) <= Difficulty.MaxDmgMult
+                    && Mathf.Approximately(d.HpMult, Difficulty.HpMult(6)));
+                Check($"deep floors pay more: coins x{Difficulty.CoinChanceMult(6):0.00} on floor 6, {Difficulty.BossItems(6)} boss rewards (1 on floors 1-3)",
+                    Difficulty.CoinChanceMult(3) == 1f && Difficulty.CoinChanceMult(6) > 1f && Difficulty.BossItems(3) == 1 && Difficulty.BossItems(6) == 2);
+                player.God = true;
+                player.TakeDamage(player.MaxHP * 0.6f);
+                float dpHp = player.HP;
+                int dpFloor = d.Floor;
+                d.EnterPortalForTest();
+                yield return null;
+                Check($"arriving on a deep floor heals {Difficulty.DeepArrivalHeal * 100f:0}% of max HP ({dpHp:0} -> {player.HP:0}, floor {dpFloor} -> {d.Floor})",
+                    d.Floor == dpFloor + 1 && player.HP >= dpHp + player.MaxHP * Difficulty.DeepArrivalHeal - 1f);
             }
 
             // ---- meta progression: locked content, counters, achievements, new spells and items ----

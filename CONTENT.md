@@ -120,7 +120,9 @@ and leads deeper. From floor 4 on:
 | Scenario | Picked from the run's seed each floor, never the same as the floor before |
 | Boss | Any of the three bosses, never the same as the floor before |
 | Enemies | The scenario's own roster plus 2 guest types from other scenarios (rarer, 0.3 weight) |
-| Difficulty | Enemy HP +40% and damage +25% per floor, forever; waves grow until 22 enemies |
+| Difficulty | Floors 2-3: enemy HP +40% and damage +25% per floor. From floor 4: HP +25% and damage +12% per floor (damage capped at x3); waves grow until 22 enemies |
+| Rewards | From floor 4: coin drops +15% per deep floor, 2 boss reward items, and a 25% heal on arrival |
+| Record | The death screen and the main menu show your deepest floor |
 
 The same seed always gives the same floors (saves and co-op agree).
 

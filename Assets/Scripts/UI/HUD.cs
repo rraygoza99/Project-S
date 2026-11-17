@@ -173,7 +173,10 @@ namespace Spellcaster
             int floor = d ? d.Floor : 1, rooms = d ? d.RoomsCleared : 0;
             int gold = run ? run.GoldEarned : 0, items = run ? run.Items.Count : 0;
             int t = Mathf.FloorToInt(gs.RunTime);
-            string where = won ? $"All {Dungeon.FinalFloor} floors cleared" : $"Fell on floor {floor}";
+            string name = Scenarios.NameFor(floor);
+            string where = won ? $"All {Dungeon.FinalFloor} floors cleared"
+                : floor > gs.BestFloorBefore && gs.BestFloorBefore > 0 ? $"Fell on floor {floor} ({name}): new deepest floor!"
+                : $"Fell on floor {floor} ({name})   deepest: {Mathf.Max(floor, gs.BestFloorBefore)}";
             Shadowed(new Rect(0, H * 0.42f, W, 4 * u), where, Centered);
             Shadowed(new Rect(0, H * 0.5f, W, 3 * u),
                 $"{gs.Kills} kills   {rooms} rooms cleared   {gold} gold found   {items} items   {SpellBook.Known.Count} spells   {t / 60}:{t % 60:00}", Label.Center());

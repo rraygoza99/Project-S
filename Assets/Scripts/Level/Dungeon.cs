@@ -183,8 +183,8 @@ namespace Spellcaster
 
             Progress.Max("max_floor", floor);
             Theme = Scenarios.ThemeFor(floor);
-            hpMult = 1f + 0.4f * (floor - 1);
-            dmgMult = 1f + 0.25f * (floor - 1);
+            hpMult = Difficulty.HpMult(floor);
+            dmgMult = Difficulty.DmgMult(floor);
             pal = MakePalette(Theme);
             pal.Gate = Materials.World("gate", PixelArt.Bars("tex_gate", C(120, 116, 128)), Color.white, 1.6f);
             pal.Pedestal = pal.Pillar;
@@ -531,6 +531,9 @@ namespace Spellcaster
                 {
                     OpenPortal(room);
                     Pedestal(room, BossPedestalLocal, Items.RandomTreasure(Run.Instance, 0.8f, floorStock), 0, BossPedestalGlow);
+                    // Deep floors: a second reward.
+                    for (int i = 1; i < Difficulty.BossItems(Floor); i++)
+                        Pedestal(room, BossPedestalLocal + new Vector3(0f, 0f, 3.5f * i), Items.RandomTreasure(Run.Instance, 0.8f, floorStock), 0, BossPedestalGlow);
                     Pickup.Spawn(Items.Heart, room.Center + new Vector3(4f, 0, 0));
                     GameState.Instance.Show(Floor == FinalFloor ? "Portal opened: the dungeon goes deeper" : "Portal opened", 3f);
                 }
@@ -542,7 +545,6 @@ namespace Spellcaster
         static readonly Vector3 BossPedestalLocal = new Vector3(-4f, 0, 0);
         static readonly Color BossPedestalGlow = new Color(1f, 0.8f, 0.3f);
 
-        /// <summary>The portal out of a cleared boss room (also rebuilt when a save is loaded).</summary>
         /// <summary>Most enemies a wave can have (deep floors get tougher enemies, not endless crowds).</summary>
         public const int MaxWave = 22;
 
@@ -570,7 +572,7 @@ namespace Spellcaster
         public void RestoreBossRoom(Room room)
         {
             OpenPortal(room);
-            PedestalBase(room, BossPedestalLocal, BossPedestalGlow);
+            for (int i = 0; i < Difficulty.BossItems(Floor); i++) PedestalBase(room, BossPedestalLocal + new Vector3(0f, 0f, 3.5f * i), BossPedestalGlow);
         }
 
         void EnterPortal()
@@ -581,6 +583,13 @@ namespace Spellcaster
             if (Floor == FinalFloor) { Progress.Add("wins"); Progress.Flush(); }
             Net.NetLoot.FloorChanging(Floor + 1, false);
             BuildFloor(Floor + 1);
+            // A deep floor starts with a rest: everyone standing heals a share of their max HP.
+            if (Difficulty.Deep(Floor) > 0 && !Net.NetSession.IsClientOnly)
+            {
+                foreach (var p in Players.All)
+                    if (p && !p.IsDead) p.Heal(p.MaxHP * Difficulty.DeepArrivalHeal);
+                if (Run.Instance) Run.Instance.Toast("Rested", $"+{Difficulty.DeepArrivalHeal * 100f:0}% HP before going deeper", new Color(0.5f, 1f, 0.6f));
+            }
         }
 
         void OnKilled(Enemy e)

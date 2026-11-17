@@ -641,7 +641,8 @@ namespace Spellcaster
                 else if (main)
                 {
                     HUD.Shadowed(new Rect(0, H * 0.08f, W, H * 0.15f), "SPELLCASTER", title);
-                    HUD.Shadowed(new Rect(0, H * 0.22f, W, 3 * u), "a rune-casting roguelike", HUD.Label.Center());
+                    int best = Progress.Get("max_floor");
+                    HUD.Shadowed(new Rect(0, H * 0.22f, W, 3 * u), "a rune-casting roguelike" + (best > 1 ? $"   -   deepest floor: {best}" : ""), HUD.Label.Center());
                     if (SaveSystem.LastError != null)
                     {
                         var err = new GUIStyle(HUD.Small) { alignment = TextAnchor.MiddleCenter, wordWrap = true };
