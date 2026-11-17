@@ -77,6 +77,16 @@ namespace Spellcaster
 
         void OnDestroy() => All.Remove(this);
 
+        /// <summary>Resting height above the floor (saved with the pickup).</summary>
+        public float Height => baseY;
+
+        /// <summary>Removes it at once (loading a save replaces the floor's pickups).</summary>
+        public void Discard()
+        {
+            All.Remove(this);
+            Destroy(gameObject);
+        }
+
         void ApplyIcon()
         {
             mpb.SetTexture(MainTexId, Item.Icon);

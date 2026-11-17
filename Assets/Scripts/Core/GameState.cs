@@ -69,6 +69,7 @@ namespace Spellcaster
 
         void Start()
         {
+            if (PendingContinue) { PendingContinue = false; Continue(); return; }
             if (skipTitle && !AutoTest.Active) Begin();
         }
 
@@ -120,6 +121,9 @@ namespace Spellcaster
         }
 
         /// <summary>Test hook: switch the current run into practice.</summary>
+        /// <summary>Test hook: back to a normal run after the practice checks.</summary>
+        public void ExitPracticeForTest() => PracticeMode = false;
+
         public void EnterPracticeForTest()
         {
             PracticeMode = true;
@@ -138,10 +142,37 @@ namespace Spellcaster
 
         void OnKilled(Enemy e) => Kills++;
 
+        /// <summary>Loading a save: the run's kill count and time so far.</summary>
+        public void RestoreTotals(int kills, float runTime)
+        {
+            Kills = kills;
+            RunTime = runTime;
+        }
+
+        /// <summary>Set before a scene reload to continue the saved run once the world is built (debug load).</summary>
+        public static bool PendingContinue;
+
+        /// <summary>Continues the saved run from the main menu. On failure the menu shows why.</summary>
+        public bool Continue()
+        {
+            if (Phase != Phase.Title) return false;
+            PracticeMode = false;
+            TutorialMode = false;
+            if (!SaveSystem.LoadRun())
+            {
+                ToMenu(); // a clean world for the menu; it shows SaveSystem.LastError
+                return false;
+            }
+            Begin();
+            Show("Continued", 1.5f);
+            return true;
+        }
+
         public void OnPlayerDied()
         {
             if (Phase != Phase.Playing) return;
             Phase = Phase.Dead;
+            if (!PracticeMode && !TutorialMode) SaveSystem.Delete(); // roguelike: the run is over
             Progress.Add("deaths");
             Progress.Flush();
             ReleaseCursor();
@@ -151,6 +182,7 @@ namespace Spellcaster
         {
             if (Phase != Phase.Playing) return;
             Phase = Phase.Victory;
+            if (!PracticeMode && !TutorialMode) SaveSystem.Delete();
             Progress.Add("wins");
             Progress.Flush();
             Sfx.Play("ready", 0.8f, 0.8f);

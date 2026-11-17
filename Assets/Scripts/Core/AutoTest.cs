@@ -1245,6 +1245,117 @@ namespace Spellcaster
                 Check($"after a room is cleared, coins anywhere in it fly to you ({trT:0.0} s)", !trFar && run.Gold > trGold);
             }
 
+            // ---- save & resume ----
+            {
+                var sv = SaveRunner.Instance;
+                yield return null;
+                Check($"clearing a fight room autosaves ({sv.Autosaves} autosaves, checkpoint {d.CheckpointRoomId}) to {SaveSystem.FilePath}",
+                    sv.Autosaves > 0 && File.Exists(SaveSystem.FilePath) && SaveSystem.HasValidSave && d.CheckpointRoomId == combat.Id);
+
+                // Put some state in that is easy to get wrong: a deck, a dropped forged-spell rune, a broken crate.
+                Settings.SetGrimoireEnabled(true);
+                yield return null;
+                var svGrim = Grimoire.GrimoireRun.Instance;
+                svGrim.Deck.AddToHand(Grimoire.Cards.Get("echo"));
+                svGrim.Deck.AddToDiscard(Grimoire.Cards.Get("pierce"));
+                var svForged = SpellBook.Known.FirstOrDefault(s => s.IsForged);
+                if (svForged != null) Pickup.Spawn(Items.ForgottenRune(svForged), combat.Center + new Vector3(2f, 0f, 2f));
+                var svCrate = d.BuiltProps.Select(b => b.prop).FirstOrDefault(p => p && p.Kind == PropKind.Crate && Prop.All.Contains(p))
+                    ?? d.BuiltProps.Select(b => b.prop).FirstOrDefault(p => p && Prop.All.Contains(p));
+                if (svCrate) svCrate.TakeDamage(999f);
+                yield return null;
+                ClearPickups(); // a crate drop would roll away and move between saves
+                run.Gold = 77;
+                bool svSaved = SaveSystem.Save();
+
+                // Round trip: save, load, save again; the two files must match (all but the time stamp).
+                string StripTime(string j) => string.Join("\n", j.Split('\n').Where(l => !l.Contains("\"timestamp\"")));
+                string svJson1 = StripTime(SaveSystem.ToJson(SaveSystem.Capture()));
+                SaveSystem.Apply(SaveSystem.Parse(File.ReadAllText(SaveSystem.FilePath)));
+                string svJson2 = StripTime(SaveSystem.ToJson(SaveSystem.Capture()));
+                string svDiff = null;
+                {
+                    var a = svJson1.Split('\n');
+                    var b = svJson2.Split('\n');
+                    for (int i = 0; i < Mathf.Max(a.Length, b.Length) && svDiff == null; i++)
+                        if (i >= a.Length || i >= b.Length || a[i] != b[i]) svDiff = $"line {i}: {(i < a.Length ? a[i].Trim() : "-")} | {(i < b.Length ? b[i].Trim() : "-")}";
+                }
+                Check($"save -> load -> save gives an identical file ({svJson1.Length} chars{(svDiff != null ? "; first difference " + svDiff : "")}; saved {svSaved}, forged {svForged?.Name}, crate {(bool)svCrate})",
+                    svSaved && svDiff == null && svForged != null);
+
+                // Resume: change everything after the checkpoint, then Continue puts it all back.
+                float svHp = player.HP;
+                int svGold = run.Gold;
+                string svItems = string.Join(",", run.Items.Select(i => i.Id));
+                string svSpells = string.Join(",", SpellBook.Known.Select(s => s.Name));
+                string svDeck = string.Join(",", svGrim.Deck.DrawPile.Concat(svGrim.Deck.Hand).Concat(svGrim.Deck.DiscardPile).Select(c => c.Def.Id));
+                string svMap = string.Join(",", d.AllRooms.Where(r => r.Visited).Select(r => r.Id));
+                string svCleared = string.Join(",", d.AllRooms.Where(r => r.Cleared).Select(r => r.Id));
+                int svPickups = Pickup.All.Count;
+                var svNext = d.AllRooms.FirstOrDefault(r => r.Type == RoomType.Combat && !r.Cleared);
+                string svWave = svNext != null ? string.Join(",", d.PreviewWave(svNext).Select(t => t.Name)) : "";
+                int svNextFloor = RunRandom.FloorSeed(d.Floor + 1);
+                var svShop = string.Join(",", Pickup.All.Where(p => p.Price > 0).Select(p => p.Item.Id).OrderBy(x => x));
+
+                run.Gold = 1;
+                run.Items.Clear();
+                player.God = false;
+                player.TakeDamage(30f);
+                player.God = true;
+                SpellBook.Known.RemoveAt(SpellBook.Known.Count - 1);
+                svGrim.Deck.ForceReshuffle();
+                svGrim.Deck.CycleNext();
+                foreach (var r in d.AllRooms) r.Cleared = true;
+                foreach (var p in Pickup.All.ToArray()) p.Discard();
+                RunRandom.RunSeed = 12345;
+
+                bool svLoaded = SaveSystem.LoadRun();
+                int svPickupsNow = Pickup.All.Count;
+                yield return null;
+                Log($"resume detail: loaded {svLoaded} ({SaveSystem.LastError}), items {string.Join(",", run.Items.Select(i => i.Id)) == svItems}, spells {string.Join(",", SpellBook.Known.Select(s => s.Name)) == svSpells}, deck {string.Join(",", svGrim.Deck.DrawPile.Concat(svGrim.Deck.Hand).Concat(svGrim.Deck.DiscardPile).Select(c => c.Def.Id)) == svDeck}, map {string.Join(",", d.AllRooms.Where(r => r.Visited).Select(r => r.Id)) == svMap}, pickups {svPickupsNow}/{svPickups}, room {d.Current?.Id}, cleared now {string.Join(",", d.AllRooms.Where(r => r.Cleared).Select(r => r.Id))}");
+                Check($"Continue restores HP ({player.HP:0}), gold ({run.Gold}), items, spells, map, deck order and pickups, in the checkpoint room",
+                    svLoaded && Mathf.Approximately(player.HP, svHp) && run.Gold == svGold
+                    && string.Join(",", run.Items.Select(i => i.Id)) == svItems
+                    && string.Join(",", SpellBook.Known.Select(s => s.Name)) == svSpells
+                    && string.Join(",", svGrim.Deck.DrawPile.Concat(svGrim.Deck.Hand).Concat(svGrim.Deck.DiscardPile).Select(c => c.Def.Id)) == svDeck
+                    && string.Join(",", d.AllRooms.Where(r => r.Visited).Select(r => r.Id)) == svMap
+                    && svPickupsNow == svPickups && d.Current != null && d.Current.Id == combat.Id);
+                var svNextNow = svNext != null ? d.AllRooms.FirstOrDefault(r => r.Id == svNext.Id) : null; // rooms are rebuilt on load
+                Check($"cleared rooms stay cleared and the others don't ({svCleared})",
+                    string.Join(",", d.AllRooms.Where(r => r.Cleared).Select(r => r.Id)) == svCleared && (svNextNow == null || !svNextNow.Cleared));
+                Check($"the run continues the same: next room's wave ({svWave}), shop stock and next floor match",
+                    svNext != null && string.Join(",", d.PreviewWave(svNext).Select(t => t.Name)) == svWave
+                    && RunRandom.FloorSeed(d.Floor + 1) == svNextFloor
+                    && string.Join(",", Pickup.All.Where(p => p.Price > 0).Select(p => p.Item.Id).OrderBy(x => x)) == svShop);
+                yield return Shot("15b_continued");
+
+                // Broken files never crash: a damaged save falls back to its backup; both damaged hides Continue.
+                SaveSystem.Save(); // the previous file becomes save.json.bak
+                File.WriteAllText(SaveSystem.FilePath, "{ this is not a save");
+                SaveSystem.ClearError();
+                bool svBackupOk = SaveSystem.HasValidSave && SaveSystem.Read(SaveSystem.FilePath) == null && SaveSystem.LoadRun();
+                string svBackupMsg = SaveSystem.LastError;
+                File.WriteAllText(SaveSystem.FilePath, "garbage");
+                File.WriteAllText(SaveSystem.BackupPath, "");
+                SaveSystem.ClearError();
+                bool svBothBad = !SaveSystem.HasValidSave && !SaveSystem.LoadRun() && SaveSystem.LastError != null && !SaveSystem.HasValidSave;
+                var svFuture = SaveSystem.ToJson(SaveSystem.Capture()).Replace($"\"saveVersion\": {SaveSystem.Version}", "\"saveVersion\": 999");
+                bool svNewer = SaveSystem.Parse(svFuture) == null;
+                Check($"a damaged save falls back to the backup (\"{svBackupMsg}\"); two damaged files or a newer version hide Continue without crashing",
+                    svBackupOk && svBothBad && svNewer);
+                yield return null;
+                SaveSystem.Save();
+                SaveSystem.ClearError();
+                MainMenu.Instance.StartGame();
+                bool svAsks = MainMenu.Instance.Current == MainMenu.Page.Confirm && gs.Phase == Phase.Playing;
+                MainMenu.Instance.Open(MainMenu.Page.Main);
+                Check("New Run while a save exists asks before overwriting it", svAsks && SaveSystem.HasValidSave);
+                Settings.SetGrimoireEnabled(false);
+                yield return null;
+                gs.ClearEnemies();
+                ClearPickups();
+            }
+
             // ---- Grimoire: elites in fight rooms, reward on room clear ----
             {
                 var gmRoom = d.AllRooms.FirstOrDefault(r => r.Type == RoomType.Combat && !r.Cleared && r != combat);
@@ -1532,11 +1643,11 @@ namespace Spellcaster
                     yield return Shot("22e_behemoth_leap");
                     while (bmT < 8f && bmBrain.Airborne) { bmT += Time.deltaTime; yield return null; }
                     Check("the Behemoth leaps (can't be hurt in the air) and lands with a shockwave", bmAir && !bmBrain.Airborne && bmBrain.Leaps >= 1 && !bmBoss.Invulnerable);
-                    int bmShots = bmBoss.ShotsFired;
+                    int bmShots = bmBoss.ShotsFired, bmVolleys = bmBrain.SpikeVolleys;
                     bmBrain.Force = "spikes";
                     bmT = 0f;
-                    while (bmT < 10f && bmBrain.SpikeVolleys == 0) { bmT += Time.deltaTime; yield return null; }
-                    Check($"it fires a ring of spikes ({bmBoss.ShotsFired - bmShots} shots, volleys {bmBrain.SpikeVolleys}, phase {bmBrain.Phase}, frozen {bmBoss.IsFrozen}, stunned {bmBoss.IsStunned})", bmBrain.SpikeVolleys >= 1 && bmBoss.ShotsFired - bmShots >= 14);
+                    while (bmT < 10f && bmBrain.SpikeVolleys == bmVolleys) { bmT += Time.deltaTime; yield return null; }
+                    Check($"it fires a ring of spikes ({bmBoss.ShotsFired - bmShots} shots, volleys {bmBrain.SpikeVolleys}, phase {bmBrain.Phase}, frozen {bmBoss.IsFrozen}, stunned {bmBoss.IsStunned})", bmBrain.SpikeVolleys > bmVolleys && bmBoss.ShotsFired - bmShots >= 14);
                     bmBrain.Force = "roll";
                     bmT = 0f;
                     while (bmT < 8f && bmBrain.Rolls == 0) { bmT += Time.deltaTime; yield return null; }
@@ -1550,7 +1661,7 @@ namespace Spellcaster
             yield return new WaitForSeconds(1.2f);
             player.Teleport(d.PortalPosition + Vector3.up * 0.1f, 0f);
             yield return new WaitForSecondsRealtime(0.5f); // the victory screen pauses game time
-            Check("final portal wins the run", gs.Phase == Phase.Victory);
+            Check("final portal wins the run, and the save is deleted", gs.Phase == Phase.Victory && !File.Exists(SaveSystem.FilePath) && !SaveSystem.HasValidSave);
             yield return Shot("22_victory");
 
             // ---- meta progression: locked content, counters, achievements, new spells and items ----
@@ -1669,12 +1780,15 @@ namespace Spellcaster
             player.Heal(player.MaxHP);
             player.TakeDamage(60f);
             float lsHp = player.HP;
+            float lsKillHeal = run.Stats.HealOnKill;
+            run.Stats.HealOnKill = 0f; // Vampire Fang would add its own healing to the kills
             var lsCast = new SpellCast(lsSpell, player);
             lsCast.Launch();
             yield return null;
             Check($"lifesteal is capped per cast ({lsCast.DamageDealt:0} dmg -> healed {lsCast.LifestealHealed:0}, cap {SpellCast.MaxLifestealPerCast:0}, HP +{player.HP - lsHp:0.##}, kills {lsCast.Kills})",
                 lsCast.DamageDealt * 0.35f > SpellCast.MaxLifestealPerCast && Mathf.Approximately(lsCast.LifestealHealed, SpellCast.MaxLifestealPerCast)
                 && Mathf.Abs(player.HP - lsHp - SpellCast.MaxLifestealPerCast) < 0.01f);
+            run.Stats.HealOnKill = lsKillHeal;
             player.God = true;
             gs.ClearEnemies();
             yield return new WaitForSeconds(0.6f);
@@ -1790,10 +1904,13 @@ namespace Spellcaster
 
             // ---- death ----
             gs.ForcePlayingForTest();
+            gs.ExitPracticeForTest();
+            SaveSystem.Save();
+            bool svBeforeDeath = File.Exists(SaveSystem.FilePath);
             player.God = false;
             player.TakeDamage(5000f);
             yield return null;
-            Check("player death shows You Died", gs.Phase == Phase.Dead && player.IsDead);
+            Check("player death shows You Died and deletes the save", gs.Phase == Phase.Dead && player.IsDead && svBeforeDeath && !File.Exists(SaveSystem.FilePath));
             yield return Shot("24_death");
 
             Log($"SUMMARY passed={passed} failed={failed}");

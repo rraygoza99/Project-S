@@ -49,7 +49,33 @@ namespace Spellcaster.Grimoire
             }
         }
 
-        void Awake() => Instance = this;
+        void Awake()
+        {
+            Instance = this;
+            Items.ExtraResolve = id => id == GrimoireShop.Erasure.Id ? GrimoireShop.Erasure : null;
+            SaveSystem.Register(new SaveSection<GrimoireSave>("grimoire", 40, SaveState, LoadState));
+        }
+
+        /// <summary>The deck (pile by pile, in order) and which shops already stock a Scroll of Erasure. Null if there is no deck.</summary>
+        public GrimoireSave SaveState()
+        {
+            if (Deck == null) return null;
+            var s = new GrimoireSave { preset = PresetIndex, shops = GrimoireShop.StockedRoomIds() };
+            foreach (var c in Deck.DrawPile) s.draw.Add(c.Def.Id);
+            foreach (var c in Deck.Hand) s.hand.Add(c.Def.Id);
+            foreach (var c in Deck.DiscardPile) s.discard.Add(c.Def.Id);
+            return s;
+        }
+
+        public void LoadState(GrimoireSave s)
+        {
+            if (Deck != null) Deck.Changed -= OnDeckChanged;
+            Deck = new Deck();
+            Deck.Changed += OnDeckChanged;
+            Deck.Restore(s.draw, s.hand, s.discard);
+            PresetIndex = Mathf.Clamp(s.preset, 0, C.Presets.Count - 1);
+            GrimoireShop.MarkStocked(s.shops);
+        }
 
         void OnEnable()
         {
@@ -217,8 +243,10 @@ namespace Spellcaster.Grimoire
             var d = Dungeon.Instance;
             if (!d || !d.InCombat || d.Current == null || d.Current == eliteRolledFor) return;
             if (e.Type.IsBoss || !e.Type.DropsLoot) return;
-            eliteRolledFor = d.Current; // one roll per fight room, on its first enemy
-            if (UnityEngine.Random.value >= C.EliteChance) return;
+            eliteRolledFor = d.Current; // one roll per fight room, on its first enemy (seeded per room)
+            float roll;
+            using (RunRandom.Use(RunRandom.RoomSeed(d.FloorSeed, d.Current, "elite"))) roll = UnityEngine.Random.value;
+            if (roll >= C.EliteChance) return;
             MakeElite(e);
         }
 

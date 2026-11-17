@@ -125,7 +125,13 @@ cleared rooms, so you can't wait out Heal between fights).
     fires a **ring of spikes**, or **leaps** (can't be hurt in the air) and slams down on the orange
     warning ring. At half HP it roars and gets faster, and its slams call flame skulls.
 - **Map.** The minimap shows visited rooms and their neighbours; T, $, R and B mark the special rooms.
-- **Death** ends the run. Nothing carries over between runs.
+- **Saving.** The run saves itself every time you clear a fight room (a small "Saving..." shows in
+  the corner). **Continue** on the main menu puts you back in the last room you cleared, with the same
+  HP, gold, items, spells, map and Grimoire deck. A room you were in the middle of starts over.
+  Esc, then **Q**, saves and quits to the menu. The rest of the run plays out the same as if you had
+  never quit: same rooms, same shops, same enemy waves, same rewards.
+- **Death** (or winning) ends the run and deletes the save. Nothing carries over between runs.
+  Starting a new run while a save exists asks first.
 
 ### Unlocks (meta progression)
 
@@ -319,6 +325,28 @@ to `GrimoireConfig.StartingDeck` or a preset to start with it. All numbers are i
 `Grimoire/GrimoireConfig.cs`.
 
 ## How it's built (and how to add things)
+
+**Saves.** `Core/Save/`: one slot, `save.json` in `%USERPROFILE%\AppData\LocalLow\SpellcasterMVP\Spellcaster`
+(the self-test uses an `autotest` folder next to it). The file is a header (`saveVersion`, game
+version, time, run seed) plus one JSON block per system. Writes go to a temp file that then replaces
+the save; the previous save is kept as `save.json.bak`. A damaged file falls back to the backup; if
+both are damaged, Continue is hidden and the menu says why. Settings and unlocks are not in it (they
+stay in PlayerPrefs). Everything the map decides is rolled from the run seed (`RunRandom`), so it
+needs no other random state. Dev mode keys: **F5** save now, **F9** load the save, **F8** delete it,
+**F7** print it to the log and open its folder.
+
+**Add a system to the save:** write a plain `[Serializable]` data class (lists and numbers, stable
+string ids, no engine objects), give the system a `SaveState()` that fills it and a
+`LoadState(data)` that puts it back, and register it once when the system is created:
+
+```csharp
+SaveSystem.Register(new SaveSection<MyData>("mysystem", 50, SaveState, LoadState));
+```
+
+The key must never change; the number is the load order (the dungeon loads at 0, the run at 10,
+spells 20, the player 30, the Grimoire 40). Return null from `SaveState()` to leave the block out. If
+you change a saved format, bump `SaveSystem.Version` and add a migration from the old version in
+`SaveSystem.Migrations`.
 
 **Add a spell:** add an entry to `Spells/SpellBook.cs`, for example
 

@@ -4,6 +4,7 @@ namespace Spellcaster
     /// Everything items can change about the wizard. Passive items edit the base stats; relics flip on
     /// the spell modifiers at the bottom, which the spell code reads when a spell resolves.
     /// </summary>
+    [System.Serializable]
     public class PlayerStats
     {
         public float MaxHP = 100f;

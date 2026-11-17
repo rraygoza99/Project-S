@@ -41,6 +41,21 @@ namespace Spellcaster.Grimoire
             Fill();
         }
 
+        /// <summary>Loading a save: the three piles exactly as they were (no shuffle, no draw).</summary>
+        public void Restore(IEnumerable<string> draw, IEnumerable<string> hand, IEnumerable<string> discard)
+        {
+            DrawPile.Clear();
+            Hand.Clear();
+            DiscardPile.Clear();
+            void Fill(List<Card> pile, IEnumerable<string> ids)
+            {
+                foreach (var id in ids) { var def = Cards.Get(id); if (def != null) pile.Add(new Card(def)); }
+            }
+            Fill(DrawPile, draw);
+            Fill(Hand, hand);
+            Fill(DiscardPile, discard);
+        }
+
         /// <summary>Draws until the hand is full or no cards are left anywhere.</summary>
         public void Fill()
         {

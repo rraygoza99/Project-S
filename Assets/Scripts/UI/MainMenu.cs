@@ -13,7 +13,7 @@ namespace Spellcaster
     {
         public static MainMenu Instance { get; private set; }
 
-        public enum Page { Main, Options, Controls, Unlocks }
+        public enum Page { Main, Options, Controls, Unlocks, Confirm }
         public Page Current { get; private set; } = Page.Main;
         public int Selected { get; private set; }
         /// <summary>Action and slot waiting for a key press (Controls page), or null.</summary>
@@ -28,25 +28,62 @@ namespace Spellcaster
             public GameAction? Binding;         // Controls page rows
         }
 
-        List<Item> mainItems, optionItems, controlItems, unlockItems;
+        List<Item> mainItems, optionItems, controlItems, unlockItems, confirmItems;
+        /// <summary>What "Yes" on the confirm page starts (a new run or the tutorial) after deleting the save.</summary>
+        Action confirmAction;
         Vector2 lastMouse;
         int listenFrame;
 
-        List<Item> Items => Current switch { Page.Main => mainItems, Page.Options => optionItems, Page.Unlocks => unlockItems, _ => controlItems };
+        List<Item> Items => Current switch { Page.Main => mainItems, Page.Options => optionItems, Page.Unlocks => unlockItems, Page.Confirm => confirmItems, _ => controlItems };
+
+        /// <summary>The main page: Continue appears first when a valid save exists.</summary>
+        void BuildMain()
+        {
+            mainItems = new List<Item>();
+            if (SaveSystem.HasValidSave) mainItems.Add(new Item { Label = "Continue", Activate = ContinueRun });
+            mainItems.Add(new Item { Label = "Start game", Activate = StartGame });
+            mainItems.Add(new Item { Label = "Tutorial", Activate = StartTutorial });
+            mainItems.Add(new Item { Label = "Practice tool", Activate = StartPractice });
+            mainItems.Add(new Item { Label = "Unlocks", Activate = () => Open(Page.Unlocks) });
+            mainItems.Add(new Item { Label = "Options", Activate = () => Open(Page.Options) });
+            mainItems.Add(new Item { Label = "Exit game", Activate = ExitGame });
+            if (Current == Page.Main) Selected = Mathf.Clamp(Selected, 0, mainItems.Count - 1);
+        }
+
+        /// <summary>Continues the saved run.</summary>
+        public void ContinueRun()
+        {
+            LeaveMenu();
+            if (!GameState.Instance.Continue()) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+        }
+
+        /// <summary>A new run replaces the saved one: ask first.</summary>
+        void ConfirmNewRun(Action start)
+        {
+            if (!SaveSystem.HasValidSave) { start(); return; }
+            confirmAction = start;
+            Open(Page.Confirm);
+            Selected = 1; // "No" is the safe default
+        }
 
         static string OnOff(bool b) => b ? "On" : "Off";
 
         void Awake()
         {
             Instance = this;
-            mainItems = new List<Item>
+            BuildMain();
+            confirmItems = new List<Item>
             {
-                new Item { Label = "Start game", Activate = StartGame },
-                new Item { Label = "Tutorial", Activate = StartTutorial },
-                new Item { Label = "Practice tool", Activate = StartPractice },
-                new Item { Label = "Unlocks", Activate = () => Open(Page.Unlocks) },
-                new Item { Label = "Options", Activate = () => Open(Page.Options) },
-                new Item { Label = "Exit game", Activate = ExitGame },
+                new Item { Label = "Yes, start a new run", Activate = () =>
+                    {
+                        SaveSystem.Delete();
+                        BuildMain();
+                        var go = confirmAction;
+                        confirmAction = null;
+                        Current = Page.Main;
+                        go?.Invoke();
+                    } },
+                new Item { Label = "No, keep my saved run", Activate = () => Open(Page.Main) },
             };
             optionItems = new List<Item>
             {
@@ -115,7 +152,7 @@ namespace Spellcaster
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 if (Current == Page.Controls) Open(Page.Options);
-                else if (Current == Page.Options || Current == Page.Unlocks) Open(Page.Main);
+                else if (Current == Page.Options || Current == Page.Unlocks || Current == Page.Confirm) Open(Page.Main);
             }
         }
 
@@ -136,6 +173,7 @@ namespace Spellcaster
 
         public void Open(Page s)
         {
+            if (s == Page.Main) BuildMain();
             Current = s;
             Selected = 0;
             Listening = null;
@@ -166,19 +204,19 @@ namespace Spellcaster
         }
 
         /// <summary>Starts a run; the very first one begins with the tutorial.</summary>
-        public void StartGame()
+        public void StartGame() => ConfirmNewRun(() =>
         {
             LeaveMenu();
             if (!Settings.TutorialDone && !AutoTest.Active) GameState.Instance.StartTutorial();
             else GameState.Instance.Begin();
-        }
+        });
 
         /// <summary>Starts a run that opens with the tutorial.</summary>
-        public void StartTutorial()
+        public void StartTutorial() => ConfirmNewRun(() =>
         {
             LeaveMenu();
             GameState.Instance.StartTutorial();
-        }
+        });
 
         /// <summary>Practice runes with every spell, no cooldowns and training dummies.</summary>
         public void StartPractice()
@@ -265,16 +303,31 @@ namespace Spellcaster
                     Bind(Input.GetKeyDown(KeyCode.LeftShift) ? KeyCode.LeftShift : KeyCode.RightShift);
             }
 
-            bool main = Current == Page.Main;
+            bool confirm = Current == Page.Confirm;
+            bool main = Current == Page.Main || confirm;
             if (repaint)
             {
                 HUD.Fill(new Rect(0, 0, W, H), new Color(0.03f, 0.01f, 0.05f, main ? 0.7f : 0.82f));
                 var title = new GUIStyle(HUD.Title);
                 title.normal.textColor = new Color(1f, 0.85f, 0.45f);
-                if (main)
+                if (confirm)
+                {
+                    title.fontSize = Mathf.RoundToInt(title.fontSize * 0.55f);
+                    HUD.Shadowed(new Rect(0, H * 0.1f, W, H * 0.09f), "START A NEW RUN?", title);
+                    HUD.Shadowed(new Rect(0, H * 0.2f, W, 3 * u), "This deletes your saved run" + (SaveSystem.Describe() is string d0 ? $" ({d0})" : "") + ".", HUD.Label.Center());
+                }
+                else if (main)
                 {
                     HUD.Shadowed(new Rect(0, H * 0.08f, W, H * 0.15f), "SPELLCASTER", title);
                     HUD.Shadowed(new Rect(0, H * 0.22f, W, 3 * u), "a rune-casting roguelike", HUD.Label.Center());
+                    if (SaveSystem.LastError != null)
+                    {
+                        var err = new GUIStyle(HUD.Small) { alignment = TextAnchor.MiddleCenter, wordWrap = true };
+                        err.normal.textColor = new Color(1f, 0.6f, 0.45f);
+                        HUD.Shadowed(new Rect(W * 0.15f, H * 0.255f, W * 0.7f, 2.6f * u), SaveSystem.LastError, err);
+                    }
+                    else if (mainItems.Count > 0 && mainItems[0].Label == "Continue" && SaveSystem.Describe() is string d1)
+                        HUD.Shadowed(new Rect(0, H * 0.26f, W, 2 * u), "Saved run: " + d1, HUD.Small.Center());
                 }
                 else
                 {
@@ -360,6 +413,7 @@ namespace Spellcaster
                 string hint = Current switch
                 {
                     Page.Main => "Mouse or W/S + Enter",
+                    Page.Confirm => "Esc: back",
                     Page.Unlocks => "Reach a goal to add its spell or item to future runs. Your stats are never upgraded.",
                     Page.Options => "A/D or click < > to change   Esc: back   (rune size: how far the mouse moves per stroke)",
                     _ => Listening.HasValue

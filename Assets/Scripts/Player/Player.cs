@@ -70,6 +70,9 @@ namespace Spellcaster
         void Awake()
         {
             Instance = this;
+            SaveSystem.Register(new SaveSection<PlayerSave>("player", 30,
+                () => new PlayerSave { hp = HP },
+                s => HP = Mathf.Clamp(s.hp, 1f, MaxHP)));
             cc = GetComponent<CharacterController>();
             Yaw = transform.eulerAngles.y;
         }

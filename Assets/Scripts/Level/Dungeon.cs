@@ -74,15 +74,92 @@ namespace Spellcaster
         {
             Instance = this;
             Enemy.Killed += OnKilled;
+            SaveSystem.Register(new SaveSection<DungeonSave>("dungeon", 0, SaveState, LoadState));
+        }
+
+        // ---------------- save / load ----------------
+
+        public DungeonSave SaveState()
+        {
+            var s = new DungeonSave
+            {
+                floor = Floor, floorSeed = FloorSeed, roomsCleared = RoomsCleared,
+                checkpoint = CheckpointRoomId ?? "", portalOpen = PortalOpen,
+            };
+            foreach (var r in AllRooms) s.rooms.Add(new RoomSave { id = r.Id, visited = r.Visited, cleared = r.Cleared });
+            foreach (var p in Pickup.All)
+            {
+                if (!p) continue;
+                var pos = p.transform.position;
+                s.pickups.Add(new PickupSave
+                {
+                    item = p.Item.Id, price = p.Price, x = pos.x, y = p.Height, z = pos.z,
+                    spell = p.Item.Spell != null ? SpellCodec.ToData(p.Item.Spell) : null,
+                });
+            }
+            foreach (var b in BuiltProps)
+                if (!b.prop || !Prop.All.Contains(b.prop)) s.destroyed.Add(new PropSave { kind = b.kind.ToString(), x = b.pos.x, z = b.pos.z });
+            foreach (var i in floorStock) s.floorStock.Add(i.Id);
+            return s;
+        }
+
+        /// <summary>Rebuilds the saved floor from its seed, then puts back room states, pickups and broken props.</summary>
+        public void LoadState(DungeonSave s)
+        {
+            BuildFloor(s.floor, s.floorSeed);
+            var byId = AllRooms.ToDictionary(r => r.Id);
+            foreach (var rs in s.rooms)
+                if (byId.TryGetValue(rs.id, out var r)) { r.Visited = rs.visited; r.Cleared = rs.cleared; }
+            RoomsCleared = s.roomsCleared;
+
+            floorStock.Clear();
+            foreach (var id in s.floorStock) { var it = Items.Resolve(id); if (it != null) floorStock.Add(it); }
+
+            // What lies on the floor is exactly what was saved (bought and collected things stay gone).
+            foreach (var p in Pickup.All.ToArray()) if (p) p.Discard();
+            foreach (var ps in s.pickups)
+            {
+                bool hasSpell = ps.spell != null && (!string.IsNullOrEmpty(ps.spell.baseId) || !string.IsNullOrEmpty(ps.spell.id));
+                var item = hasSpell ? Items.ForgottenRune(SpellCodec.FromData(ps.spell)) : Items.Resolve(ps.item);
+                if (item == null) { Debug.LogWarning("[Spellcaster] save: unknown item " + ps.item); continue; }
+                Pickup.Spawn(item, new Vector3(ps.x, 0f, ps.z), ps.price, height: ps.y);
+            }
+
+            foreach (var d in s.destroyed)
+            {
+                var hit = BuiltProps.FirstOrDefault(b => b.prop && Prop.All.Contains(b.prop) && b.kind.ToString() == d.kind
+                    && new Vector2(b.pos.x - d.x, b.pos.z - d.z).sqrMagnitude < 0.3f * 0.3f);
+                if (hit.prop) { Prop.All.Remove(hit.prop); Destroy(hit.prop.gameObject); }
+            }
+
+            var boss = AllRooms.FirstOrDefault(r => r.Type == RoomType.Boss);
+            if (s.portalOpen && boss != null) RestoreBossRoom(boss);
+
+            CheckpointRoomId = string.IsNullOrEmpty(s.checkpoint) ? null : s.checkpoint;
+            var cp = CheckpointRoomId != null && byId.TryGetValue(CheckpointRoomId, out var c) ? c : Rooms[Vector2Int.zero];
+            if (Player.Instance) Player.Instance.Teleport(FindFreeSpot(cp, cp.Center, 1f) + Vector3.up * 0.1f, 0f);
+            Current = null;
+            Enter(cp);
         }
 
         void OnDestroy() => Enemy.Killed -= OnKilled;
 
         // ---------------- floor building ----------------
 
+        /// <summary>The seed this floor was built from (derived from the run seed; saved).</summary>
+        public int FloorSeed { get; private set; }
+        /// <summary>The last room cleared: where Continue puts you (saved).</summary>
+        public string CheckpointRoomId;
+        /// <summary>Breakable props as built, to tell which were destroyed (saved by kind and position).</summary>
+        public readonly List<(Prop prop, PropKind kind, Vector3 pos)> BuiltProps = new List<(Prop, PropKind, Vector3)>();
+        /// <summary>Items already placed on this floor (saved, so treasure, shop and boss never repeat).</summary>
+        public List<ItemDef> FloorStock => floorStock;
+
         public void BuildFloor(int floor, int seed = 0)
         {
             Floor = floor;
+            FloorSeed = seed != 0 ? seed : RunRandom.FloorSeed(floor);
+            CheckpointRoomId = null;
             InCombat = false;
             PortalOpen = false;
             Boss = null;
@@ -112,7 +189,7 @@ namespace Spellcaster
 
             LevelRoot = new GameObject("Floor " + floor).transform;
             LevelRoot.SetParent(transform, false);
-            var rng = new System.Random(seed != 0 ? seed : Random.Range(1, int.MaxValue));
+            var rng = new System.Random(FloorSeed);
             var plan = FloorGenerator.Generate(8 + 2 * floor, rng);
 
             foreach (var pr in plan.Rooms)
@@ -137,9 +214,15 @@ namespace Spellcaster
             foreach (var room in AllRooms) BuildRoom(room);
             foreach (var room in AllRooms)
             {
-                RoomLayouts.Furnish(room, pal, rng, floor);
-                StockRoom(room);
+                // Seeded per room, so the same run seed always gives the same props and stock.
+                using (RunRandom.Use(RunRandom.RoomSeed(FloorSeed, room, "furnish")))
+                {
+                    RoomLayouts.Furnish(room, pal, rng, floor);
+                    StockRoom(room);
+                }
             }
+            BuiltProps.Clear();
+            foreach (var p in Prop.All) BuiltProps.Add((p, p.Kind, p.transform.position));
 
             Current = null;
             var start = Rooms[Vector2Int.zero];
@@ -241,8 +324,7 @@ namespace Spellcaster
             }
         }
 
-        /// <summary>An item on a pedestal (price 0 = free). Public for optional systems that add stock (Grimoire).</summary>
-        public void Pedestal(Room room, Vector3 local, ItemDef item, int price, Color glow)
+        Vector3 PedestalBase(Room room, Vector3 local, Color glow)
         {
             var pos = room.Center + local;
             Box(room.Root, "Pedestal", pos + Vector3.up * 0.45f, new Vector3(1.1f, 0.9f, 1.1f), pal.Pedestal);
@@ -250,6 +332,13 @@ namespace Spellcaster
             var halo = Fx.CreateQuad(room.Root, new Color(glow.r, glow.g, glow.b, 0.5f), 2.2f, billboard: false);
             halo.transform.position = pos + Vector3.up * 0.92f;
             halo.transform.rotation = Quaternion.Euler(90, 0, 0);
+            return pos;
+        }
+
+        /// <summary>An item on a pedestal (price 0 = free). Public for optional systems that add stock (Grimoire).</summary>
+        public void Pedestal(Room room, Vector3 local, ItemDef item, int price, Color glow)
+        {
+            var pos = PedestalBase(room, local, glow);
             if (item.Kind != ItemKind.Heart && item.Kind != ItemKind.Consumable) floorStock.Add(item);
             Pickup.Spawn(item, pos, price, height: 1.55f);
         }
@@ -315,16 +404,30 @@ namespace Spellcaster
                 Sfx.Play("boss", 0.9f);
                 return;
             }
-            int count = 3 + 2 * Floor + Random.Range(0, 3) + Mathf.Min(room.Depth, 4) / 2;
-            // Big rooms hold bigger fights.
-            if (room.IsBig) count = Mathf.Min(Mathf.RoundToInt(count * (room.CellCount >= 4 ? 2.1f : 1.6f)), 22);
-            var picked = new Dictionary<EnemyType, int>();
-            for (int i = 0; i < count; i++)
-            {
-                var type = EnemyType.PickForEncounter(Floor, room.Depth, () => Random.value, t => picked.TryGetValue(t, out int n) ? n : 0);
-                picked[type] = (picked.TryGetValue(type, out int had) ? had : 0) + 1;
+            // The wave is seeded per room: the same run always meets the same enemies here.
+            // (Where they appear depends on where you stand, so that is rolled separately.)
+            foreach (var type in PreviewWave(room))
                 pending.Enqueue((type, RandomSpawnPoint(room, player, type.Kamikaze ? 10f : 7f)));
+        }
+
+        /// <summary>The enemy types of this room's wave, from the room's seed (also a test hook).</summary>
+        public List<EnemyType> PreviewWave(Room room)
+        {
+            var list = new List<EnemyType>();
+            using (RunRandom.Use(RunRandom.RoomSeed(FloorSeed, room, "wave")))
+            {
+                int count = 3 + 2 * Floor + Random.Range(0, 3) + Mathf.Min(room.Depth, 4) / 2;
+                // Big rooms hold bigger fights.
+                if (room.IsBig) count = Mathf.Min(Mathf.RoundToInt(count * (room.CellCount >= 4 ? 2.1f : 1.6f)), 22);
+                var picked = new Dictionary<EnemyType, int>();
+                for (int i = 0; i < count; i++)
+                {
+                    var type = EnemyType.PickForEncounter(Floor, room.Depth, () => Random.value, t => picked.TryGetValue(t, out int n) ? n : 0);
+                    picked[type] = (picked.TryGetValue(type, out int had) ? had : 0) + 1;
+                    list.Add(type);
+                }
             }
+            return list;
         }
 
         /// <summary>Hook: a fight room was cleared for the first time (Grimoire rewards).</summary>
@@ -344,21 +447,41 @@ namespace Spellcaster
             Progress.Add("rooms");
             if (!hurtThisRoom) Progress.Add("flawless_rooms");
             Sfx.Play("clear", 0.7f);
-            if (room.Type == RoomType.Boss)
+            // Rewards are seeded per room (the same run always gets the same ones here).
+            using (RunRandom.Use(RunRandom.RoomSeed(FloorSeed, room, "clear")))
             {
-                PortalPosition = FindFreeSpot(room, room.Center + new Vector3(0, 0, 3f), 1.5f);
-                PortalOpen = true;
-                var portal = Fx.CreateQuad(room.Root, new Color(0.6f, 0.3f, 1f, 0.9f), 3.2f);
-                portal.transform.position = PortalPosition + Vector3.up * 1.6f;
-                var ring = Fx.CreateQuad(room.Root, new Color(0.7f, 0.4f, 1f, 0.7f), 3f, billboard: false);
-                ring.transform.position = PortalPosition + Vector3.up * 0.03f;
-                ring.transform.rotation = Quaternion.Euler(90, 0, 0);
-                Pedestal(room, new Vector3(-4f, 0, 0), Items.RandomTreasure(Run.Instance, 0.8f, floorStock), 0, new Color(1f, 0.8f, 0.3f));
-                Pickup.Spawn(Items.Heart, room.Center + new Vector3(4f, 0, 0));
-                GameState.Instance.Show(Floor >= FinalFloor ? "Step into the portal to escape" : "Portal opened", 3f);
+                if (room.Type == RoomType.Boss)
+                {
+                    OpenPortal(room);
+                    Pedestal(room, BossPedestalLocal, Items.RandomTreasure(Run.Instance, 0.8f, floorStock), 0, BossPedestalGlow);
+                    Pickup.Spawn(Items.Heart, room.Center + new Vector3(4f, 0, 0));
+                    GameState.Instance.Show(Floor >= FinalFloor ? "Step into the portal to escape" : "Portal opened", 3f);
+                }
+                else Loot.RoomClearReward(room);
+                RoomCleared?.Invoke(room);
             }
-            else Loot.RoomClearReward(room);
-            RoomCleared?.Invoke(room);
+        }
+
+        static readonly Vector3 BossPedestalLocal = new Vector3(-4f, 0, 0);
+        static readonly Color BossPedestalGlow = new Color(1f, 0.8f, 0.3f);
+
+        /// <summary>The portal out of a cleared boss room (also rebuilt when a save is loaded).</summary>
+        public void OpenPortal(Room room)
+        {
+            PortalPosition = FindFreeSpot(room, room.Center + new Vector3(0, 0, 3f), 1.5f);
+            PortalOpen = true;
+            var portal = Fx.CreateQuad(room.Root, new Color(0.6f, 0.3f, 1f, 0.9f), 3.2f);
+            portal.transform.position = PortalPosition + Vector3.up * 1.6f;
+            var ring = Fx.CreateQuad(room.Root, new Color(0.7f, 0.4f, 1f, 0.7f), 3f, billboard: false);
+            ring.transform.position = PortalPosition + Vector3.up * 0.03f;
+            ring.transform.rotation = Quaternion.Euler(90, 0, 0);
+        }
+
+        /// <summary>Loading a cleared boss room: the portal and the empty reward pedestal (its item is a saved pickup).</summary>
+        public void RestoreBossRoom(Room room)
+        {
+            OpenPortal(room);
+            PedestalBase(room, BossPedestalLocal, BossPedestalGlow);
         }
 
         void EnterPortal()

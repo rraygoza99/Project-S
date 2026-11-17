@@ -59,7 +59,29 @@ namespace Spellcaster
         public float EchoTimer { get; private set; }
         public const float EchoDuration = 0.6f;
 
-        void Awake() => Instance = this;
+        void Awake()
+        {
+            Instance = this;
+            SaveSystem.Register(new SaveSection<SpellsSave>("spells", 20, SaveState, LoadState));
+        }
+
+        public SpellsSave SaveState()
+        {
+            var s = new SpellsSave { castCount = castCount };
+            foreach (var sp in SpellBook.Known) s.known.Add(SpellCodec.ToData(sp));
+            return s;
+        }
+
+        /// <summary>The spell book in its saved order; cooldowns start fresh.</summary>
+        public void LoadState(SpellsSave s)
+        {
+            SpellBook.Known.Clear();
+            foreach (var d in s.known) SpellBook.Known.Add(SpellCodec.FromData(d));
+            castCount = s.castCount;
+            Readied = null;
+            ResetCooldowns();
+            cooldownLengths.Clear();
+        }
 
         public IReadOnlyList<SpellDefinition> Book => SpellBook.Known;
 

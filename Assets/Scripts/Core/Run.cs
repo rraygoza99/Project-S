@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -36,12 +37,43 @@ namespace Spellcaster
         void Awake()
         {
             Instance = this;
+            RunRandom.RunSeed = RunRandom.NewSeed(); // a fresh run (Continue replaces it with the saved one)
             SpellBook.StartRun();
             Progress.NewThisRun.Clear();
             Enemy.Killed += OnKilled;
+            SaveSystem.Register(new SaveSection<RunSave>("run", 10, SaveState, LoadState));
         }
 
         void OnDestroy() => Enemy.Killed -= OnKilled;
+
+        public RunSave SaveState()
+        {
+            var gs = GameState.Instance;
+            var s = new RunSave
+            {
+                gold = Gold, goldEarned = GoldEarned, stats = Stats,
+                kills = gs ? gs.Kills : 0, runTime = gs ? gs.RunTime : 0f,
+            };
+            foreach (var i in Items) s.items.Add(i.Id);
+            foreach (var c in Consumables) s.consumables.Add(c != null ? c.Id : "");
+            foreach (var a in Progress.NewThisRun) s.newAchievements.Add(a.Reward);
+            return s;
+        }
+
+        /// <summary>Items come back as owned (their pickup effects are already in the saved stats).</summary>
+        public void LoadState(RunSave s)
+        {
+            Gold = s.gold;
+            GoldEarned = s.goldEarned;
+            Items.Clear();
+            foreach (var id in s.items) { var it = Spellcaster.Items.Resolve(id); if (it != null) Items.Add(it); }
+            for (int i = 0; i < Slots; i++) Consumables[i] = i < s.consumables.Count ? Spellcaster.Items.Resolve(s.consumables[i]) : null;
+            JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(s.stats), Stats);
+            HasteTimer = SlowTimer = 0f;
+            if (GameState.Instance) GameState.Instance.RestoreTotals(s.kills, s.runTime);
+            Progress.NewThisRun.Clear();
+            foreach (var r in s.newAchievements) { var a = Progress.All.FirstOrDefault(x => x.Reward == r); if (a != null) Progress.NewThisRun.Add(a); }
+        }
 
         void Update()
         {

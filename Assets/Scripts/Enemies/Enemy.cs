@@ -629,6 +629,14 @@ namespace Spellcaster
             TakeDamage(HP + 1f, Element.Arcane, silent: true);
         }
 
+        /// <summary>Moves it straight to a spot, through anything in between (a worm travelling underground).</summary>
+        public void Warp(Vector3 position)
+        {
+            cc.enabled = false;
+            transform.position = position;
+            cc.enabled = IsAlive;
+        }
+
         /// <summary>Turns the shot / blast hitbox on or off (a worm underground, a boss in the air).</summary>
         public void SetHitbox(bool on) { if (hitbox) hitbox.enabled = on && IsAlive; }
 

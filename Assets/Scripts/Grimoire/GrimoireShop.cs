@@ -39,6 +39,25 @@ namespace Spellcaster.Grimoire
             stocked.RemoveWhere(r => r.Root == null); // rooms of a finished floor
         }
 
+        public static List<string> StockedRoomIds()
+        {
+            var ids = new List<string>();
+            foreach (var r in stocked) if (r != null) ids.Add(r.Id);
+            ids.Sort();
+            return ids;
+        }
+
+        /// <summary>Loading a save: these shops already got their scroll (it is a saved pickup, or was bought).</summary>
+        public static void MarkStocked(IEnumerable<string> roomIds)
+        {
+            var d = Dungeon.Instance;
+            stocked.Clear();
+            stockedFor = d;
+            if (!d) return;
+            var set = new HashSet<string>(roomIds);
+            foreach (var r in d.AllRooms) if (set.Contains(r.Id)) stocked.Add(r);
+        }
+
         static bool UseErasure(Run run)
         {
             var g = GrimoireRun.Instance;

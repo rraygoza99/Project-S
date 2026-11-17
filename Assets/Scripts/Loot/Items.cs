@@ -193,6 +193,19 @@ namespace Spellcaster
             Desc = $"Relearn {s.Name}: rune {Arrows.Glyphs(s.Sequence)}", Color = s.Color, IconFactory = () => s.Icon,
         };
 
+        /// <summary>Hook for items defined elsewhere (Grimoire's Scroll of Erasure), so saves can find them by id.</summary>
+        public static Func<string, ItemDef> ExtraResolve;
+
+        /// <summary>Any item by its id, including gold, hearts, runes and items from other systems (saves).</summary>
+        public static ItemDef Resolve(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return null;
+            if (id == Coin.Id) return Coin;
+            if (id == BigCoin.Id) return BigCoin;
+            if (id == Heart.Id) return Heart;
+            return Get(id) ?? ExtraResolve?.Invoke(id);
+        }
+
         public static ItemDef Get(string id) =>
             Passives.Concat(Relics).Concat(Consumables).FirstOrDefault(i => i.Id == id)
             ?? (id.StartsWith("rune_") ? Rune(id.Substring(5)) : null);

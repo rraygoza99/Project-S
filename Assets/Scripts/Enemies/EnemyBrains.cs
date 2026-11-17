@@ -160,7 +160,7 @@ namespace Spellcaster
         bool Enraged => E.HP < E.MaxHP * 0.5f;
         int volleys, cycles;
         bool fired, warned;
-        Vector3 target;
+        Vector3 target, diveFrom;
         float trail;
 
         public override void Init(Enemy e)
@@ -202,9 +202,13 @@ namespace Spellcaster
                         E.SetHitbox(false);
                         Dives++;
                         warned = false;
-                        // Surface near where you are now.
+                        // Surface near where you are now, on open ground.
                         Vector2 off = Random.insideUnitCircle * 1.2f;
                         target = ClampToRoom(p.transform.position + new Vector3(off.x, 0f, off.y), 2.5f);
+                        var room = CurrentRoom;
+                        if (room != null && Dungeon.Instance) target = Dungeon.Instance.FindFreeSpot(room, target, T.Radius + 0.3f);
+                        target.y = E.transform.position.y;
+                        diveFrom = E.transform.position;
                     }
                     return Vector3.zero;
                 case "burrowed":
@@ -223,19 +227,17 @@ namespace Spellcaster
                         DevMode.Ring(Fx.Ground(target), EruptRadius, DevMode.EnemyArea, 0.9f);
                         Sfx.Play("door", 0.5f, 0.5f);
                     }
-                    Vector3 to = target - E.transform.position;
-                    to.y = 0f;
-                    if (phaseTime >= travel && to.magnitude < 0.6f)
+                    // Underground it goes straight through pillars and cover.
+                    E.Warp(Vector3.Lerp(diveFrom, target, Mathf.Clamp01(phaseTime / travel)));
+                    if (phaseTime >= travel)
                     {
                         E.BrainAlpha = 1f;
                         E.Invulnerable = false;
                         E.SetHitbox(true);
                         Enter("surface", S.Special);
                         Shockwave(p, E.transform.position, EruptRadius, 16f, new Color(0.75f, 0.5f, 1f));
-                        return Vector3.zero;
                     }
-                    float speed = Mathf.Max(to.magnitude / Mathf.Max(0.15f, travel - phaseTime), 4f);
-                    return to.magnitude > 0.05f ? to.normalized * Mathf.Min(speed, 16f) : Vector3.zero;
+                    return Vector3.zero;
                 }
                 case "surface":
                     if (phaseTime >= Dur(S.Special, 0.6f))

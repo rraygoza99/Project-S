@@ -132,7 +132,10 @@ namespace Spellcaster
             else if (gs.Paused)
             {
                 Fill(new Rect(0, 0, W, H), new Color(0, 0, 0, 0.6f));
-                Shadowed(new Rect(0, H * 0.08f, W, 6 * u), (gs.FocusPaused ? "Paused (window lost focus)" : "Paused") + " - click to resume\nQ: main menu", Centered);
+                string quit = GameState.PracticeMode || GameState.TutorialMode ? "Q: main menu"
+                    : SaveSystem.HasValidSave ? "Q: save & quit to menu (you'll continue from the last cleared room)"
+                    : "Q: quit to menu (nothing saved yet: clear a room first)";
+                Shadowed(new Rect(0, H * 0.08f, W, 6 * u), (gs.FocusPaused ? "Paused (window lost focus)" : "Paused") + " - click to resume\n" + quit, Centered);
                 if (run) DrawItemList(W * 0.3f, H * 0.24f, W * 0.4f, u, run, true);
                 DrawPauseExtra?.Invoke(W, H, u);
             }

@@ -130,7 +130,7 @@ namespace Spellcaster
 
         static void Apply()
         {
-            AudioListener.volume = Volume;
+            AudioListener.volume = AutoTest.Active ? 0f : Volume; // the self-test runs silently
             ApplyWindow();
         }
 

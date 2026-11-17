@@ -11,6 +11,8 @@ namespace Spellcaster
     {
         /// <summary>The room's lowest (min x, min y) cell.</summary>
         public Vector2Int Cell;
+        /// <summary>Stable id for saves: the room's lowest grid cell ("r_x_y").</summary>
+        public string Id => $"r_{Cell.x}_{Cell.y}";
         /// <summary>Size in cells (1x1, 2x1, 1x2 or 2x2).</summary>
         public Vector2Int Size = Vector2Int.one;
         public RoomType Type;
