@@ -1,13 +1,14 @@
-# Spellcaster content list (v0.7)
+# Spellcaster content list (v0.11)
 
 Everything currently in the game, read from the code. **Locked** means it only appears in runs after
 you earn the achievement shown (see `Assets/Scripts/Core/Progress.cs`).
 
-Totals: 12 spells (6 locked at first), 12 runes, 28 items (13 locked at first), 3 pickups.
+Totals: 12 spells (6 locked at first), 12 runes, 29 items (13 locked at first, 1 Grimoire only),
+3 pickups, 11 Grimoire cards, 3 floors, 13 enemies and 3 bosses, 2 casting styles.
 
 ## Spells and their runes
 
-Each spell has one rune: a sequence you draw with the mouse. A rune pickup costs 25 gold in shops.
+Each spell has one rune: a sequence of arrows you draw with the mouse (Classic) or type with W A S D (Momentum, see [Casting styles](#casting-styles)). A rune pickup costs 25 gold in shops.
 Every run starts knowing only Fireball. Defined in `Assets/Scripts/Spells/SpellBook.cs`.
 
 | Spell | Rune | Cooldown | What it does | Unlock |
@@ -94,6 +95,7 @@ Defined in `Assets/Scripts/Loot/Items.cs`.
 | Smoke Bomb | Stuns every enemy within 14 m for 3 s | 10 | Locked: use 10 items |
 | Time Scroll | Enemies move and attack at half speed for 6 s | 12 | Locked: buy 5 items in shops |
 | Rune Stone | Teaches a random spell you don't know | 20 | Locked: learn 8 spells from runes |
+| Scroll of Erasure | Removes a card of your choice from your Grimoire | 35 (+15% per floor) | Only in shops while the Grimoire is on (one per shop) |
 
 ## Pickups
 
@@ -102,3 +104,92 @@ Defined in `Assets/Scripts/Loot/Items.cs`.
 | Gold | Worth 1 gold | – |
 | Gold pile | Worth 5 gold | – |
 | Heart | Restores 20 HP | 6 |
+
+## Floors
+
+Three floors, each with its own look, room layouts, hazards, enemies and boss. Defined in
+`Assets/Scripts/Level/FloorThemes.cs`, `Assets/Scripts/Level/Hazards.cs` and
+`Assets/Scripts/Enemies/EnemyTypesFloors.cs`.
+
+| Floor | Name | Enemies | Hazards and props | Boss |
+|---|---|---|---|---|
+| 1 | The Crypt | Imp, Cultist, Hornet, Shade (deeper rooms only) | Spike traps, barrels, crates | The Watcher |
+| 2 | Frozen Caverns | Frost Slug, Gloom Moth, Cave Frog, Shade, Cultist, Imp | Ice patches (you slide), ceiling pods (a tentacle drops on you), frost crystals (burst when broken: freeze enemies, chill you) | The Burrower |
+| 3 | The Forge | Cinder Crawler, Forge Sentry, Flame Skull, Horned Beetle (max 2 per room), Imp, Mimic (max 1 per room) | Lava pools, fire jets (a vent glows, then shoots flame) | The Behemoth |
+
+Hazards stop once a room's fight is over. Flying enemies ignore spike traps.
+
+## Enemies
+
+Defined in `Assets/Scripts/Enemies/EnemyType.cs` and `Assets/Scripts/Enemies/EnemyTypesFloors.cs`.
+
+| Enemy | Floor | HP | What it does |
+|---|---|---|---|
+| Imp | 1, 2, 3 | 30 | Runs at you and claws (8 damage) |
+| Cultist | 1, 2 | 60 | Flying eye; keeps its distance and shoots bolts (10) |
+| Hornet | 1 | 34 | Flying; fires bursts of 3 stingers (5 each) |
+| Shade | 1, 2 | 55 | Splits into 2 Shadelings (16 HP) when it dies |
+| Frost Slug | 2 | 85 | Slow and tough; heavy bite (14) |
+| Gloom Moth | 2 | 34 | Flying; spits 2 frost shots (7 each) |
+| Cave Frog | 2 | 40 | Crouches, then leaps at you (12); bites up close |
+| Cinder Crawler | 3 | 50 | Throws 3 burning spikes in a fan (8 each) |
+| Forge Sentry | 3 | 45 | Small robot; fires bursts of 3 shots (6 each) |
+| Flame Skull | 3 | 22 | Flies at you and explodes (18 in 3.2 m), also when killed |
+| Horned Beetle | 3 | 140 | Braces and charges across the room (20); ramming a wall dazes it |
+| Mimic | 3 | 90 | Sits still as a treasure chest until you get close or hit it, then bites (16) |
+
+### Bosses
+
+| Boss | Floor | HP | What it does |
+|---|---|---|---|
+| The Watcher | 1 | 650 | Giant flying eye; fires fans of 5 bolts and summons imps |
+| The Burrower | 2 | 600 | Dives underground, erupts under you, spits frost and calls slugs and moths |
+| The Behemoth | 3 | 700 | Rolls across the arena leaving burning ground, fires spikes, leaps and slams down; tires after a crash |
+
+## Grimoire cards (experimental, off by default)
+
+Turn it on in **Options > Grimoire cards**. You hold a hand of 3 cards; each rune spell you cast uses
+the **Next** card, which changes that cast. The magic bolt only uses a Blank card. **Q** throws the
+Next card away unused (1 s before you can cast again), but Blank and curse cards can't be thrown away.
+Cleared rooms (and bosses) offer a choice of 3 new cards; for 50 gold you can remove one card instead
+(the deck never goes below 4). Defined in `Assets/Scripts/Grimoire/Cards.cs` and
+`Assets/Scripts/Grimoire/GrimoireConfig.cs`.
+
+Starting deck: 5 Blank, Amplify, Split, Echo.
+
+| Card | Type | Effect |
+|---|---|---|
+| Blank | Neutral | No effect |
+| Amplify | Power | +50% damage (Heal: +50% healing) |
+| Overload | Power | +100% damage, cooldown doubled |
+| Split | Shape | 3 shots in a fan, or 3 smaller areas, at 60% each |
+| Pierce | Shape | Shots pass through enemies; areas chain to 1 more enemy |
+| Wide | Shape | +50% area and projectile size |
+| Echo | Tempo | Casts the spell again 0.5 s later |
+| Quicken | Tempo | No cooldown for this cast |
+| Burning | Element | Hits burn enemies (6 damage per second for 3 s) |
+| Frozen | Element | Hits slow enemies by 50% for 2 s |
+| Fumble | Curse | The spell fizzles (no cooldown spent) |
+
+- **Elites:** while the Grimoire is on, a fight room has a 15% chance of one elite enemy (double HP,
+  marked ELITE). Killing it adds a Fumble curse to your discard pile.
+- **Scroll of Erasure:** a shop item that removes a card for free (see Consumables).
+
+## Casting styles
+
+Pick one in **Options > Casting style**. Defined in `Assets/Scripts/Spells/SpellSystem.cs`, tunables in
+`Assets/Scripts/Player/MomentumConfig.cs`.
+
+| Style | Hold the cast key (Right Mouse or Ctrl) and... |
+|---|---|
+| Classic (default) | The view stops, the mouse draws the rune, W A S D walk at 30% speed |
+| Momentum | You keep running the way you were moving (the mouse steers) and W A S D or the arrow keys type the rune. Standing still when you press the key keeps you in place. Optional field-of-view and head-bob cue |
+
+## Run features
+
+- **Saving:** the run saves every time you clear a fight room. **Continue** on the main menu resumes
+  it. Dying or winning deletes the save.
+- **Pause menu (Esc):** Resume, Options and Save & quit. Save & quit saves where you are outside a
+  fight; in a fight it restarts from the last cleared room.
+- **Seeds:** **Seeded run** on the main menu takes a number or any word. The same seed builds the same
+  dungeon, shops, enemy waves and rewards. The pause and end screens show the seed (**C** copies it).
