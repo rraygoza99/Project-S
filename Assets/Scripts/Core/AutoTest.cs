@@ -191,7 +191,7 @@ namespace Spellcaster
                 yield return new WaitForSeconds(3f);
                 Check($"a {bigRoom.Size.x}x{bigRoom.Size.y} room is one open space ({inner} walls inside) and holds a bigger fight ({Enemy.All.Count} enemies)",
                     inner == 0 && d.Current == bigRoom && d.DoorsLocked && Enemy.All.Count >= 8);
-                Check("enemies spawn all over the big room",
+                Check($"enemies spawn all over the big room ({Enemy.All.Select(e => Room.CellAt(e.transform.position)).Distinct().Count()} cells, {Enemy.All.Count(e => !bigRoom.Contains(e.transform.position))} outside: {string.Join(", ", Enemy.All.Where(e => !bigRoom.Contains(e.transform.position)).Select(e => e.Type.Name))})",
                     Enemy.All.Select(e => Room.CellAt(e.transform.position)).Distinct().Count() >= 2 && Enemy.All.All(e => bigRoom.Contains(e.transform.position)));
                 HUD.ShowMap = true;
                 yield return Shot("01b_big_room_map");
