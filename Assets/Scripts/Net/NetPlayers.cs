@@ -173,6 +173,7 @@ namespace Spellcaster.Net
             {
                 var p = Players.ByNetId(e.id);
                 if (!p) continue;
+                p.SetNetDowned(e.downed, e.bledOut, e.bleed, e.revive);
                 p.SetNetHealth(e.hp);
                 if (p.IsLocal) Reconcile(p, e);
                 else
@@ -280,6 +281,7 @@ namespace Spellcaster.Net
                     id = p.NetId, lastSeq = p.IsLocal ? 0 : seq, pos = s.pos, planar = s.planar, vertical = s.vertical,
                     decel = s.decel, chill = s.chill, wasAuto = s.wasAuto, wasStill = s.wasStill,
                     yaw = p.Yaw, pitch = p.Pitch, hp = p.HP, casting = casting,
+                    downed = p.Downed, bledOut = p.BledOut, bleed = p.BleedTimer, revive = p.ReviveProgress,
                 });
             }
             if (entries.Count > 0) NetworkServer.SendToAll(new PlayerStatesMsg { players = entries.ToArray() }, Channels.Unreliable);

@@ -121,7 +121,8 @@ namespace Spellcaster
             }
             DrawOverlay?.Invoke(W, H, u);
 
-            if (player && gs.InRun && !pauseMenu) DrawInteractPrompt(W, H, u, player);
+            if (player && gs.InRun && !pauseMenu && !player.IsDead) DrawInteractPrompt(W, H, u, player);
+            if (player && Net.NetPlayers.Running && gs.InRun) DrawCoopState(W, H, u, player);
             if (run && run.ToastTimer > 0f && !gs.Paused) DrawToast(W, H, u, run);
 
             if (!pauseMenu) Shadowed(new Rect(0, H - pad - 1.6f * u, W, 2 * u),
@@ -455,12 +456,57 @@ namespace Spellcaster
                 float scale = Mathf.Clamp(8f / Mathf.Max(dist, 1f), 0.6f, 1.2f);
                 st.normal.textColor = Color.Lerp(p.Color, Color.white, 0.35f);
                 string name = string.IsNullOrEmpty(p.DisplayName) ? "Player" : p.DisplayName;
-                Shadowed(new Rect(s.x - 12f * u, s.y - 2.6f * u * scale, 24f * u, 2f * u), p.IsDead ? name + " (down)" : name, st);
+                string tag = p.Downed ? $"{name} (down {Mathf.CeilToInt(Mathf.Max(0f, p.BleedTimer))}s)" : p.BledOut ? name + " (out)" : name;
+                Shadowed(new Rect(s.x - 12f * u, s.y - 2.6f * u * scale, 24f * u, 2f * u), tag, st);
+                if (p.Downed && p.ReviveProgress > 0f)
+                {
+                    var rb = new Rect(s.x - 3f * u * scale, s.y + 0.4f * u, 6f * u * scale, Mathf.Max(3f, 0.45f * u));
+                    Fill(rb, new Color(0f, 0f, 0f, 0.6f));
+                    Fill(new Rect(rb.x, rb.y, rb.width * Mathf.Clamp01(p.ReviveProgress / Net.NetDowned.ReviveSeconds), rb.height), new Color(1f, 0.9f, 0.4f));
+                }
                 var bar = new Rect(s.x - 3f * u * scale, s.y - 0.4f * u, 6f * u * scale, Mathf.Max(3f, 0.45f * u));
                 Fill(bar, new Color(0f, 0f, 0f, 0.6f));
                 float hp = p.MaxHP > 0f ? Mathf.Clamp01(p.HP / p.MaxHP) : 0f;
                 Fill(new Rect(bar.x, bar.y, bar.width * hp, bar.height), hp > 0.35f ? new Color(0.35f, 0.9f, 0.4f) : new Color(1f, 0.35f, 0.25f));
             }
+        }
+
+        /// <summary>Co-op: your downed or spectating screen, or "Reviving NAME" next to a downed teammate.</summary>
+        static void DrawCoopState(float W, float H, float u, Player me)
+        {
+            var big = new GUIStyle(Title) { fontSize = Mathf.RoundToInt(Title.fontSize * 0.55f) };
+            if (me.Downed)
+            {
+                Fill(new Rect(0, 0, W, H), new Color(0.4f, 0f, 0f, 0.25f));
+                big.normal.textColor = new Color(1f, 0.35f, 0.3f);
+                Shadowed(new Rect(0, H * 0.3f, W, 5 * u), "YOU'RE DOWN", big);
+                Shadowed(new Rect(0, H * 0.3f + 5.5f * u, W, 2.4f * u),
+                    $"A teammate standing next to you for {Net.NetDowned.ReviveSeconds:0} s gets you up.  Bleeding out in {Mathf.CeilToInt(Mathf.Max(0f, me.BleedTimer))} s", Label.Center());
+                if (me.ReviveProgress > 0f) Bar(W, H * 0.3f + 8.5f * u, u, me.ReviveProgress / Net.NetDowned.ReviveSeconds, "Being revived");
+                return;
+            }
+            if (me.BledOut)
+            {
+                var t = me.SpectateTarget;
+                big.normal.textColor = new Color(0.85f, 0.8f, 1f);
+                Shadowed(new Rect(0, H * 0.06f, W, 5 * u), t ? "SPECTATING " + (string.IsNullOrEmpty(t.DisplayName) ? "a teammate" : t.DisplayName) : "SPECTATING", big);
+                Shadowed(new Rect(0, H * 0.06f + 5f * u, W, 2.4f * u), "Click to watch someone else. You'll be back when the room is cleared.", Label.Center());
+                return;
+            }
+            foreach (var p in Players.All)
+            {
+                if (!p || p == me || !p.Downed || Players.FlatSqr(p.transform.position, me.transform.position) > Net.NetDowned.ReviveRange * Net.NetDowned.ReviveRange) continue;
+                Bar(W, H * 0.62f, u, p.ReviveProgress / Net.NetDowned.ReviveSeconds, "Reviving " + (string.IsNullOrEmpty(p.DisplayName) ? "teammate" : p.DisplayName) + " - stay close");
+                break;
+            }
+        }
+
+        static void Bar(float W, float y, float u, float k, string label)
+        {
+            var r = new Rect(W * 0.35f, y, W * 0.3f, 1.4f * u);
+            Fill(r, new Color(0f, 0f, 0f, 0.6f));
+            Fill(new Rect(r.x, r.y, r.width * Mathf.Clamp01(k), r.height), new Color(1f, 0.85f, 0.35f));
+            Shadowed(new Rect(0, y - 2.4f * u, W, 2.2f * u), label, Label.Center());
         }
 
         static void DrawInteractPrompt(float W, float H, float u, Player player)

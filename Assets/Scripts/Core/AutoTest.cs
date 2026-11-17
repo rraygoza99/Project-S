@@ -2305,6 +2305,8 @@ namespace Spellcaster
                     wsOther && wsOther.HP < 100f && Mathf.Approximately(wsRep.hp, wsOther.HP));
 
                 // ---- combat (Phase 3): the host's enemy, a client's spells, an enemy's attack, doors ----
+                // Keep the host well away, so the enemy goes for the other player.
+                if (wsOther) player.Teleport(d.FindFreeSpot(d.Current, wsOther.transform.position - new Vector3(0f, 0f, 6f), 0.8f) + Vector3.up * 0.1f, 0f);
                 var cbImp = wsOther ? EnemySpawner.Instance.SpawnAt(EnemyType.Imp, wsOther.transform.position + new Vector3(0f, 0.05f, 5f), 30f, 1f) : null;
                 float cbT = 0f;
                 float cbOff = 99f;
@@ -2426,6 +2428,44 @@ namespace Spellcaster
                 ws.Reports.TryGetValue(wsClientId, out wsRep);
                 Check($"the floor changes for everyone at once (floor {ltFloor} -> {d.Floor}, their screen: floor {wsRep.floor}; both in the start room)",
                     d.Floor == ltFloor + 1 && wsRep.floor == d.Floor && d.Rooms[Vector2Int.zero].Contains(wsOther.transform.position, 0f));
+
+                // ---- downed, revive, spectate, respawn, game over (Phase 5) ----
+                float dnBleed = Net.NetDowned.BleedOutSeconds;
+                wsOther.TakeDamage(99999f);
+                yield return new WaitForSecondsRealtime(0.8f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"at 0 HP a co-op player is downed, not dead: the run goes on and their screen says so (downed: {wsOther.Downed}, on their screen: {wsRep.downed})",
+                    wsOther.Downed && !wsOther.BledOut && gs.Phase == Phase.Playing && wsRep.downed);
+                player.Teleport(wsOther.transform.position + wsOther.transform.right * 1f + Vector3.up * 0.1f, player.Yaw);
+                yield return new WaitForSecondsRealtime(Net.NetDowned.ReviveSeconds + 1f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"standing next to them for {Net.NetDowned.ReviveSeconds:0} s revives them ({wsOther.HP:0}/{wsOther.MaxHP:0} HP, their screen {wsRep.hp:0}, downed there: {wsRep.downed})",
+                    !wsOther.IsDead && Mathf.Abs(wsOther.HP - wsOther.MaxHP * Net.NetDowned.ReviveHpFraction) < 2f && !wsRep.downed && wsRep.hp > 0f);
+                Net.NetDowned.BleedOutSeconds = 1.5f;
+                player.Teleport(d.FindFreeSpot(d.Current, d.Current.Center + new Vector3(-5f, 0f, -4f), 0.8f) + Vector3.up * 0.1f, player.Yaw);
+                yield return null;
+                wsOther.TakeDamage(99999f);
+                yield return new WaitForSecondsRealtime(2.6f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"nobody helps: they bleed out and spectate a teammate (out: {wsOther.BledOut}, their screen spectating: {wsRep.spectating})",
+                    wsOther.BledOut && wsRep.bledOut && wsRep.spectating);
+                Net.NetDowned.BleedOutSeconds = dnBleed;
+                d.ClearCurrent();
+                yield return new WaitForSecondsRealtime(1f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                float dnNear = Vector3.Distance(wsOther.transform.position, player.transform.position);
+                Check($"when the room is cleared they come back next to a teammate with reduced HP ({wsOther.HP:0}/{wsOther.MaxHP:0}, {dnNear:0.0} m away; their screen out: {wsRep.bledOut})",
+                    !wsOther.IsDead && dnNear < 3.5f && Mathf.Abs(wsOther.HP - wsOther.MaxHP * Net.NetDowned.RespawnHpFraction) < 2f && !wsRep.bledOut);
+                player.God = false;
+                wsOther.TakeDamage(99999f);
+                for (int dnI = 0; dnI < 4 && !player.IsDead; dnI++) player.TakeDamage(99999f); // a Phoenix Feather may save the first hit
+                yield return new WaitForSecondsRealtime(1f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"the run ends only when everyone is down at once, for everyone (host: {gs.Phase}, their screen: {(Phase)wsRep.phase})",
+                    gs.Phase == Phase.Dead && wsRep.phase == (int)Phase.Dead);
+                Net.NetDowned.Stand(player, 1f);
+                player.God = true;
+                gs.ForcePlayingForTest();
 
                 // The player leaves: their character goes.
                 if (Mirror.NetworkServer.connections.TryGetValue(wsClientId, out var wsConn)) wsConn.Disconnect();

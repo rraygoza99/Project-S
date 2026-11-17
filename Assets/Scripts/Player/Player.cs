@@ -147,6 +147,7 @@ namespace Spellcaster
             HurtFlash = Mathf.Max(0f, HurtFlash - dt * 2.5f);
             HealFlash = Mathf.Max(0f, HealFlash - dt * 1.5f);
             if (IsLocal) HandleCursor();
+            if (IsLocal && Net.NetPlayers.Running) UpdateDownedView();
             if (IsDead || Mode != Control.Local) return; // others are moved by the network
 
             var input = GatherInput(dt);
@@ -292,6 +293,84 @@ namespace Spellcaster
         /// <summary>This player's colour: their sprite's robe and their spell glow.</summary>
         public Color Color => PlayerColors.Get(ColorIndex);
 
+        // ---------------- downed, revive, spectate (multiplayer) ----------------
+
+        /// <summary>At 0 HP in co-op: can't act, a teammate can revive you before you bleed out.</summary>
+        public bool Downed { get; private set; }
+        /// <summary>Bled out: you spectate until the room is cleared.</summary>
+        public bool BledOut { get; private set; }
+        /// <summary>Seconds left before bleeding out, and revive progress (seconds a teammate has stood by you).</summary>
+        public float BleedTimer, ReviveProgress;
+        /// <summary>Who you watch while bled out (null otherwise).</summary>
+        public Player SpectateTarget { get; private set; }
+
+        public void SetDowned(bool on, float bleed)
+        {
+            Downed = on;
+            BledOut = false;
+            BleedTimer = bleed;
+            ReviveProgress = 0f;
+        }
+
+        public void SetBledOut()
+        {
+            Downed = false;
+            BledOut = true;
+            ReviveProgress = 0f;
+        }
+
+        /// <summary>Back on your feet with this much HP (revived, or the room was cleared).</summary>
+        public void StandUp(float hp)
+        {
+            Downed = BledOut = false;
+            ReviveProgress = 0f;
+            HP = Mathf.Clamp(hp, 1f, MaxHP);
+            HealFlash = 1f;
+            LastHeal = HP;
+        }
+
+        /// <summary>A client's view of the downed state comes from the host.</summary>
+        public void SetNetDowned(bool downed, bool bledOut, float bleed, float revive)
+        {
+            Downed = downed;
+            BledOut = bledOut;
+            BleedTimer = bleed;
+            ReviveProgress = revive;
+        }
+
+        /// <summary>
+        /// The local camera: low to the floor while downed; following a teammate's view while bled out
+        /// (click to switch); back to normal when you stand.
+        /// </summary>
+        void UpdateDownedView()
+        {
+            if (!camBaseSet) { camBase = Cam.transform.localPosition; camBaseSet = true; }
+            if (BledOut)
+            {
+                bool next = Input.GetMouseButtonDown(0) || Bindings.Pressed(GameAction.Cast);
+                if (!SpectateTarget || SpectateTarget.IsDead || next) SpectateTarget = NextSpectateTarget(next ? SpectateTarget : null);
+                return;
+            }
+            SpectateTarget = null;
+            Cam.transform.localPosition = Downed ? new Vector3(camBase.x, 0.45f, camBase.z) : camBase;
+            if (Downed) Cam.transform.localRotation = Quaternion.Euler(-10f, 0f, 25f);
+        }
+
+        Player NextSpectateTarget(Player after)
+        {
+            var alive = Players.All.FindAll(p => p && p != this && !p.IsDead);
+            if (alive.Count == 0) return null;
+            int i = after ? alive.IndexOf(after) : -1;
+            return alive[(i + 1) % alive.Count];
+        }
+
+        void LateUpdate()
+        {
+            if (!IsLocal || !BledOut || !SpectateTarget) return;
+            var t = SpectateTarget.Cam.transform;
+            Cam.transform.SetPositionAndRotation(t.position, t.rotation);
+        }
+
         /// <summary>A client's view of its HP comes from the host (only the host applies damage).</summary>
         public void SetNetHealth(float hp)
         {
@@ -299,7 +378,8 @@ namespace Spellcaster
             if (hp < HP - 0.01f) { HurtFlash = 1f; if (IsLocal) Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f)); }
             bool wasAlive = !IsDead;
             HP = Mathf.Max(0f, hp);
-            if (wasAlive && IsDead && GameState.Instance) GameState.Instance.OnPlayerDied(this);
+            // In co-op the host says when the run is over (players get downed first).
+            if (wasAlive && IsDead && GameState.Instance && !Net.NetPlayers.Running) GameState.Instance.OnPlayerDied(this);
         }
 
         // ---------------- Momentum casting style ----------------
@@ -437,7 +517,11 @@ namespace Spellcaster
             }
             HP = Mathf.Max(God ? 1f : 0f, HP - amount);
             if (Run) Run.OnPlayerHurt();
-            if (HP <= 0f) GameState.Instance.OnPlayerDied(this);
+            if (HP <= 0f)
+            {
+                Net.NetDowned.Down(this); // co-op: downed first (a teammate can revive)
+                GameState.Instance.OnPlayerDied(this);
+            }
         }
 
         public void Heal(float amount)

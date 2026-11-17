@@ -199,7 +199,18 @@ namespace Spellcaster
         {
             if (Phase != Phase.Playing || Players.AnyAlive) return;
             Phase = Phase.Dead;
+            Net.NetDowned.RunOver(); // co-op: everyone is down at once, the run ends for all
             if (!PracticeMode && !TutorialMode) SaveSystem.Delete(); // roguelike: the run is over
+            Progress.Add("deaths");
+            Progress.Flush();
+            ReleaseCursor();
+        }
+
+        /// <summary>Multiplayer client: the host says every player is down; the run is over.</summary>
+        public void EndRunFromHost()
+        {
+            if (Phase != Phase.Playing) return;
+            Phase = Phase.Dead;
             Progress.Add("deaths");
             Progress.Flush();
             ReleaseCursor();

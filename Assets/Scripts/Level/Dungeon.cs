@@ -506,6 +506,7 @@ namespace Spellcaster
         {
             var room = Current;
             InCombat = false;
+            Net.NetDowned.RoomCleared(); // co-op: bled-out players come back, downed ones get up
             pending.Clear();
             if (room == null) return;
             bool wasCleared = room.Cleared;

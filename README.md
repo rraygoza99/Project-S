@@ -104,6 +104,10 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
 - **Fight rooms:** the first player to step into one starts a 3-second countdown ("Fight! Gather up");
   then everyone still outside is pulled in next to them and the doors close. The floor portal needs
   every living player on it, and the whole party moves to the next floor together.
+- **Downed, not dead:** at 0 HP you're downed. A teammate standing next to you for 3 seconds gets you up
+  (35% HP); otherwise you bleed out after 30 seconds and spectate a teammate (click to switch) until the
+  room is cleared, then come back next to them (35% HP). The run ends only when everyone is down at once.
+  Tunables: `Net/NetDowned.cs`. Single-player death is unchanged.
 - **More players, harder fights:** enemy HP and wave size scale with the player count (bosses: HP only).
   The table is `Scaling` in `Net/NetConfig.cs` (2 players: HP x1.4, enemies x1.35 ... 6: x2.7, x2.6).
 - In a multiplayer session the pause menu doesn't stop the game, and only the host saves.

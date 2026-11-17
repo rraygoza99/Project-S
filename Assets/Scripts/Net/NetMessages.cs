@@ -148,6 +148,8 @@ namespace Spellcaster.Net
         public bool wasAuto, wasStill;
         public float yaw, pitch, hp;
         public bool casting;
+        public bool downed, bledOut;
+        public float bleed, revive;
     }
 
     /// <summary>Test only (-netreport): a client tells the host what it sees, twice a second.</summary>
@@ -158,6 +160,8 @@ namespace Spellcaster.Net
         public int players, corrections, states, enemies, fx, projectiles, gatesLocked, deck, decks, gold, items, consumables, spells, floor, pickups;
         public float maxHp;
         public string hand;
+        public bool downed, bledOut, spectating;
+        public int phase;
     }
 
     /// <summary>Host to everyone, 30 times a second (unreliable): every player's state.</summary>

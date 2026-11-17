@@ -118,6 +118,7 @@ namespace Spellcaster.Net
             NetPlayers.Tick();
             NetEnemies.Tick();
             NetLoot.Tick();
+            NetDowned.Tick();
             if (reportMode && NetPlayers.Running && NetworkClient.isConnected && (reportTimer -= Time.unscaledDeltaTime) <= 0f)
             {
                 reportTimer = 0.5f;
@@ -141,6 +142,8 @@ namespace Spellcaster.Net
                     consumables = Run.Instance ? Run.Instance.Consumables.Count(c => c != null) : 0,
                     spells = SpellBook.Known.Count, floor = Dungeon.Instance ? Dungeon.Instance.Floor : 0,
                     maxHp = me.MaxHP, pickups = NetLoot.ProxyCount,
+                    downed = me.Downed, bledOut = me.BledOut, spectating = me.SpectateTarget != null,
+                    phase = GameState.Instance ? (int)GameState.Instance.Phase : -1,
                 });
             }
         }
@@ -442,6 +445,7 @@ namespace Spellcaster.Net
             NetworkClient.ReplaceHandler<SpellBookMsg>(NetLoot.OnBook, false);
             NetworkClient.ReplaceHandler<FloorMsg>(NetLoot.OnFloor, false);
             NetworkClient.ReplaceHandler<CooldownResetMsg>(NetLoot.OnCooldownReset, false);
+            NetworkClient.ReplaceHandler<RunOverMsg>(NetDowned.OnRunOver, false);
         }
 
         public override void OnClientConnect()
