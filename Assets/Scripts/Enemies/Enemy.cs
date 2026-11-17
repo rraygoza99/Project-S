@@ -188,7 +188,7 @@ namespace Spellcaster
             dt *= TimeFactor; // Time Scroll: movement and attacks at half speed
             if (slowTimer > 0f) { slowTimer -= realDt; dt *= slowFactor; }
 
-            var player = Player.Instance;
+            var player = PickTarget(realDt);
             if (!player) return;
 
             Vector3 move = Vector3.zero;
@@ -502,6 +502,35 @@ namespace Spellcaster
         public string LastEvent { get; private set; }
         void Raise(string e) => LastEvent = e;
 
+        // ---------------- target (co-op: the nearest living player) ----------------
+
+        /// <summary>The player this enemy is after.</summary>
+        public Player Target { get; private set; }
+        /// <summary>Seconds between target checks, and how much closer another player must be to win it.</summary>
+        public const float RetargetEvery = 0.5f, RetargetMargin = 1.5f;
+        float retargetTimer;
+
+        /// <summary>
+        /// Keeps the current target unless it is gone or down; twice a second it switches to a living
+        /// player who is clearly closer (the margin stops it flip-flopping between two players).
+        /// </summary>
+        Player PickTarget(float dt)
+        {
+            retargetTimer -= dt;
+            bool lost = !Target || Target.IsDead || !Players.All.Contains(Target);
+            if (!lost && retargetTimer > 0f) return Target;
+            retargetTimer = RetargetEvery;
+            var best = Players.Nearest(transform.position);
+            if (lost) Target = best ? best : Players.Nearest(transform.position, aliveOnly: false);
+            else if (best && best != Target)
+            {
+                float dBest = Mathf.Sqrt(Players.FlatSqr(best.transform.position, transform.position));
+                float dNow = Mathf.Sqrt(Players.FlatSqr(Target.transform.position, transform.position));
+                if (dBest + RetargetMargin < dNow) Target = best;
+            }
+            return Target;
+        }
+
         /// <summary>Kamikaze blast: hurts you, other enemies and props in the radius.</summary>
         void Explode()
         {
@@ -512,10 +541,10 @@ namespace Spellcaster
             Fx.AreaMarker(c, new Color(1f, 0.35f, 0.1f, 0.9f), r, 0.7f);
             Sfx.Play("explode", 0.7f, 1.15f);
             DevMode.Sphere(c, r, DevMode.EnemyArea);
-            var player = Player.Instance;
-            if (player && !player.IsDead && (player.ChestPosition - c).sqrMagnitude <= r * r
-                && !Physics.Linecast(c, player.ChestPosition, Layers.WorldMask, QueryTriggerInteraction.Ignore))
-                player.TakeDamage(dmg);
+            foreach (var player in Players.All.ToArray())
+                if (player && !player.IsDead && (player.ChestPosition - c).sqrMagnitude <= r * r
+                    && !Physics.Linecast(c, player.ChestPosition, Layers.WorldMask, QueryTriggerInteraction.Ignore))
+                    player.TakeDamage(dmg);
             foreach (var o in All.ToArray())
                 if (o && o.IsAlive && (o.Center - c).sqrMagnitude <= r * r) o.TakeDamage(Type.ExplodeDamage, Element.Fire);
             Combat.DamageProps(c, r, Type.ExplodeDamage);
@@ -545,7 +574,7 @@ namespace Spellcaster
                 if (dist <= Type.AttackRange + 0.5f)
                 {
                     player.TakeDamage(Type.Damage * DamageMult);
-                    float thorns = Run.Instance ? Run.Instance.Stats.Thorns : 0f; // Thorned Robe
+                    float thorns = player.Run ? player.Run.Stats.Thorns : 0f; // Thorned Robe
                     if (thorns > 0f) { TakeDamage(thorns, Element.Arcane); Fx.Flash(Center, new Color(0.6f, 1f, 0.4f), 1f, 0.2f, 1f); }
                 }
                 Sfx.Play("claw", 0.5f, Random.Range(0.9f, 1.15f));
@@ -722,7 +751,8 @@ namespace Spellcaster
         void Split()
         {
             var room = Dungeon.Instance ? Dungeon.Instance.RoomAt(transform.position) : null;
-            Vector3 side = Player.Instance ? Vector3.Cross(Vector3.up, (Player.Instance.transform.position - transform.position).normalized) : Vector3.right;
+            var away = Target ? Target : Players.Nearest(transform.position, aliveOnly: false);
+            Vector3 side = away ? Vector3.Cross(Vector3.up, (away.transform.position - transform.position).normalized) : Vector3.right;
             for (int i = 0; i < Type.SplitCount; i++)
             {
                 float s = Type.SplitCount == 1 ? 0f : Mathf.Lerp(-1f, 1f, i / (Type.SplitCount - 1f));

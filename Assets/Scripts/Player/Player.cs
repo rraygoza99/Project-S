@@ -6,9 +6,15 @@ namespace Spellcaster
     [RequireComponent(typeof(CharacterController))]
     public class Player : MonoBehaviour
     {
+        /// <summary>The player on this PC (camera, HUD, input). Other players: see <see cref="Players"/>.</summary>
         public static Player Instance { get; private set; }
 
-        public float MaxHP => Run.Instance ? Run.Instance.Stats.MaxHP : 100f;
+        /// <summary>This player is controlled on this PC (has the camera, reads the keyboard and mouse).</summary>
+        public bool IsLocal { get; private set; }
+        /// <summary>This player's run: stats, gold, items, consumables.</summary>
+        public Run Run { get; private set; }
+
+        public float MaxHP => Run ? Run.Stats.MaxHP : 100f;
         public float HP { get; private set; } = 100f;
         public bool IsDead => HP <= 0f;
         public bool God;
@@ -31,16 +37,20 @@ namespace Spellcaster
         public float LastHeal { get; private set; }
 
         /// <summary>True when gameplay input should be read (cursor captured, not the click that captured it).</summary>
-        public bool InputEnabled => AutoTest.Active || (Cursor.lockState == CursorLockMode.Locked && Time.frameCount != lockClickFrame && !IsDead);
+        public bool InputEnabled => IsLocal && (AutoTest.Active || (Cursor.lockState == CursorLockMode.Locked && Time.frameCount != lockClickFrame && !IsDead));
 
         CharacterController cc;
         Vector3 planarVelocity;
         float verticalVelocity;
         int lockClickFrame = -1;
 
-        public static Player Create(Vector3 position)
+        /// <summary>
+        /// Builds a player. The local one gets the camera, sound listener, low-res view and hands; another
+        /// player (co-op) gets a camera object for aiming only and no input.
+        /// </summary>
+        public static Player Create(Vector3 position, bool local = true)
         {
-            var go = new GameObject("Player") { layer = Layers.Player };
+            var go = new GameObject(local ? "Player" : "Player (other)") { layer = Layers.Player };
             go.transform.position = position;
             var cc = go.AddComponent<CharacterController>();
             cc.height = 1.8f;
@@ -58,28 +68,43 @@ namespace Spellcaster
             cam.farClipPlane = 80f;
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = Bootstrap.FogColor;
-            camGo.AddComponent<AudioListener>();
-            camGo.AddComponent<RetroView>();
+            if (local)
+            {
+                camGo.AddComponent<AudioListener>();
+                camGo.AddComponent<RetroView>();
+            }
+            else cam.enabled = false; // aims spells; nothing renders from it
 
             var p = go.AddComponent<Player>();
             p.Cam = cam;
-            go.AddComponent<WizardHands>();
+            p.IsLocal = local;
+            p.Run = go.AddComponent<Run>();
+            p.Run.Bind(p);
+            if (local)
+            {
+                Instance = p;
+                SaveSystem.Register(new SaveSection<PlayerSave>("player", 30,
+                    () => new PlayerSave { hp = p.HP },
+                    s => p.HP = Mathf.Clamp(s.hp, 1f, p.MaxHP)));
+                go.AddComponent<WizardHands>();
+            }
+            Players.Add(p);
             return p;
         }
 
         void Awake()
         {
-            Instance = this;
-            SaveSystem.Register(new SaveSection<PlayerSave>("player", 30,
-                () => new PlayerSave { hp = HP },
-                s => HP = Mathf.Clamp(s.hp, 1f, MaxHP)));
             cc = GetComponent<CharacterController>();
             Yaw = transform.eulerAngles.y;
         }
 
+        void OnEnable() { if (Run) Players.Add(this); }
+        void OnDisable() => Players.Remove(this);
+        void OnDestroy() { if (Instance == this) Instance = null; }
+
         void Start()
         {
-            if (!AutoTest.Active && GameState.SkipTitleOnLoad) LockCursor();
+            if (IsLocal && !AutoTest.Active && GameState.SkipTitleOnLoad) LockCursor();
         }
 
         void Update()
@@ -87,7 +112,7 @@ namespace Spellcaster
             float dt = Time.deltaTime;
             HurtFlash = Mathf.Max(0f, HurtFlash - dt * 2.5f);
             HealFlash = Mathf.Max(0f, HealFlash - dt * 1.5f);
-            HandleCursor();
+            if (IsLocal) HandleCursor();
             if (IsDead) return;
 
             bool gameplay = GameState.Instance.AcceptsGameplayInput;
@@ -125,7 +150,7 @@ namespace Spellcaster
             if (wish.sqrMagnitude > 1f) wish.Normalize();
             if (Channeling) wish *= ChannelSpeedFactor;
 
-            float speed = Run.Instance ? Run.Instance.MoveSpeed : MoveSpeed;
+            float speed = Run ? Run.MoveSpeed : MoveSpeed;
             ChillTimer = Mathf.Max(0f, ChillTimer - dt);
             if (ChillTimer > 0f) speed *= ChillSpeedFactor; // a frost crystal burst next to you
             float accel = Acceleration;
@@ -143,7 +168,7 @@ namespace Spellcaster
             // Ice patches (floor 2): you keep sliding and steer slowly.
             Grip = IcePatch.GripAt(transform.position);
             planarVelocity = Vector3.MoveTowards(planarVelocity, target, accel * Grip * dt);
-            UpdateCue(dt, autoSpeed);
+            if (IsLocal) UpdateCue(dt, autoSpeed);
             verticalVelocity = cc.isGrounded ? -2f : verticalVelocity - 20f * dt;
             cc.Move((planarVelocity + Vector3.up * verticalVelocity) * dt);
         }
@@ -270,19 +295,19 @@ namespace Spellcaster
         public void TakeDamage(float amount)
         {
             if (IsDead || amount <= 0f) return;
-            if (Run.Instance) amount *= Run.Instance.Stats.DamageTaken;
+            if (Run) amount *= Run.Stats.DamageTaken;
             HurtFlash = 1f;
             Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f));
             if (Dungeon.Instance) Dungeon.Instance.NotePlayerHurt();
-            if (!God && HP - amount <= 0f && Run.Instance && Run.Instance.TryRevive())
+            if (!God && HP - amount <= 0f && Run && Run.TryRevive())
             {
                 HP = MaxHP * 0.5f;
                 HealFlash = 1f;
                 return;
             }
             HP = Mathf.Max(God ? 1f : 0f, HP - amount);
-            if (Run.Instance) Run.Instance.OnPlayerHurt();
-            if (HP <= 0f) GameState.Instance.OnPlayerDied();
+            if (Run) Run.OnPlayerHurt();
+            if (HP <= 0f) GameState.Instance.OnPlayerDied(this);
         }
 
         public void Heal(float amount)

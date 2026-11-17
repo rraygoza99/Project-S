@@ -38,11 +38,24 @@ namespace Spellcaster
         /// <summary>True after a restart: go straight into the run.</summary>
         public static bool SkipTitleOnLoad => skipTitle;
 
+        /// <summary>
+        /// A multiplayer session is on: time never stops (the pause menu, the Forge and reward panels
+        /// don't freeze the world). Single-player keeps pausing as before.
+        /// </summary>
+        public static bool Multiplayer;
+        /// <summary>Pausing, panels and end screens may stop time (single-player only).</summary>
+        public static bool TimeCanStop => !Multiplayer;
+
         void Awake()
         {
             Instance = this;
             Time.timeScale = 1f;
             Enemy.Killed += OnKilled;
+            // A fresh run (a typed seed or Continue replaces the seed). Before the dungeon is built.
+            RunRandom.RunSeed = RunRandom.NewSeed();
+            RunRandom.TypedSeed = null;
+            SpellBook.StartRun();
+            Progress.NewThisRun.Clear();
         }
 
         void OnDestroy() => Enemy.Killed -= OnKilled;
@@ -77,7 +90,7 @@ namespace Spellcaster
         {
             BannerTimer = Mathf.Max(0f, BannerTimer - Time.unscaledDeltaTime);
             Paused = InRun && !ForgeOpen && (FocusPaused || (!AutoTest.Active && Cursor.lockState != CursorLockMode.Locked));
-            Time.timeScale = (Paused || ForgeOpen || Phase == Phase.Dead || Phase == Phase.Victory) ? 0f : 1f;
+            Time.timeScale = TimeCanStop && (Paused || ForgeOpen || Phase == Phase.Dead || Phase == Phase.Victory) ? 0f : 1f;
             if (Phase == Phase.Playing) RunTime += Time.deltaTime;
 
             switch (Phase)
@@ -147,7 +160,7 @@ namespace Spellcaster
         {
             SpellBook.LearnAll();
             if (Dungeon.Instance) Dungeon.Instance.HoldEncounters = true;
-            if (Player.Instance) Player.Instance.God = true;
+            foreach (var p in Players.All) if (p) p.God = true;
             if (SpellSystem.Instance) SpellSystem.Instance.ResetCooldowns();
             Show("Practice", 2f);
             if (PracticeTool.Instance) PracticeTool.Instance.Begin();
@@ -181,9 +194,10 @@ namespace Spellcaster
             return true;
         }
 
-        public void OnPlayerDied()
+        /// <summary>A player's HP reached 0. The run ends once no player is left alive.</summary>
+        public void OnPlayerDied(Player who = null)
         {
-            if (Phase != Phase.Playing) return;
+            if (Phase != Phase.Playing || Players.AnyAlive) return;
             Phase = Phase.Dead;
             if (!PracticeMode && !TutorialMode) SaveSystem.Delete(); // roguelike: the run is over
             Progress.Add("deaths");

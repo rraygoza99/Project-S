@@ -58,7 +58,7 @@ namespace Spellcaster
             return p;
         }
 
-        /// <summary>A ground blast: hurts you if you're within radius.</summary>
+        /// <summary>A ground blast: hurts every player within radius.</summary>
         protected void Shockwave(Player p, Vector3 at, float radius, float damage, Color color)
         {
             Fx.Ring(Fx.Ground(at), color, radius, 0.45f);
@@ -66,9 +66,8 @@ namespace Spellcaster
             Fx.Flash(at + Vector3.up * 0.6f, color, radius * 0.9f, 0.35f, 1.4f);
             DevMode.Ring(Fx.Ground(at), radius, DevMode.EnemyArea);
             Sfx.Play("explode", 0.7f, 0.7f);
-            Vector3 d = p.transform.position - at;
-            d.y = 0f;
-            if (!p.IsDead && d.sqrMagnitude <= radius * radius) p.TakeDamage(damage * E.DamageMult);
+            foreach (var q in Players.All.ToArray())
+                if (q && !q.IsDead && Players.FlatSqr(q.transform.position, at) <= radius * radius) q.TakeDamage(damage * E.DamageMult);
         }
 
         protected void Summon(EnemyType type, Vector3 near, int max)
@@ -282,8 +281,10 @@ namespace Spellcaster
         bool enraged;
         string lastAttack;
         Vector3 rollDir, landAt;
-        bool hitPlayer, fired;
+        bool fired;
         float trail;
+        /// <summary>Players already run over by the current roll.</summary>
+        readonly HashSet<Player> rolledOver = new HashSet<Player>();
 
         public override void Init(Enemy e)
         {
@@ -320,7 +321,7 @@ namespace Spellcaster
                     if (phaseTime >= Dur(Anim("roll_wind"), 1f))
                     {
                         Enter("rolling", Anim("roll"));
-                        hitPlayer = false;
+                        rolledOver.Clear();
                         Rolls++;
                         Sfx.Play("boss", 0.6f, 1.5f);
                     }
@@ -335,12 +336,12 @@ namespace Spellcaster
                         trail = 0.18f;
                         LavaPool.CreateTemporary(Fx.Ground(E.transform.position), 1.1f, 4f);
                     }
-                    Vector3 toP = p.transform.position - E.transform.position;
-                    toP.y = 0f;
-                    if (!hitPlayer && toP.magnitude < T.Radius + 1.0f && !p.IsDead)
+                    foreach (var q in Players.All.ToArray())
                     {
-                        hitPlayer = true;
-                        p.TakeDamage(22f * E.DamageMult);
+                        if (!q || q.IsDead || rolledOver.Contains(q)) continue;
+                        if (Players.FlatSqr(q.transform.position, E.transform.position) >= (T.Radius + 1.0f) * (T.Radius + 1.0f)) continue;
+                        rolledOver.Add(q);
+                        q.TakeDamage(22f * E.DamageMult);
                         Sfx.Play("claw", 0.7f, 0.6f);
                     }
                     if (phaseTime > 0.12f && (E.LastFlags & CollisionFlags.Sides) != 0)

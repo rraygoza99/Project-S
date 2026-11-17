@@ -5,12 +5,17 @@ using UnityEngine;
 namespace Spellcaster
 {
     /// <summary>
-    /// State of one roguelike run: stats, gold, owned items and relics, consumable slots, temporary
-    /// buffs. Lives on the Game object, so a restart (scene reload) starts a fresh run.
+    /// One player's side of the run: stats, gold, owned items and relics, consumable slots, temporary
+    /// buffs. Lives on the player (one per player in co-op); Run.Instance is the local player's.
+    /// The run-wide setup (seed, spell book, achievements this run) is in GameState.
     /// </summary>
     public class Run : MonoBehaviour
     {
+        /// <summary>The local player's run (HUD, input, saves).</summary>
         public static Run Instance { get; private set; }
+        /// <summary>The player this run belongs to.</summary>
+        public Player Owner { get; private set; }
+        bool IsLocal => Owner && Owner.IsLocal;
         public const int Slots = 3;
         public static string SlotKeyName(int slot) => Bindings.Short(GameAction.Item1 + slot);
         public const float HasteDuration = 10f;
@@ -34,18 +39,22 @@ namespace Spellcaster
         public float MoveSpeed => Stats.MoveSpeed * (HasteTimer > 0f ? 1.35f : 1f);
         public float CooldownMult => Stats.CooldownMult * (HasteTimer > 0f ? 0.5f : 1f);
 
-        void Awake()
+        void Awake() => Enemy.Killed += OnKilled;
+
+        /// <summary>Called by Player.Create. The local player's run is Run.Instance and is saved.</summary>
+        public void Bind(Player owner)
         {
+            Owner = owner;
+            if (!owner.IsLocal) return;
             Instance = this;
-            RunRandom.RunSeed = RunRandom.NewSeed(); // a fresh run (a typed seed or Continue replaces it)
-            RunRandom.TypedSeed = null;
-            SpellBook.StartRun();
-            Progress.NewThisRun.Clear();
-            Enemy.Killed += OnKilled;
             SaveSystem.Register(new SaveSection<RunSave>("run", 10, SaveState, LoadState));
         }
 
-        void OnDestroy() => Enemy.Killed -= OnKilled;
+        void OnDestroy()
+        {
+            Enemy.Killed -= OnKilled;
+            if (Instance == this) Instance = null;
+        }
 
         public RunSave SaveState()
         {
@@ -83,8 +92,8 @@ namespace Spellcaster
             frozenHeartCooldown = Mathf.Max(0f, frozenHeartCooldown - Time.deltaTime);
             ToastTimer = Mathf.Max(0f, ToastTimer - Time.deltaTime);
 
-            var player = Player.Instance;
-            if (AutoTest.Active || !player || !player.InputEnabled || !GameState.Instance.AcceptsGameplayInput) return;
+            var player = Owner;
+            if (AutoTest.Active || !IsLocal || !player || !player.InputEnabled || !GameState.Instance.AcceptsGameplayInput) return;
             for (int i = 0; i < Slots; i++)
                 if (Bindings.Pressed(GameAction.Item1 + i)) UseConsumable(i);
             if (Bindings.Pressed(GameAction.Interact))
@@ -108,7 +117,7 @@ namespace Spellcaster
                     if (FreeSlot() < 0) { reason = "Item slots are full"; return false; }
                     break;
                 case ItemKind.Heart:
-                    if (Player.Instance && Player.Instance.HP >= Player.Instance.MaxHP) { reason = "Already at full health"; return false; }
+                    if (Owner && Owner.HP >= Owner.MaxHP) { reason = "Already at full health"; return false; }
                     break;
                 case ItemKind.Rune:
                     if (SpellBook.Knows(item.SpellId)) { reason = "You already know that spell"; return false; }
@@ -127,7 +136,7 @@ namespace Spellcaster
                     Sfx.Play("coin", 0.5f, Random.Range(0.95f, 1.1f));
                     return;
                 case ItemKind.Heart:
-                    if (Player.Instance) Player.Instance.Heal(item.Value);
+                    if (Owner) Owner.Heal(item.Value);
                     Sfx.Play("heal", 0.5f, 1.2f);
                     return;
                 case ItemKind.Consumable:
@@ -180,7 +189,7 @@ namespace Spellcaster
         public bool UseConsumable(int slot)
         {
             var item = slot >= 0 && slot < Slots ? Consumables[slot] : null;
-            if (item == null || Player.Instance == null || Player.Instance.IsDead) return false;
+            if (item == null || Owner == null || Owner.IsDead) return false;
             if (!item.Use(this))
             {
                 Sfx.Play("fizzle", 0.4f, 1.3f);
@@ -202,9 +211,9 @@ namespace Spellcaster
         /// <summary>Called when the player takes damage (Frozen Heart).</summary>
         public void OnPlayerHurt()
         {
-            if (!Stats.FrostOnHurt || frozenHeartCooldown > 0f || !Player.Instance) return;
+            if (!Stats.FrostOnHurt || frozenHeartCooldown > 0f || !Owner) return;
             frozenHeartCooldown = 8f;
-            var p = Player.Instance.transform.position;
+            var p = Owner.transform.position;
             Fx.Ring(p + Vector3.up * 0.1f, new Color(0.6f, 0.9f, 1f), 5f, 0.4f);
             DevMode.Ring(p + Vector3.up * 0.1f, 5f, DevMode.SpellArea);
             Sfx.Play("freeze", 0.6f);
@@ -227,11 +236,12 @@ namespace Spellcaster
         void OnKilled(Enemy e)
         {
             if (e.SelfDestructed) return; // a flame skull that blew itself up wasn't your kill
+            if (Stats.HealOnKill > 0f && Owner) Owner.Heal(Stats.HealOnKill);
+            if (!IsLocal) return; // achievements, relic effects and loot run once, on this PC's run
             Progress.Add("kills");
             if (e.LastHitByBolt) Progress.Add("bolt_kills");
             if (e.LastElement == Element.Poison) Progress.Add("poison_kills");
             if (e.Type.IsBoss) Progress.Add("bosses");
-            if (Stats.HealOnKill > 0f && Player.Instance) Player.Instance.Heal(Stats.HealOnKill);
             if (Stats.FrostSpread && e.DiedFrozen)
             {
                 Fx.Ring(e.transform.position + Vector3.up * 0.1f, new Color(0.6f, 0.9f, 1f), 4.5f, 0.4f);

@@ -126,7 +126,7 @@ namespace Spellcaster
                 transform.position = p;
             }
 
-            var player = Player.Instance;
+            var player = Players.Nearest(transform.position);
             if (!player || player.IsDead || !IsAuto || age < 0.4f) return;
             Vector3 to = player.transform.position - transform.position;
             to.y = 0f;
@@ -145,7 +145,7 @@ namespace Spellcaster
                 transform.position += to.normalized * Mathf.Min(dist, speed * dt);
                 grounded = true;
             }
-            if (dist < 1.1f && Run.Instance && Run.Instance.CanAcquire(Item, out _)) TryCollect(Run.Instance, quiet: true);
+            if (dist < 1.1f && player.Run && player.Run.CanAcquire(Item, out _)) TryCollect(player.Run, quiet: true);
         }
 
         public string Prompt => Price > 0

@@ -27,7 +27,6 @@ namespace Spellcaster
 
             var root = new GameObject("Game");
             root.AddComponent<GameState>();
-            root.AddComponent<Run>();
             var dungeon = root.AddComponent<Dungeon>();
 
             // The world camera renders into a low-res texture; this camera just clears the backbuffer,

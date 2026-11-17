@@ -117,9 +117,9 @@ namespace Spellcaster
             tick -= dt;
             if (tick > 0f) return;
             tick = Tick;
-            var p = Player.Instance;
-            if (PlayerOnFloor(p) && FlatDistance(p.transform.position, transform.position) < Radius + 0.15f)
+            foreach (var p in Players.All.ToArray())
             {
+                if (!PlayerOnFloor(p) || FlatDistance(p.transform.position, transform.position) >= Radius + 0.15f) continue;
                 p.TakeDamage(PlayerDps * Tick);
                 Fx.Flash(p.transform.position + Vector3.up * 0.3f, new Color(1f, 0.5f, 0.1f), 1.2f, 0.25f, 1.2f);
                 Sfx.Play("burn", 0.4f, Random.Range(0.9f, 1.1f));
@@ -141,8 +141,9 @@ namespace Spellcaster
         public const float PlayerDamage = 14f, EnemyDamage = 22f;
         public bool IsUp { get; private set; }
         float t;
-        bool wasUp, hitPlayer;
+        bool wasUp;
         readonly HashSet<Enemy> hit = new HashSet<Enemy>();
+        readonly HashSet<Player> hitPlayers = new HashSet<Player>();
         Renderer[] flames;
         Renderer warnGlow;
 
@@ -192,16 +193,17 @@ namespace Spellcaster
             var p = Player.Instance;
             if (IsUp && !wasUp)
             {
-                hitPlayer = false;
+                hitPlayers.Clear();
                 hit.Clear();
                 if (p && FlatDistance(p.transform.position, transform.position) < 15f) Sfx.Play("burn", 0.6f, 0.7f);
             }
             wasUp = IsUp;
             if (!IsUp) return;
-            if (!hitPlayer && PlayerOnFloor(p) && FlatDistance(p.transform.position, transform.position) < Reach)
+            foreach (var q in Players.All.ToArray())
             {
-                hitPlayer = true;
-                p.TakeDamage(PlayerDamage);
+                if (hitPlayers.Contains(q) || !PlayerOnFloor(q) || FlatDistance(q.transform.position, transform.position) >= Reach) continue;
+                hitPlayers.Add(q);
+                q.TakeDamage(PlayerDamage);
             }
             foreach (var e in Enemy.All.ToArray())
             {
@@ -341,8 +343,15 @@ namespace Spellcaster
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
             cd -= dt;
-            var p = Player.Instance;
-            float dist = p ? FlatDistance(p.transform.position, transform.position) : 99f;
+            // The nearest player on the floor triggers it; the tentacle hits everyone under it.
+            Player p = null;
+            float dist = 99f;
+            foreach (var q in Players.All)
+            {
+                if (!PlayerOnFloor(q)) continue;
+                float dq = FlatDistance(q.transform.position, transform.position);
+                if (dq < dist) { dist = dq; p = q; }
+            }
             if (phase == 0)
             {
                 SetPod(0f);
@@ -361,7 +370,14 @@ namespace Spellcaster
                     if (t >= Drop)
                     {
                         phase = 3; t = 0f;
-                        if (!struck && PlayerOnFloor(p) && dist < HitRange) { struck = true; Strikes++; p.TakeDamage(Damage); Sfx.Play("claw", 0.6f, 1.2f); }
+                        if (!struck)
+                            foreach (var q in Players.All.ToArray())
+                                if (PlayerOnFloor(q) && FlatDistance(q.transform.position, transform.position) < HitRange)
+                                {
+                                    if (!struck) { Strikes++; Sfx.Play("claw", 0.6f, 1.2f); }
+                                    struck = true;
+                                    q.TakeDamage(Damage);
+                                }
                         foreach (var e in Enemy.All.ToArray())
                             if (e.IsAlive && !e.Type.Flying && FlatDistance(e.transform.position, transform.position) < HitRange) e.TakeDamage(Damage * 1.5f);
                     }

@@ -21,7 +21,7 @@ namespace Spellcaster
         public CastMods Mods = CastMods.None;
         /// <summary>Area multiplier from items and this cast's modifiers.</summary>
         public float AreaMult => Stats.AreaMult * Mods.AreaMult;
-        public PlayerStats Stats => Run.Instance ? Run.Instance.Stats : Fallback;
+        public PlayerStats Stats => Caster && Caster.Run ? Caster.Run.Stats : Run.Instance ? Run.Instance.Stats : Fallback;
         static readonly PlayerStats Fallback = new PlayerStats();
         readonly HashSet<Enemy> hit = new HashSet<Enemy>();
         bool resolved;

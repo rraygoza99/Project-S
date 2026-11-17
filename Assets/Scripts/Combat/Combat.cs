@@ -42,9 +42,9 @@ namespace Spellcaster
                 d.y = 0f;
                 e.Knockback(d.normalized * 6f);
             }
-            var player = Player.Instance;
-            if (playerDamage > 0f && player && (player.ChestPosition - point).sqrMagnitude < radius * radius)
-                player.TakeDamage(playerDamage);
+            if (playerDamage > 0f)
+                foreach (var player in Players.All.ToArray())
+                    if (player && (player.ChestPosition - point).sqrMagnitude < radius * radius) player.TakeDamage(playerDamage);
             DamageProps(point, radius, enemyDamage, source);
         }
 

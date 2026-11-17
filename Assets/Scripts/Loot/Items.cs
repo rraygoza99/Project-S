@@ -55,7 +55,7 @@ namespace Spellcaster
         public static readonly List<ItemDef> Passives = new List<ItemDef>
         {
             new ItemDef { Id = "ruby_heart", Name = "Ruby Heart", Desc = "+25 max HP", Shape = "heart", Color = C(0.9f, 0.1f, 0.35f), Price = 25,
-                OnAcquire = r => { r.Stats.MaxHP += 25f; Player.Instance?.Heal(25f); } },
+                OnAcquire = r => { r.Stats.MaxHP += 25f; r.Owner?.Heal(25f); } },
             new ItemDef { Id = "swift_boots", Name = "Swift Boots", Desc = "+15% move speed", Shape = "boots", Color = C(0.35f, 0.75f, 0.4f), Price = 20,
                 OnAcquire = r => r.Stats.MoveSpeed *= 1.15f },
             new ItemDef { Id = "arcane_focus", Name = "Arcane Focus", Desc = "+20% spell power", Shape = "gem", Color = C(0.7f, 0.4f, 1f), Price = 30,
@@ -73,7 +73,7 @@ namespace Spellcaster
             new ItemDef { Id = "fang", Name = "Vampire Fang", Desc = "Heal 2 HP per kill", Shape = "fang", Color = C(0.85f, 0.1f, 0.15f), Price = 25,
                 OnAcquire = r => r.Stats.HealOnKill += 2f },
             new ItemDef { Id = "glass_cannon", Name = "Glass Cannon", Desc = "+40% spell power, -25 max HP", Shape = "potion", Color = C(0.6f, 0.9f, 1f), Price = 20,
-                OnAcquire = r => { r.Stats.Power += 0.4f; r.Stats.MaxHP = Mathf.Max(25f, r.Stats.MaxHP - 25f); Player.Instance?.ClampHP(); } },
+                OnAcquire = r => { r.Stats.Power += 0.4f; r.Stats.MaxHP = Mathf.Max(25f, r.Stats.MaxHP - 25f); r.Owner?.ClampHP(); } },
             // unlockable
             new ItemDef { Id = "thorn_robe", Name = "Thorned Robe", Desc = "Enemies that hit you up close take 15 damage", Shape = "shield", Color = C(0.4f, 0.75f, 0.3f), Price = 20, StartsLocked = true,
                 OnAcquire = r => r.Stats.Thorns += 15f },
@@ -123,18 +123,18 @@ namespace Spellcaster
             new ItemDef { Id = "potion", Name = "Health Potion", Desc = "Restore 35 HP", Kind = ItemKind.Consumable, Shape = "potion", Color = C(0.95f, 0.2f, 0.25f), Price = 8,
                 Use = r =>
                 {
-                    var p = Player.Instance;
+                    var p = r.Owner;
                     if (p.HP >= p.MaxHP) return false;
                     p.Heal(35f);
                     Sfx.Play("potion", 0.7f);
                     return true;
                 } },
             new ItemDef { Id = "bomb", Name = "Fire Bomb", Desc = "Throw: explodes for 60 damage", Kind = ItemKind.Consumable, Shape = "bomb", Color = C(1f, 0.5f, 0.15f), Price = 10,
-                Use = r => { Combat.ThrowBomb(Player.Instance); return true; } },
+                Use = r => { Combat.ThrowBomb(r.Owner); return true; } },
             new ItemDef { Id = "frost_scroll", Name = "Frost Scroll", Desc = "Freeze every nearby enemy for 4s", Kind = ItemKind.Consumable, Shape = "scroll", Color = C(0.4f, 0.75f, 1f), Price = 12,
                 Use = r =>
                 {
-                    var p = Player.Instance.transform.position;
+                    var p = r.Owner.transform.position;
                     Fx.Ring(p + Vector3.up * 0.1f, new Color(0.6f, 0.9f, 1f), 16f, 0.6f);
                     DevMode.Ring(p + Vector3.up * 0.1f, 16f, DevMode.SpellArea);
                     Sfx.Play("freeze", 0.8f);
@@ -150,7 +150,7 @@ namespace Spellcaster
             new ItemDef { Id = "smoke_bomb", Name = "Smoke Bomb", Desc = "Stun every nearby enemy for 3s", Kind = ItemKind.Consumable, Shape = "bomb", Color = C(0.7f, 0.7f, 0.75f), Price = 10, StartsLocked = true,
                 Use = r =>
                 {
-                    var p = Player.Instance.transform.position;
+                    var p = r.Owner.transform.position;
                     Fx.Ring(p + Vector3.up * 0.1f, new Color(0.8f, 0.8f, 0.85f), 14f, 0.6f);
                     DevMode.Ring(p + Vector3.up * 0.1f, 14f, DevMode.SpellArea);
                     Fx.Flash(p + Vector3.up, new Color(0.7f, 0.7f, 0.75f), 6f, 0.6f, 1.5f);

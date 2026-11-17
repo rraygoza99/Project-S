@@ -140,13 +140,9 @@ namespace Spellcaster
                 d.y = 0f;
                 if (e.IsAlive && d.sqrMagnitude <= CrystalBurstRadius * CrystalBurstRadius) { e.TakeDamage(10f, Element.Frost); e.Freeze(3f); }
             }
-            var p = Player.Instance;
-            if (p && !p.IsDead)
-            {
-                Vector3 d = p.transform.position - pos;
-                d.y = 0f;
-                if (d.sqrMagnitude <= CrystalBurstRadius * CrystalBurstRadius) p.ChillTimer = Mathf.Max(p.ChillTimer, 2f);
-            }
+            foreach (var p in Players.All)
+                if (p && !p.IsDead && Players.FlatSqr(p.transform.position, pos) <= CrystalBurstRadius * CrystalBurstRadius)
+                    p.ChillTimer = Mathf.Max(p.ChillTimer, 2f);
         }
 
         void Break()
@@ -182,8 +178,9 @@ namespace Spellcaster
 
         Transform spikes;
         float t;
-        bool wasUp, hitPlayer;
+        bool wasUp;
         readonly HashSet<Enemy> hitEnemies = new HashSet<Enemy>();
+        readonly HashSet<Player> hitPlayers = new HashSet<Player>();
         public bool IsUp { get; private set; }
         Room room;
         bool roomLooked;
@@ -252,7 +249,7 @@ namespace Spellcaster
             var player = Player.Instance;
             if (IsUp && !wasUp)
             {
-                hitPlayer = false;
+                hitPlayers.Clear();
                 hitEnemies.Clear();
                 if (player && (player.transform.position - transform.position).sqrMagnitude < 15f * 15f)
                     Sfx.Play("spikes", 0.45f, Random.Range(0.9f, 1.1f));
@@ -260,10 +257,11 @@ namespace Spellcaster
             wasUp = IsUp;
             if (!IsUp) return;
 
-            if (!hitPlayer && player && !player.IsDead && Inside(player.transform.position, 0.3f) && player.transform.position.y < 0.6f)
+            foreach (var q in Players.All.ToArray())
             {
-                hitPlayer = true;
-                player.TakeDamage(PlayerDamage);
+                if (!q || q.IsDead || hitPlayers.Contains(q) || !Inside(q.transform.position, 0.3f) || q.transform.position.y >= 0.6f) continue;
+                hitPlayers.Add(q);
+                q.TakeDamage(PlayerDamage);
             }
             foreach (var e in Enemy.All.ToArray())
             {

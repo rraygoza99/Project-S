@@ -137,7 +137,7 @@ namespace Spellcaster
 
             CheckpointRoomId = string.IsNullOrEmpty(s.checkpoint) ? null : s.checkpoint;
             var cp = CheckpointRoomId != null && byId.TryGetValue(CheckpointRoomId, out var c) ? c : Rooms[Vector2Int.zero];
-            if (Player.Instance) Player.Instance.Teleport(FindFreeSpot(cp, cp.Center, 1f) + Vector3.up * 0.1f, 0f);
+            PlaceAllPlayers(FindFreeSpot(cp, cp.Center, 1f) + Vector3.up * 0.1f);
             Current = null;
             Enter(cp);
         }
@@ -226,7 +226,7 @@ namespace Spellcaster
 
             Current = null;
             var start = Rooms[Vector2Int.zero];
-            if (Player.Instance) Player.Instance.Teleport(start.Center + new Vector3(0f, 0.1f, -3f), 0f);
+            PlaceAllPlayers(start.Center + new Vector3(0f, 0.1f, -3f));
             Enter(start);
             if (GameState.Instance) GameState.Instance.Show($"Floor {floor}: {FloorThemes.Name(floor)}", 2.5f);
         }
@@ -345,10 +345,23 @@ namespace Spellcaster
 
         // ---------------- room flow ----------------
 
+        /// <summary>Puts the local player at a spot and the others in a row beside them, facing north.</summary>
+        public static void PlaceAllPlayers(Vector3 at)
+        {
+            int i = 0;
+            foreach (var p in Players.All.ToArray())
+            {
+                if (!p) continue;
+                float side = i == 0 ? 0f : ((i + 1) / 2) * (i % 2 == 1 ? 1.5f : -1.5f);
+                p.Teleport(at + new Vector3(side, 0f, 0f), 0f);
+                i++;
+            }
+        }
+
         void Update()
         {
             var gs = GameState.Instance;
-            var player = Player.Instance;
+            var player = Players.Leader; // co-op room rules are Phase 4; for now rooms follow one player
             AnimateGates();
             if (!gs || gs.Phase != Phase.Playing || !player || LevelRoot == null) return;
 
@@ -395,7 +408,7 @@ namespace Spellcaster
             Sfx.Play("door", 0.8f, 0.8f);
             pending.Clear();
             spawnTimer = 0.5f;
-            var player = Player.Instance.transform.position;
+            var player = Players.Leader.transform.position;
             if (room.Type == RoomType.Boss)
             {
                 var boss = EnemyType.BossFor(Floor);

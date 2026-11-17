@@ -42,6 +42,7 @@ namespace Spellcaster
             var d = Dungeon.Instance;
             var run = Run.Instance;
             ss.Event += e => events.Add(e);
+            SaveSystem.Delete(); // a test save left by an interrupted run (the autotest folder only)
             yield return new WaitForSeconds(0.5f);
 
             // ---- main menu ----
@@ -1118,6 +1119,85 @@ namespace Spellcaster
                 ClearPickups();
             }
 
+            // ---- co-op groundwork: a second player in the same world (no networking yet) ----
+            {
+                gs.ClearEnemies();
+                ss.ResetCooldowns();
+                var cpRoom = d.Current;
+                Vector3 cpHome = player.transform.position;
+                float cpHomeYaw = player.transform.eulerAngles.y;
+                float cpX = Mathf.Min(5f, cpRoom.HalfX - 2f);
+                Vector3 CpSpot(float x, float z = 0f) => d.FindFreeSpot(cpRoom, cpRoom.Center + new Vector3(x, 0f, z), 0.8f) + Vector3.up * 0.1f;
+                player.Teleport(CpSpot(-cpX), 0f);
+                var cpOther = Player.Create(CpSpot(cpX), local: false);
+                yield return null;
+                int cpListeners = UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsSortMode.None).Length;
+                Check($"co-op: a second player joins the world ({Players.All.Count} players), with its own run; this PC keeps one camera and one listener ({cpListeners})",
+                    Players.All.Count == 2 && Players.Local == player && Player.Instance == player && Run.Instance == player.Run
+                    && cpOther.Run != null && cpOther.Run != player.Run && !cpOther.IsLocal && !cpOther.Cam.enabled && cpListeners == 1 && !cpOther.InputEnabled);
+
+                // Enemies go for the nearest living player.
+                float cpHp1 = player.HP, cpHp2 = cpOther.HP;
+                var cpImp = EnemySpawner.Instance.SpawnAt(EnemyType.Imp, cpOther.transform.position + new Vector3(0f, 0.05f, 1.6f));
+                yield return new WaitForSeconds(2.5f);
+                Check($"co-op: an enemy goes for the nearest player and hurts only them (other player {cpOther.HP:0}/{cpHp2:0}, you {player.HP:0}/{cpHp1:0})",
+                    cpImp && cpImp.Target == cpOther && cpOther.HP < cpHp2 && player.HP == cpHp1);
+                cpOther.Teleport(CpSpot(-cpX, cpRoom.HalfZ - 2.5f), 0f);
+                player.Teleport(cpImp.transform.position + new Vector3(-1.5f, 0.1f, 0f), 0f);
+                yield return new WaitForSeconds(Enemy.RetargetEvery + 0.2f);
+                Check("co-op: when another player gets clearly closer, the enemy switches to them", cpImp && cpImp.Target == player);
+                gs.ClearEnemies();
+                player.Heal(999f);
+                cpOther.Heal(999f);
+                yield return null;
+
+                // A blast hurts every player in it.
+                player.Teleport(CpSpot(-1f), 0f);
+                cpOther.Teleport(player.transform.position + new Vector3(2f, 0f, 0f), 0f);
+                yield return null;
+                float cpB1 = player.HP, cpB2 = cpOther.HP;
+                Combat.Explode(player.transform.position + new Vector3(1f, 1.3f, 0f), 3f, 0f, 10f, Color.red);
+                Check($"co-op: a blast hurts every player in it (you -{cpB1 - player.HP:0}, other -{cpB2 - cpOther.HP:0})", player.HP < cpB1 && cpOther.HP < cpB2);
+                player.Heal(999f);
+                cpOther.Heal(999f);
+
+                // A coin goes to the nearest player's own gold.
+                int cpGold1 = player.Run.Gold, cpGold2 = cpOther.Run.Gold;
+                Pickup.Spawn(Items.Coin, cpOther.transform.position + new Vector3(0f, 0f, 0.6f));
+                yield return new WaitForSeconds(0.9f);
+                Check($"co-op: a coin goes to the player who picks it up (their gold {cpGold2} -> {cpOther.Run.Gold}, yours {cpGold1} -> {player.Run.Gold})",
+                    cpOther.Run.Gold > cpGold2 && player.Run.Gold == cpGold1);
+
+                // The run only ends when nobody is left standing.
+                cpOther.TakeDamage(9999f);
+                yield return null;
+                Check("co-op: one player falling doesn't end the run while another stands", cpOther.IsDead && gs.Phase == Phase.Playing && Players.AliveCount == 1);
+
+                // In multiplayer, pausing doesn't stop time.
+                GameState.Multiplayer = true;
+                gs.SetFocus(false);
+                yield return null;
+                yield return null;
+                bool cpMpRuns = gs.Paused && Time.timeScale == 1f;
+                MainMenu.Instance.ChooseForTest("Resume");
+                GameState.Multiplayer = false;
+                yield return null;
+                yield return null; // the pause menu sees the game running again before the next pause
+                gs.SetFocus(false);
+                yield return null;
+                yield return null;
+                bool cpSpStops = gs.Paused && Time.timeScale == 0f;
+                if (!MainMenu.Instance.ChooseForTest("Resume")) gs.ClearFocusPause(); // never leave the test paused
+                yield return null;
+                yield return null;
+                Check("co-op: in multiplayer the pause menu doesn't stop time; single-player still pauses", cpMpRuns && cpSpStops && !gs.Paused);
+
+                UnityEngine.Object.Destroy(cpOther.gameObject);
+                yield return null;
+                player.Teleport(cpHome, cpHomeYaw);
+                Check("co-op: a player leaving is removed from the world", Players.All.Count == 1 && Players.Local == player && Run.Instance == player.Run);
+            }
+
             // ---- casting style: Momentum ----
             {
                 Check("Classic is the default casting style", Settings.CastingStyle == CastingStyle.Classic);
@@ -1639,6 +1719,12 @@ namespace Spellcaster
                     Check($"standing on ice you slide (grip {player.Grip:0.00})", Mathf.Approximately(player.Grip, IcePatch.Grip));
                 }
                 EnterRoom(player, fcRoom);
+                // The entrance can itself be on a patch (random floors): step to plain ground.
+                for (int fcTry = 0; fcTry < 24 && IcePatch.GripAt(player.transform.position) < 1f; fcTry++)
+                {
+                    float fcA = fcTry * 47f * Mathf.Deg2Rad, fcR = 2f + fcTry * 0.4f;
+                    player.Teleport(d.FindFreeSpot(fcRoom, fcRoom.Center + new Vector3(Mathf.Cos(fcA), 0f, Mathf.Sin(fcA)) * fcR, 0.8f) + Vector3.up * 0.1f, 0f);
+                }
                 yield return null;
                 yield return null;
                 Check("off the ice, grip is back to normal", Mathf.Approximately(player.Grip, 1f));
