@@ -102,8 +102,8 @@ namespace Spellcaster
             return null;
         }
 
-        /// <summary>The boss at the end of each floor.</summary>
-        public static EnemyType BossFor(int floor) => floor <= 1 ? Boss : floor == 2 ? Burrower : Behemoth;
+        /// <summary>The boss at the end of a floor (endless: see Scenarios).</summary>
+        public static EnemyType BossFor(int floor) => Scenarios.BossFor(floor);
 
         /// <summary>Every enemy that can appear in rooms, all floors (menus, tests).</summary>
         public static readonly EnemyType[] AllRegulars = { Imp, Cultist, Hornet, Shade, Skull, Beetle, Slug, Moth, Frog, Crawler, Robot, Mimic };
@@ -112,10 +112,10 @@ namespace Spellcaster
         /// Each floor's own mix (weights grow a little with room depth d). Floor 1: imps, cultists, hornets, shades.
         /// Floor 2: slugs, moths, frogs and shades. Floor 3: crawlers, sentries, skulls, beetles, imps and a mimic.
         /// </summary>
-        public static (EnemyType type, float w)[] Roster(int floor, int depth)
+        public static (EnemyType type, float w)[] Roster(int theme, int depth)
         {
             float d = Mathf.Min(depth, 5);
-            switch (Mathf.Clamp(floor, 1, 3))
+            switch (Mathf.Clamp(theme, 1, 3))
             {
                 case 1:
                     return new[]
@@ -138,7 +138,7 @@ namespace Spellcaster
         /// <summary>Picks an enemy for a room encounter from the floor's roster; countSoFar caps beetles (2) and MaxPerRoom types.</summary>
         public static EnemyType PickForEncounter(int floor, int depth, Func<float> rand, Func<EnemyType, int> countSoFar)
         {
-            var pool = Roster(floor, depth);
+            var pool = Scenarios.Roster(floor, depth); // the floor's scenario, plus guests after floor 3
             float total = 0f;
             for (int i = 0; i < pool.Length; i++)
             {

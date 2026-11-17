@@ -361,7 +361,7 @@ namespace Spellcaster
             Fill(new Rect(0, 0, W, H), new Color(0.02f, 0.01f, 0.04f, 0.82f));
             float cell = 4.2f * u;
             var area = new Rect(W * 0.03f, H * 0.12f, W * 0.52f, H * 0.76f);
-            Shadowed(new Rect(area.x, H * 0.04f, area.width, 3 * u), $"FLOOR {d.Floor} / {Dungeon.FinalFloor}", Label.Center());
+            Shadowed(new Rect(area.x, H * 0.04f, area.width, 3 * u), $"FLOOR {d.Floor}: {Scenarios.NameFor(d.Floor).ToUpperInvariant()}", Label.Center());
             DrawRooms(area, cell, Vector2Int.zero, d, 0);
             Shadowed(new Rect(area.x, area.yMax, area.width, 2 * u), "T treasure   $ shop   R rune shrine   B boss", Small.Center());
 

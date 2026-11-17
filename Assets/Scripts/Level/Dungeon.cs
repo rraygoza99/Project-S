@@ -17,7 +17,13 @@ namespace Spellcaster
         public const float Half = 13f;         // half the interior size
         public const float WallH = 5f;
         public const float DoorW = 3.2f, DoorH = 3.6f;
-        public const int FinalFloor = 3;
+        /// <summary>The classic run's last floor: its portal counts as a win, and the dungeon goes on (endless).</summary>
+        public const int FinalFloor = Scenarios.ClassicFloors;
+        /// <summary>This floor's scenario (theme id: 1 Crypt, 2 Frozen Caverns, 3 Forge; see Scenarios).</summary>
+        public int Theme { get; private set; } = 1;
+        /// <summary>Enemy HP and damage multipliers of this floor (they keep rising every floor).</summary>
+        public float HpMult => hpMult;
+        public float DmgMult => dmgMult;
 
         public int Floor { get; private set; }
         /// <summary>Room by grid cell (a big room is listed under each of its cells).</summary>
@@ -176,21 +182,22 @@ namespace Spellcaster
             floorStock.Clear();
 
             Progress.Max("max_floor", floor);
+            Theme = Scenarios.ThemeFor(floor);
             hpMult = 1f + 0.4f * (floor - 1);
             dmgMult = 1f + 0.25f * (floor - 1);
-            pal = MakePalette(floor);
+            pal = MakePalette(Theme);
             pal.Gate = Materials.World("gate", PixelArt.Bars("tex_gate", C(120, 116, 128)), Color.white, 1.6f);
             pal.Pedestal = pal.Pillar;
             Materials.SetFog(pal.Fog, pal.FogStart, pal.FogEnd);
             var ambient = GetComponent<Ambient>();
             if (!ambient) ambient = gameObject.AddComponent<Ambient>();
-            ambient.SetFloor(floor);
+            ambient.SetFloor(Theme);
             if (Player.Instance) Player.Instance.Cam.backgroundColor = pal.Fog;
 
             LevelRoot = new GameObject("Floor " + floor).transform;
             LevelRoot.SetParent(transform, false);
             var rng = new System.Random(FloorSeed);
-            var plan = FloorGenerator.Generate(8 + 2 * floor, rng);
+            var plan = FloorGenerator.Generate(8 + 2 * Mathf.Min(floor, Scenarios.ClassicFloors + 1), rng); // floors stop growing after 4
 
             foreach (var pr in plan.Rooms)
             {
@@ -217,7 +224,7 @@ namespace Spellcaster
                 // Seeded per room, so the same run seed always gives the same props and stock.
                 using (RunRandom.Use(RunRandom.RoomSeed(FloorSeed, room, "furnish")))
                 {
-                    RoomLayouts.Furnish(room, pal, rng, floor);
+                    RoomLayouts.Furnish(room, pal, rng, Theme);
                     StockRoom(room);
                 }
             }
@@ -228,7 +235,7 @@ namespace Spellcaster
             var start = Rooms[Vector2Int.zero];
             PlaceAllPlayers(start.Center + new Vector3(0f, 0.1f, -3f));
             Enter(start);
-            if (GameState.Instance) GameState.Instance.Show($"Floor {floor}: {FloorThemes.Name(floor)}", 2.5f);
+            if (GameState.Instance) GameState.Instance.Show($"Floor {floor}: {Scenarios.NameFor(floor)}", 2.5f);
         }
 
         void BuildRoom(Room room)
@@ -255,7 +262,7 @@ namespace Spellcaster
                     // wall torches for atmosphere
                     foreach (float s in new[] { -1f, 1f })
                     {
-                        var q = Fx.CreateQuad(root, pal.Torch, Floor >= 3 ? 1.2f : 0.9f);
+                        var q = Fx.CreateQuad(root, pal.Torch, Theme >= 3 ? 1.2f : 0.9f);
                         q.transform.position = cc + d3 * (Half - 0.15f) + along * s * 7f + Vector3.up * 3.2f;
                     }
 
@@ -485,7 +492,7 @@ namespace Spellcaster
             var list = new List<EnemyType>();
             using (RunRandom.Use(RunRandom.RoomSeed(FloorSeed, room, "wave")))
             {
-                int count = 3 + 2 * Floor + Random.Range(0, 3) + Mathf.Min(room.Depth, 4) / 2;
+                int count = Mathf.Min(3 + 2 * Floor + Random.Range(0, 3) + Mathf.Min(room.Depth, 4) / 2, MaxWave); // HP keeps rising; the crowd stops at MaxWave
                 // Big rooms hold bigger fights.
                 if (room.IsBig) count = Mathf.Min(Mathf.RoundToInt(count * (room.CellCount >= 4 ? 2.1f : 1.6f)), 22);
                 var picked = new Dictionary<EnemyType, int>();
@@ -525,7 +532,7 @@ namespace Spellcaster
                     OpenPortal(room);
                     Pedestal(room, BossPedestalLocal, Items.RandomTreasure(Run.Instance, 0.8f, floorStock), 0, BossPedestalGlow);
                     Pickup.Spawn(Items.Heart, room.Center + new Vector3(4f, 0, 0));
-                    GameState.Instance.Show(Floor >= FinalFloor ? "Step into the portal to escape" : "Portal opened", 3f);
+                    GameState.Instance.Show(Floor == FinalFloor ? "Portal opened: the dungeon goes deeper" : "Portal opened", 3f);
                 }
                 else Loot.RoomClearReward(room);
                 RoomCleared?.Invoke(room);
@@ -536,6 +543,9 @@ namespace Spellcaster
         static readonly Color BossPedestalGlow = new Color(1f, 0.8f, 0.3f);
 
         /// <summary>The portal out of a cleared boss room (also rebuilt when a save is loaded).</summary>
+        /// <summary>Most enemies a wave can have (deep floors get tougher enemies, not endless crowds).</summary>
+        public const int MaxWave = 22;
+
         /// <summary>The room whose portal is open (the boss room), or null.</summary>
         public Room PortalRoom { get; private set; }
 
@@ -567,9 +577,10 @@ namespace Spellcaster
         {
             PortalOpen = false;
             Sfx.Play("portal", 0.9f);
-            Net.NetLoot.FloorChanging(Floor >= FinalFloor ? Floor : Floor + 1, Floor >= FinalFloor);
-            if (Floor >= FinalFloor) GameState.Instance.Win();
-            else BuildFloor(Floor + 1);
+            // Endless: the dungeon never ends. Leaving the classic last floor still counts as a win (unlocks, stats).
+            if (Floor == FinalFloor) { Progress.Add("wins"); Progress.Flush(); }
+            Net.NetLoot.FloorChanging(Floor + 1, false);
+            BuildFloor(Floor + 1);
         }
 
         void OnKilled(Enemy e)

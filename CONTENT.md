@@ -1,10 +1,10 @@
-# Spellcaster content list (v0.11)
+# Spellcaster content list (v0.12)
 
 Everything currently in the game, read from the code. **Locked** means it only appears in runs after
 you earn the achievement shown (see `Assets/Scripts/Core/Progress.cs`).
 
 Totals: 12 spells (6 locked at first), 12 runes, 29 items (13 locked at first, 1 Grimoire only),
-3 pickups, 11 Grimoire cards, 3 floors, 13 enemies and 3 bosses, 2 casting styles.
+3 pickups, 11 Grimoire cards, 3 floors, 13 enemies and 3 bosses, 2 casting styles, online co-op for 2-6 players.
 
 ## Spells and their runes
 
@@ -107,9 +107,21 @@ Defined in `Assets/Scripts/Loot/Items.cs`.
 
 ## Floors
 
-Three floors, each with its own look, room layouts, hazards, enemies and boss. Defined in
-`Assets/Scripts/Level/FloorThemes.cs`, `Assets/Scripts/Level/Hazards.cs` and
-`Assets/Scripts/Enemies/EnemyTypesFloors.cs`.
+Three scenarios, each with its own look, room layouts, hazards, enemies and boss. Defined in
+`Assets/Scripts/Level/Scenarios.cs`, `Assets/Scripts/Level/FloorThemes.cs`, `Assets/Scripts/Level/Hazards.cs`
+and `Assets/Scripts/Enemies/EnemyTypesFloors.cs`.
+
+**The dungeon is endless.** Floors 1-3 always come in the order below; the floor 3 portal counts as a win
+and leads deeper. From floor 4 on:
+
+| Rotates | How |
+|---|---|
+| Scenario | Picked from the run's seed each floor, never the same as the floor before |
+| Boss | Any of the three bosses, never the same as the floor before |
+| Enemies | The scenario's own roster plus 2 guest types from other scenarios (rarer, 0.3 weight) |
+| Difficulty | Enemy HP +40% and damage +25% per floor, forever; waves grow until 22 enemies |
+
+The same seed always gives the same floors (saves and co-op agree).
 
 | Floor | Name | Enemies | Hazards and props | Boss |
 |---|---|---|---|---|
@@ -193,3 +205,69 @@ Pick one in **Options > Casting style**. Defined in `Assets/Scripts/Spells/Spell
   fight; in a fight it restarts from the last cleared room.
 - **Seeds:** **Seeded run** on the main menu takes a number or any word. The same seed builds the same
   dungeon, shops, enemy waves and rewards. The pause and end screens show the seed (**C** copies it).
+
+## Online co-op (experimental)
+
+2 to 6 players through Steam (App ID 3965800). The host's PC runs the game; the others connect to it.
+Code in `Assets/Scripts/Net/`; every tunable is in `NetConfig.cs` and `NetDowned.cs`.
+
+### Lobby
+
+| Setting / action | What it does |
+|---|---|
+| Host a game | Max players 2-6; who can join: friends only, public, or invite only |
+| Join a game | Friends' games and public Spellcaster lobbies; Steam invites and "Join game" in the friends list (also while the game is closed) |
+| Lobby screen | Steam names and avatars, Ready / Not ready, the host can remove a player, **Start run** once everyone is ready |
+| Run (host) | **New run** or **Continue saved** (when a save exists) |
+| Refused joins | Another game version, a full lobby, a run already in progress (only players coming back get in) |
+| Direct IP (debug) | With Dev mode on: connect copies of the game by address, no Steam needed |
+
+### How a co-op run plays
+
+| Topic | Rule |
+|---|---|
+| Players | A wizard in their own colour (6 colours by lobby slot), with name tag and health bar; your spell glow uses your colour |
+| Movement | Yours is instant (the host checks it and corrects it if needed); the others move smoothly |
+| Casting | Classic and Momentum both work; the rune is drawn on your own PC, the host checks the spell is known and off cooldown, then casts it as you. Friendly fire is off |
+| Grimoire | The host's Options setting decides for everyone; each player has their own deck, cycles and picks their own rewards. An elite's curse falls on the whole party |
+| Loot | Instanced: every coin, heart, item, rune and shop item has one copy per player |
+| Your run | Gold, items, consumables, stats, spell book and Forge are your own (held by the host) |
+| Fight rooms | The first player in starts a 3 s "Fight! Gather up" countdown; then everyone outside is pulled in and the doors close |
+| Portal | Opens once every living player stands on it; the whole party moves to the next floor |
+| Pause | The pause menu doesn't stop the game in co-op |
+
+### Difficulty by player count
+
+Enemy HP and wave size (bosses: HP only), from `NetConfig.Scaling`:
+
+| Players | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| Enemy HP | x1 | x1.4 | x1.75 | x2.1 | x2.4 | x2.7 |
+| Enemies per wave | x1 | x1.35 | x1.7 | x2.0 | x2.3 | x2.6 |
+
+### Downed and revive
+
+| Rule | Value |
+|---|---|
+| At 0 HP (after a Phoenix Feather) | Downed: can't act, enemies ignore you |
+| Revive | A teammate within 2 m for 3 s; you get up with 35% HP |
+| Bleed out | After 30 s: you spectate a teammate (click to switch) |
+| Back in | When the room is cleared: next to a teammate with 35% HP |
+| Run over | Only when every player is down at the same time |
+
+### Leaving, rejoining and saving
+
+- A player who leaves mid-run is removed; the host keeps their character by SteamID (HP, gold, items,
+  consumables, spells, deck, loot taken). Rejoining the same run gives it back.
+- If the host leaves, the session ends for everyone.
+- Only the host saves; the save keeps every player's character by SteamID. On **Continue saved**,
+  returning players get theirs back and new players start fresh.
+
+### Debug tools (dev mode)
+
+| Key / option | What it does |
+|---|---|
+| F6 | Network overlay: role, tick rate (30 Hz), traffic, ping and packet loss per player, prediction corrections |
+| Ctrl+F6 | Simulated lag and loss: off / 150 ms 2% / 300 ms 5% |
+| `-netlag 150 -netloss 2` | The same at launch |
+| `-netkey NAME` | Give a copy its own identity (several copies on one Steam account) |

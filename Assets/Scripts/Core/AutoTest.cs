@@ -1959,9 +1959,41 @@ namespace Spellcaster
             if (d.Boss) d.Boss.Kill();
             yield return new WaitForSeconds(1.2f);
             player.Teleport(d.PortalPosition + Vector3.up * 0.1f, 0f);
-            yield return new WaitForSecondsRealtime(0.5f); // the victory screen pauses game time
-            Check("final portal wins the run, and the save is deleted", gs.Phase == Phase.Victory && !File.Exists(SaveSystem.FilePath) && !SaveSystem.HasValidSave);
-            yield return Shot("22_victory");
+            yield return new WaitForSecondsRealtime(0.8f);
+            Check($"endless: the floor 3 portal leads deeper instead of ending the run (now floor {d.Floor}: {Scenarios.NameFor(d.Floor)}, run still on)",
+                gs.Phase == Phase.Playing && d.Floor == Dungeon.FinalFloor + 1);
+            yield return Shot("22_endless_floor4");
+
+            // ---- endless: scenario, boss and enemy rotation ----
+            {
+                var enThemes = new List<int>();
+                var enBosses = new List<EnemyType>();
+                for (int f = 1; f <= 30; f++) { enThemes.Add(Scenarios.ThemeFor(f)); enBosses.Add(Scenarios.BossFor(f)); }
+                bool enClassic = enThemes[0] == 1 && enThemes[1] == 2 && enThemes[2] == 3
+                    && enBosses[0] == EnemyType.Boss && enBosses[1] == EnemyType.Burrower && enBosses[2] == EnemyType.Behemoth;
+                bool enNoRepeat = true;
+                for (int i = 3; i < 30; i++) enNoRepeat &= enThemes[i] != enThemes[i - 1] && enBosses[i] != enBosses[i - 1];
+                bool enAllSeen = Scenarios.All.All(s => enThemes.Skip(3).Contains(s.Theme)) && Scenarios.All.All(s => enBosses.Skip(3).Contains(s.Boss));
+                int enSeed = RunRandom.RunSeed;
+                var enAgain = Enumerable.Range(4, 20).Select(Scenarios.ThemeFor).ToList();
+                RunRandom.RunSeed = enSeed + 7919;
+                var enOther = Enumerable.Range(4, 20).Select(Scenarios.ThemeFor).ToList();
+                RunRandom.RunSeed = enSeed;
+                Check($"endless rotation: floors 1-3 are the classic order, then a seeded scenario and boss each floor, never the same twice in a row ({string.Join("", enThemes.Take(12))}...)",
+                    enClassic && enNoRepeat && enAllSeen && enAgain.SequenceEqual(enThemes.Skip(3).Take(20)) && !enOther.SequenceEqual(enAgain));
+                var enOwn = new HashSet<EnemyType>(EnemyType.Roster(Scenarios.ThemeFor(5), 3).Select(r => r.type));
+                var enMix = Scenarios.Roster(5, 3);
+                var enGuests = enMix.Where(r => !enOwn.Contains(r.type)).Select(r => r.type.Name).ToList();
+                Check($"from floor 4, enemies mix the scenario's own roster with guests from other scenarios (floor 5 {Scenarios.NameFor(5)}: guests {string.Join(", ", enGuests)})",
+                    enGuests.Count == Scenarios.GuestTypes && Scenarios.Roster(2, 3).All(r => EnemyType.Roster(2, 3).Contains(r)));
+                float enHp3 = 1f + 0.4f * 2f;
+                d.BuildFloor(6);
+                yield return new WaitForSeconds(0.4f);
+                Check($"a deep floor builds with its scenario and keeps getting harder (floor 6: {Scenarios.NameFor(6)}, enemy HP x{d.HpMult:0.0} vs x{enHp3:0.0} on floor 3, {d.AllRooms.Count} rooms, boss {Scenarios.BossFor(6).Name})",
+                    d.Theme == Scenarios.ThemeFor(6) && d.HpMult > enHp3 && d.AllRooms.Count >= 10 && d.AllRooms.Count <= 20
+                    && d.AllRooms.Any(r => r.Type == RoomType.Boss));
+                yield return Shot("22h_floor6");
+            }
 
             // ---- meta progression: locked content, counters, achievements, new spells and items ----
             gs.ForcePlayingForTest();

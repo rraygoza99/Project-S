@@ -185,7 +185,12 @@ cleared rooms, so you can't wait out Heal between fights).
   (2x1 or 1x2) and 2x2 arenas, with a cover layout in each cell and more enemies (1.6x / 2.1x).
   The start room, its neighbours and the special rooms are always one cell.
 - **Bosses.** Killing a floor's boss opens a portal to the next floor (and drops an item and a
-  heart). The portal on floor 3 wins the run.
+  heart). The dungeon is **endless**: the floor 3 portal counts as a
+  win (for unlocks and stats) and leads deeper. From floor 4 on, each floor is a scenario picked from the
+  run's seed (never the same twice in a row), its boss is any boss but the last one, and its enemies mix
+  the scenario's own with a couple of guests from other scenarios. Enemies keep getting tougher every
+  floor (waves stop growing at 22 enemies). New scenarios join the rotation by adding them to
+  `Level/Scenarios.cs` (see the comment there).
   - **The Watcher** (floor 1) fires fans of bolts and summons imps.
   - **The Burrower** (floor 2) spits fans of frost, then dives underground (it can't be hurt there)
     and bursts out under you: get off the purple warning ring. It calls slugs and moths, and below
