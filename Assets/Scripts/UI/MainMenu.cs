@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
+using Spellcaster.Net;
 
 namespace Spellcaster
 {
@@ -13,7 +15,7 @@ namespace Spellcaster
     {
         public static MainMenu Instance { get; private set; }
 
-        public enum Page { Main, Options, Controls, Unlocks, Confirm, Seed, Pause }
+        public enum Page { Main, Options, Controls, Unlocks, Confirm, Seed, Pause, Multiplayer, HostSetup, Browse, Lobby, Direct }
         public Page Current { get; private set; } = Page.Main;
         public int Selected { get; private set; }
         /// <summary>Action and slot waiting for a key press (Controls page), or null.</summary>
@@ -27,6 +29,8 @@ namespace Spellcaster
             public Action<int> Change;          // -1 / +1
             public GameAction? Binding;         // Controls page rows
             public bool Field;                  // a text box (the seed): Value is shown without < >
+            public bool Plain;                  // Value shown on the right, no < > (lobby rows)
+            public Func<Texture2D> Icon;        // a picture at the left of the row (Steam avatar)
         }
 
         List<Item> mainItems, optionItems, controlItems, unlockItems, confirmItems, seedItems, pauseItems;
@@ -38,7 +42,130 @@ namespace Spellcaster
         Vector2 lastMouse;
         int listenFrame;
 
-        List<Item> Items => Current switch { Page.Main => mainItems, Page.Options => optionItems, Page.Unlocks => unlockItems, Page.Confirm => confirmItems, Page.Seed => seedItems, Page.Pause => pauseItems, _ => controlItems };
+        List<Item> Items => Current switch
+        {
+            Page.Main => mainItems, Page.Options => optionItems, Page.Unlocks => unlockItems, Page.Confirm => confirmItems,
+            Page.Seed => seedItems, Page.Pause => pauseItems, Page.Multiplayer => MultiplayerItems(), Page.HostSetup => hostItems,
+            Page.Browse => BrowseItems(), Page.Lobby => LobbyItems(), Page.Direct => directItems, _ => controlItems,
+        };
+
+        // ---------------- multiplayer pages ----------------
+
+        static bool IsNetPage(Page p) => p == Page.Multiplayer || p == Page.HostSetup || p == Page.Browse || p == Page.Lobby || p == Page.Direct;
+        List<Item> hostItems, directItems;
+        int hostMax = NetConfig.DefaultMaxPlayers;
+        LobbyPrivacy hostPrivacy = LobbyPrivacy.FriendsOnly;
+        /// <summary>Debug direct connect: the address typed on the Direct page.</summary>
+        public string AddressText { get; private set; } = NetConfig.DebugAddress;
+
+        public void SetAddressText(string s)
+        {
+            var b = new System.Text.StringBuilder();
+            foreach (char c in s ?? "")
+                if ((char.IsLetterOrDigit(c) || c == '.' || c == ':' || c == '-') && b.Length < 64) b.Append(c);
+            AddressText = b.ToString();
+        }
+
+        void BuildNetPages()
+        {
+            hostItems = new List<Item>
+            {
+                new Item { Label = "Max players", Value = () => hostMax.ToString(),
+                    Change = d => hostMax = Mathf.Clamp(hostMax + d, NetConfig.MinPlayers, NetConfig.MaxPlayersLimit) },
+                new Item { Label = "Who can join", Value = () => hostPrivacy switch { LobbyPrivacy.Public => "Public", LobbyPrivacy.InviteOnly => "Invite only", _ => "Friends only" },
+                    Change = d => hostPrivacy = (LobbyPrivacy)(((int)hostPrivacy + d + 3) % 3) },
+                new Item { Label = "Create lobby", Activate = () => { if (!NetSession.Instance.HostSteam(hostMax, hostPrivacy)) Sfx.Play("fizzle", 0.4f, 1.3f); } },
+                new Item { Label = "Back", Activate = () => Open(Page.Multiplayer) },
+            };
+            foreach (var it in hostItems)
+                if (it.Change != null && it.Activate == null) { var ch = it.Change; it.Activate = () => ch(1); }
+            directItems = new List<Item>
+            {
+                new Item { Label = "Address", Field = true, Value = () => AddressText + (Mathf.Repeat(Time.unscaledTime, 1f) < 0.5f ? "_" : " ") },
+                new Item { Label = "Join this address", Activate = () => { if (!NetSession.Instance.JoinDirect(AddressText)) Sfx.Play("fizzle", 0.4f, 1.3f); } },
+                new Item { Label = $"Host on port {NetConfig.DebugPort}", Activate = () => NetSession.Instance.HostDirect(NetConfig.DebugPort, hostMax) },
+                new Item { Label = "Back", Activate = () => Open(Page.Multiplayer) },
+            };
+        }
+
+        List<Item> MultiplayerItems()
+        {
+            var list = new List<Item>
+            {
+                new Item { Label = "Host a game", Activate = () => { if (SteamService.Ready) Open(Page.HostSetup); else Sfx.Play("fizzle", 0.4f, 1.3f); } },
+                new Item { Label = "Join a game", Activate = () => { if (!SteamService.Ready) { Sfx.Play("fizzle", 0.4f, 1.3f); return; } Open(Page.Browse); NetSession.Instance.SearchLobbies(); } },
+            };
+            if (NetConfig.DebugTransportAllowed) list.Add(new Item { Label = "Direct IP (debug)", Activate = () => Open(Page.Direct) });
+            list.Add(new Item { Label = "Back", Activate = () => Open(Page.Main) });
+            return list;
+        }
+
+        List<Item> BrowseItems()
+        {
+            var ns = NetSession.Instance;
+            var list = new List<Item>();
+            foreach (var l in ns.Found)
+            {
+                var lobby = l;
+                string who = string.IsNullOrEmpty(lobby.hostName) ? "A game" : lobby.hostName + "'s game";
+                list.Add(new Item
+                {
+                    Label = who + (lobby.friend ? "  (friend)" : ""), Plain = true,
+                    Value = () => lobby.VersionOk ? $"{lobby.members} / {lobby.max}" : $"version {lobby.version}",
+                    Activate = () => { if (lobby.VersionOk) ns.JoinSteamLobby(lobby.id); else Sfx.Play("fizzle", 0.4f, 1.3f); },
+                });
+            }
+            list.Add(new Item { Label = ns.Searching ? "Searching..." : "Refresh", Activate = () => ns.SearchLobbies() });
+            list.Add(new Item { Label = "Back", Activate = () => Open(Page.Multiplayer) });
+            return list;
+        }
+
+        List<Item> LobbyItems()
+        {
+            var ns = NetSession.Instance;
+            var list = new List<Item>();
+            foreach (var r in ns.Roster)
+            {
+                var p = r;
+                bool me = p.id == ns.MyId;
+                list.Add(new Item
+                {
+                    Label = p.name + (me ? "  (you)" : ""), Plain = true,
+                    Value = () => p.host ? "Host" : p.ready ? "Ready" : "Not ready",
+                    Icon = p.steamId != 0 ? () => SteamService.Avatar(p.steamId) : (Func<Texture2D>)null,
+                    Activate = ns.IsHost && !p.host ? () => ns.Kick(p.id) : (Action)null,
+                });
+            }
+            if (!ns.IsHost && ns.MyId >= 0)
+                list.Add(new Item { Label = "Ready", Value = () => ns.MyReady ? "Yes" : "No", Change = d => ns.SetReady(!ns.MyReady), Activate = () => ns.SetReady(!ns.MyReady) });
+            if (ns.IsHost && ns.Using == NetSession.Kind.Steam)
+                list.Add(new Item { Label = "Invite friends (Steam overlay)", Activate = ns.OpenInviteOverlay });
+            if (ns.IsHost)
+            {
+                int waiting = ns.Roster.Count(r => !r.ready && !r.host);
+                list.Add(new Item { Label = waiting > 0 ? $"Start run (waiting for {waiting})" : "Start run",
+                    Activate = () => { if (!ns.StartRun()) Sfx.Play("fizzle", 0.4f, 1.3f); } });
+            }
+            list.Add(new Item { Label = ns.IsHost ? "Close lobby" : "Leave lobby", Activate = () => { ns.Leave(); Open(Page.Multiplayer); } });
+            return list;
+        }
+
+        /// <summary>The host started the run: everyone begins the same seeded floor.</summary>
+        public void BeginNetworkRun(int seed)
+        {
+            if (!GameState.Instance || GameState.Instance.Phase != Phase.Title) return;
+            LeaveMenu();
+            GameState.Instance.BeginSeeded(seed, null);
+        }
+
+        /// <summary>Joining or leaving a session moves the menu to the lobby or back to the multiplayer page.</summary>
+        void TrackSession()
+        {
+            var ns = NetSession.Instance;
+            if (!ns || !Visible) return;
+            if (ns.InSession && Current != Page.Lobby && IsNetPage(Current)) { Current = Page.Lobby; Selected = 0; }
+            else if (!ns.InSession && Current == Page.Lobby) { Current = Page.Multiplayer; Selected = 0; }
+        }
 
         // ---------------- pause menu (in a run) ----------------
 
@@ -53,7 +180,7 @@ namespace Spellcaster
         public static int ResumedFrame = -10;
 
         /// <summary>A real run (not the tutorial or practice): Quit saves.</summary>
-        static bool QuitSaves => !GameState.PracticeMode && !GameState.TutorialMode;
+        static bool QuitSaves => !GameState.PracticeMode && !GameState.TutorialMode && !NetSession.IsClientOnly; // only the host saves
 
         void BuildPause()
         {
@@ -61,7 +188,7 @@ namespace Spellcaster
             {
                 new Item { Label = "Resume", Activate = Resume },
                 new Item { Label = "Options", Activate = () => Open(Page.Options) },
-                new Item { Label = QuitSaves ? "Save & quit" : "Quit to menu", Activate = SaveAndQuit },
+                new Item { Label = NetSession.IsClientOnly ? "Leave game" : QuitSaves ? "Save & quit" : "Quit to menu", Activate = SaveAndQuit },
             };
         }
 
@@ -134,6 +261,7 @@ namespace Spellcaster
             if (SaveSystem.HasValidSave) mainItems.Add(new Item { Label = "Continue", Activate = ContinueRun });
             mainItems.Add(new Item { Label = "Start game", Activate = StartGame });
             mainItems.Add(new Item { Label = "Seeded run", Activate = () => { Open(Page.Seed); Selected = 1; } });
+            mainItems.Add(new Item { Label = "Multiplayer", Activate = () => Open(Page.Multiplayer) });
             mainItems.Add(new Item { Label = "Tutorial", Activate = StartTutorial });
             mainItems.Add(new Item { Label = "Practice tool", Activate = StartPractice });
             mainItems.Add(new Item { Label = "Unlocks", Activate = () => Open(Page.Unlocks) });
@@ -164,6 +292,9 @@ namespace Spellcaster
         {
             Instance = this;
             BuildMain();
+            BuildNetPages();
+            // Back from a session that ended (host left, kicked): show why on the multiplayer page.
+            if (NetSession.Instance && NetSession.Instance.LastError != null) Current = Page.Multiplayer;
             seedItems = new List<Item>
             {
                 new Item { Label = "Seed", Field = true, Value = () => SeedText.Length > 0 ? SeedText + (Mathf.Repeat(Time.unscaledTime, 1f) < 0.5f ? "_" : " ") : "type a number or a word" },
@@ -246,7 +377,9 @@ namespace Spellcaster
                 if (Input.GetKeyDown(KeyCode.C) && QuitSaves) RunRandom.CopySeed();
             }
 
-            bool typing = Current == Page.Seed; // letters go into the seed: arrows move, Enter chooses
+            TrackSession();
+            Selected = Mathf.Clamp(Selected, 0, Mathf.Max(0, Items.Count - 1));
+            bool typing = Current == Page.Seed || Current == Page.Direct; // letters go into the text box: arrows move, Enter chooses
             if ((!typing && Input.GetKeyDown(KeyCode.W)) || Input.GetKeyDown(KeyCode.UpArrow)) Move(-1);
             if ((!typing && Input.GetKeyDown(KeyCode.S)) || Input.GetKeyDown(KeyCode.DownArrow)) Move(1);
             var item = Items[Selected];
@@ -266,7 +399,9 @@ namespace Spellcaster
             {
                 if (Current == Page.Controls) Open(Page.Options);
                 else if (Current == Page.Options && paused) Open(Page.Pause);
-                else if (Current == Page.Options || Current == Page.Unlocks || Current == Page.Confirm || Current == Page.Seed) Open(Page.Main);
+                else if (Current == Page.Options || Current == Page.Unlocks || Current == Page.Confirm || Current == Page.Seed || Current == Page.Multiplayer) Open(Page.Main);
+                else if (Current == Page.HostSetup || Current == Page.Browse || Current == Page.Direct) Open(Page.Multiplayer);
+                else if (Current == Page.Lobby) { NetSession.Instance.Leave(); Open(Page.Multiplayer); }
             }
         }
 
@@ -288,6 +423,7 @@ namespace Spellcaster
         public void Open(Page s)
         {
             if (s == Page.Main) BuildMain();
+            if (s == Page.Main && NetSession.Instance) NetSession.Instance.LastError = null;
             Current = s;
             Selected = 0;
             Listening = null;
@@ -369,6 +505,20 @@ namespace Spellcaster
 #endif
         }
 
+        /// <summary>Under the multiplayer headers: Steam's state, what the session is doing, or what went wrong.</summary>
+        static void DrawNetStatus(float W, float H, float u)
+        {
+            var ns = NetSession.Instance;
+            string text; Color col;
+            if (ns && ns.LastError != null) { text = ns.LastError; col = new Color(1f, 0.6f, 0.45f); }
+            else if (ns && ns.Status != null) { text = ns.Status; col = new Color(0.85f, 0.8f, 1f); }
+            else if (!SteamService.Ready) { text = SteamService.Error ?? "Steam isn't available."; col = new Color(1f, 0.6f, 0.45f); }
+            else { text = "Signed in to Steam as " + SteamService.MyName; col = new Color(0.6f, 1f, 0.7f); }
+            var st = new GUIStyle(HUD.Small) { alignment = TextAnchor.MiddleCenter, wordWrap = true };
+            st.normal.textColor = col;
+            HUD.Shadowed(new Rect(W * 0.1f, H * 0.095f, W * 0.8f, 2.4f * u), text, st);
+        }
+
         /// <summary>Every achievement: reward icon and name, goal, progress bar.</summary>
         static void DrawUnlocks(float W, float H, float u)
         {
@@ -441,6 +591,7 @@ namespace Spellcaster
 
             bool confirm = Current == Page.Confirm;
             bool seedPage = Current == Page.Seed;
+            bool addressPage = Current == Page.Direct;
             bool pausePage = Current == Page.Pause;
             bool main = Current == Page.Main || confirm || pausePage;
 
@@ -450,6 +601,12 @@ namespace Spellcaster
                 if (e.keyCode == KeyCode.Backspace) { if (SeedText.Length > 0) SeedText = SeedText.Substring(0, SeedText.Length - 1); e.Use(); }
                 else if (e.character != '\0' && e.character != '\n' && e.character != '\r' && e.character != '\t') { SetSeedText(SeedText + e.character); e.Use(); }
                 else if (e.keyCode == KeyCode.V && (e.control || e.command)) { SetSeedText(SeedText + GUIUtility.systemCopyBuffer); e.Use(); }
+            }
+            if (addressPage && e.type == EventType.KeyDown)
+            {
+                if (e.keyCode == KeyCode.Backspace) { if (AddressText.Length > 0) AddressText = AddressText.Substring(0, AddressText.Length - 1); e.Use(); }
+                else if (e.keyCode == KeyCode.V && (e.control || e.command)) { SetAddressText(AddressText + GUIUtility.systemCopyBuffer); e.Use(); }
+                else if (e.character != '\0' && e.character != '\n' && e.character != '\r' && e.character != '\t') { SetAddressText(AddressText + e.character); e.Use(); }
             }
             if (repaint)
             {
@@ -484,8 +641,16 @@ namespace Spellcaster
                 else
                 {
                     title.fontSize = Mathf.RoundToInt(title.fontSize * 0.55f);
-                    string head = Current switch { Page.Options => "OPTIONS", Page.Controls => "CONTROLS", Page.Seed => "SEEDED RUN", _ => $"UNLOCKS  {Progress.UnlockedCount} / {Progress.All.Count}" };
+                    var nsh = NetSession.Instance;
+                    string head = Current switch
+                    {
+                        Page.Options => "OPTIONS", Page.Controls => "CONTROLS", Page.Seed => "SEEDED RUN",
+                        Page.Multiplayer => "MULTIPLAYER", Page.HostSetup => "HOST A GAME", Page.Browse => "JOIN A GAME",
+                        Page.Lobby => $"LOBBY  {nsh.Roster.Count} / {nsh.MaxPlayers}", Page.Direct => "DIRECT CONNECT (DEBUG)",
+                        _ => $"UNLOCKS  {Progress.UnlockedCount} / {Progress.All.Count}",
+                    };
                     HUD.Shadowed(new Rect(0, H * 0.03f, W, H * 0.09f), head, title);
+                    if (IsNetPage(Current)) DrawNetStatus(W, H, u);
                 }
                 if (Current == Page.Unlocks) DrawUnlocks(W, H, u);
             }
@@ -507,7 +672,7 @@ namespace Spellcaster
                 if (hover && repaint && mouse != lastMouse && Selected != i && !Listening.HasValue) { Selected = i; Tick(); }
 
                 Rect left = default, right = default, slot0 = default, slot1 = default;
-                if (it.Value != null && !it.Field)
+                if (it.Value != null && !it.Field && !it.Plain)
                 {
                     right = new Rect(row.xMax - 4f * u, row.y, 4f * u, row.height);
                     left = new Rect(right.x - 16f * u, row.y, 4f * u, row.height);
@@ -540,7 +705,16 @@ namespace Spellcaster
                     fontSize = Mathf.RoundToInt(HUD.Label.fontSize * (main ? 1.15f : 0.95f)),
                 };
                 st.normal.textColor = sel ? Color.white : new Color(0.8f, 0.8f, 0.85f);
-                HUD.Shadowed(leftAligned ? new Rect(row.x + 1.5f * u, row.y, row.width, row.height) : row, it.Label, st);
+                float labelX = row.x + 1.5f * u;
+                if (it.Icon != null)
+                {
+                    var icon = it.Icon();
+                    var ir = new Rect(row.x + 0.4f * u, row.y + 0.3f * u, row.height - 0.6f * u, row.height - 0.6f * u);
+                    if (icon) GUI.DrawTextureWithTexCoords(ir, icon, new Rect(0f, 1f, 1f, -1f)); // Steam rows come top-down
+                    else HUD.Fill(ir, new Color(1f, 1f, 1f, 0.1f));
+                    labelX = ir.xMax + 0.8f * u;
+                }
+                HUD.Shadowed(leftAligned ? new Rect(labelX, row.y, row.xMax - labelX, row.height) : row, it.Label, st);
 
                 var vs = new GUIStyle(st) { alignment = TextAnchor.MiddleCenter };
                 vs.normal.textColor = new Color(1f, 0.85f, 0.45f);
@@ -550,8 +724,13 @@ namespace Spellcaster
                     HUD.Fill(box, new Color(0f, 0f, 0f, 0.5f));
                     HUD.Frame(box, new Color(1f, 0.85f, 0.45f, sel ? 0.9f : 0.35f), Mathf.Max(1f, 0.1f * u));
                     var fs = new GUIStyle(vs) { alignment = TextAnchor.MiddleLeft };
-                    if (SeedText.Length == 0) fs.normal.textColor = new Color(0.6f, 0.6f, 0.65f);
+                    if (seedPage && SeedText.Length == 0) fs.normal.textColor = new Color(0.6f, 0.6f, 0.65f);
                     HUD.Shadowed(new Rect(box.x + u, box.y, box.width - u, box.height), it.Value(), fs);
+                }
+                else if (it.Plain)
+                {
+                    var ps = new GUIStyle(vs) { alignment = TextAnchor.MiddleRight };
+                    HUD.Shadowed(new Rect(row.x, row.y, row.width - 1.5f * u, row.height), it.Value(), ps);
                 }
                 else if (it.Value != null)
                 {
@@ -581,6 +760,12 @@ namespace Spellcaster
                         (QuitSaves && Dungeon.Instance && Dungeon.Instance.InCombat
                             ? "   (in a fight: you keep what you have, the fight starts over from the last cleared room)" : ""),
                     Page.Confirm => "Esc: back",
+                    Page.Multiplayer => "Online co-op for 2-6 players through Steam.   Esc: back",
+                    Page.HostSetup => "A/D or click < > to change   Esc: back",
+                    Page.Browse => "Friends' games and public lobbies. Friends can also invite you from Steam.   Esc: back",
+                    Page.Lobby => NetSession.Instance.IsHost ? "Click a player to remove them. The run starts when everyone is ready.   Esc: close lobby"
+                                                             : "Get ready; the host starts the run.   Esc: leave",
+                    Page.Direct => "Debug: connect copies of the game by address (127.0.0.1 on this PC). No Steam needed.   Esc: back",
                     Page.Seed => "Type a seed (a number or any word); the same seed always builds the same dungeon, shops and enemy waves.   Ctrl+V: paste   Esc: back",
                     Page.Unlocks => "Reach a goal to add its spell or item to future runs. Your stats are never upgraded.",
                     Page.Options => "A/D or click < > to change   Esc: back   (rune size: how far the mouse moves per stroke)",

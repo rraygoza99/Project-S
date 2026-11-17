@@ -44,6 +44,8 @@ namespace Spellcaster.EditorTools
                 if (Application.isBatchMode) EditorApplication.Exit(1);
                 return;
             }
+            // Steam outside the Steam client reads the App ID from steam_appid.txt next to the exe.
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(OutputPath), "steam_appid.txt"), Spellcaster.Net.NetConfig.SteamAppId.ToString());
             Debug.Log("SPELLCASTER BUILD OK: " + Path.GetFullPath(OutputPath));
         }
 

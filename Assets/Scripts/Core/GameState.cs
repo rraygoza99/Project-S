@@ -226,6 +226,7 @@ namespace Spellcaster
         /// <summary>Ends the run and goes back to the main menu.</summary>
         public void ToMenu()
         {
+            LeaveSession();
             skipTitle = false;
             PracticeMode = false;
             TutorialMode = false;
@@ -235,11 +236,19 @@ namespace Spellcaster
 
         public void Restart()
         {
+            LeaveSession();
             skipTitle = true;
             PracticeMode = false;
             TutorialMode = false;
             Time.timeScale = 1f;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
+
+        /// <summary>Leaving the run leaves the online session (the host ends it for everyone).</summary>
+        static void LeaveSession()
+        {
+            var ns = Net.NetSession.Instance;
+            if (ns && ns.InSession) ns.Leave();
         }
 
         public void Show(string text, float seconds)

@@ -45,6 +45,61 @@ namespace Spellcaster
             SaveSystem.Delete(); // a test save left by an interrupted run (the autotest folder only)
             yield return new WaitForSeconds(0.5f);
 
+            // ---- multiplayer lobby: Steam, and a second copy of the game joining by direct IP ----
+            {
+                var mpNs = Net.NetSession.Instance;
+                Check($"Steam starts, or the game says why not ({(Net.SteamService.Ready ? "signed in as " + Net.SteamService.MyName : Net.SteamService.Error)}); single-player is unaffected",
+                    mpNs && (Net.SteamService.Ready || !string.IsNullOrEmpty(Net.SteamService.Error)) && !GameState.Multiplayer);
+                var mpBad = new Net.HelloMsg { version = "0.0", name = "x" };
+                var mpGood = new Net.HelloMsg { version = Net.NetConfig.Version, name = "x" };
+                string mpVMis = Net.NetSession.Validate(mpBad, 1, 4, false), mpVFull = Net.NetSession.Validate(mpGood, 4, 4, false);
+                string mpVRun = Net.NetSession.Validate(mpGood, 1, 4, true), mpVOk = Net.NetSession.Validate(mpGood, 1, 4, false);
+                Check($"joins are refused for another version, a full lobby, or a run in progress (\"{mpVMis}\")",
+                    mpVMis != null && mpVMis.Contains("Version") && mpVFull != null && mpVFull.Contains("full") && mpVRun != null && mpVRun.Contains("progress") && mpVOk == null);
+
+                int mpSeed = 0;
+                Net.NetSession.StartRunHandler = s => mpSeed = s; // don't start this copy's run: the test goes on in single-player
+                bool mpHosted = mpNs.HostDirect(Net.NetConfig.DebugPort, 4);
+                for (int mpF = 0; mpF < 30 && mpNs.Roster.Count < 1; mpF++) yield return null;
+                Check($"hosting (debug direct-IP): the host is in its own lobby ({mpNs.Roster.Count} player, {mpNs.Roster.FirstOrDefault().name}), multiplayer mode on",
+                    mpHosted && mpNs.IsHost && mpNs.Roster.Count == 1 && mpNs.Roster[0].host && GameState.Multiplayer);
+                MainMenu.Instance.Open(MainMenu.Page.Multiplayer);
+                yield return null;
+                Check("the menu shows the lobby while a session is on", MainMenu.Instance.Current == MainMenu.Page.Lobby);
+
+                string mpExe = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Spellcaster.exe");
+                string mpLog = Path.Combine(outDir, "net_client.log");
+                System.Diagnostics.Process mpClient = null;
+                try
+                {
+                    mpClient = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(mpExe,
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netquitafterstart -logFile \"{mpLog}\"") { UseShellExecute = false });
+                }
+                catch (Exception mpEx) { Debug.LogWarning("[AutoTest] couldn't start a second copy: " + mpEx.Message); }
+                float mpT = 0f;
+                while (mpT < 45f && mpNs.Roster.Count < 2) { mpT += Time.unscaledDeltaTime; yield return null; }
+                Check($"a second copy of the game joins the lobby by address ({mpNs.Roster.Count} players after {mpT:0.0}s)", mpNs.Roster.Count == 2);
+                mpT = 0f;
+                while (mpT < 10f && !mpNs.AllReady) { mpT += Time.unscaledDeltaTime; yield return null; }
+                yield return Shot("00h_lobby");
+                Check($"the joining player readies up and the host sees it ({string.Join(", ", mpNs.Roster.Select(r => r.name + (r.ready ? " ready" : "")))})",
+                    mpNs.Roster.Count == 2 && mpNs.AllReady);
+                bool mpStarted = mpNs.StartRun();
+                mpT = 0f;
+                while (mpT < 10f && mpNs.StartAcks < 2) { mpT += Time.unscaledDeltaTime; yield return null; }
+                Check($"the host starts the run for everyone (seed {mpSeed}, {mpNs.StartAcks} of 2 players started it)", mpStarted && mpNs.StartAcks >= 2 && mpSeed != 0);
+                mpT = 0f;
+                while (mpT < 15f && mpNs.Roster.Count > 1) { mpT += Time.unscaledDeltaTime; yield return null; }
+                Check($"a player who quits leaves the lobby ({mpNs.Roster.Count} left)", mpNs.Roster.Count == 1);
+                if (mpClient != null && !mpClient.HasExited) { try { mpClient.Kill(); } catch { } }
+                mpNs.Leave();
+                yield return null;
+                yield return null;
+                Net.NetSession.StartRunHandler = null;
+                MainMenu.Instance.Open(MainMenu.Page.Main);
+                Check("closing the lobby ends the session; back to single-player", !mpNs.InSession && !GameState.Multiplayer && mpNs.Roster.Count == 0);
+            }
+
             // ---- main menu ----
             var menu = MainMenu.Instance;
             Check("game opens on the main menu", gs.Phase == Phase.Title && menu.Visible && menu.Current == MainMenu.Page.Main);

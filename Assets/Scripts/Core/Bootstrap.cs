@@ -37,6 +37,7 @@ namespace Spellcaster
             present.backgroundColor = Color.black;
             present.depth = -100;
 
+            Net.NetSession.Ensure(); // Steam and the online session: built once, kept across reloads
             var player = Player.Create(new Vector3(0f, 0.1f, -3f));
             Sfx.Init(player.Cam.gameObject);
 

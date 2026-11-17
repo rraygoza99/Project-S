@@ -127,7 +127,8 @@ namespace Spellcaster
             get
             {
                 var gs = GameState.Instance;
-                return gs && gs.InRun && !GameState.PracticeMode && !GameState.TutorialMode && Player.Instance && !Player.Instance.IsDead;
+                return gs && gs.InRun && !GameState.PracticeMode && !GameState.TutorialMode && Player.Instance && !Player.Instance.IsDead
+                    && !Net.NetSession.IsClientOnly; // in multiplayer only the host saves
             }
         }
 

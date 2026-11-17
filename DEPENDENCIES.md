@@ -25,6 +25,17 @@ included in the built game (release zip), which the Asset Store license allows.
 | Monster Sounds Pack | Cafofo | Enemy hit, death and attack sounds (imp and watcher sets) | `Resources/MonsterSounds/*.wav` | `Audio/Sfx.cs`, `Enemies/EnemyType.cs` |
 | Lightning Bolt Effect | Digital Ruby | Lightning bolt visuals | `LightningBolt/LightningBoltScript.cs`, `Resources/Lightning/bolt.png` | `Combat/LightningFx.cs`, through reflection so the game still compiles without it |
 
+## Open-source libraries (in the repo)
+
+| Library | Version | License | Where | Used for |
+|---|---|---|---|---|
+| Mirror | 96.11.3 | MIT | `Assets/Mirror/` (examples removed) | Networking for online co-op: the listen server, messages, the KCP transport used by the debug direct-IP mode |
+| Steamworks.NET | 2025.165.0 | MIT (includes Valve's redistributable `steam_api64.dll`) | `Assets/com.rlabrecque.steamworks.net/` | Steam: sign-in, lobbies, invites, avatars, Steam Networking Sockets |
+
+Mirror's import added `com.unity.nuget.newtonsoft-json` (3.2.2) to the manifest and the `MIRROR...` scripting
+defines. The Steam transport is the game's own (`Net/SteamSocketsTransport.cs`). The build writes
+`steam_appid.txt` (App ID from `Net/NetConfig.cs`, 480 = Spacewar for development) next to the exe.
+
 ## Unity packages (`Packages/manifest.json`)
 
 ### Used

@@ -70,6 +70,23 @@ your projectiles (yellow) and enemy projectiles (magenta) at their real collisio
 a moment after each hit: spell blast areas, nova and cloud rings (orange), instant rays and chain
 jumps (blue), and enemy blasts and swings (bright red). A legend sits on the left.
 
+## Multiplayer (in progress)
+
+Online co-op for 2-6 players through Steam is being built in phases. What works now:
+
+- **Main menu > Multiplayer.** Needs Steam running and signed in; otherwise the page says why and
+  single-player is unaffected.
+- **Host a game:** pick max players (2-6) and who can join (friends only, public, invite only). The lobby
+  lists players with their Steam names and avatars; **Invite friends** opens the Steam overlay; the host
+  can click a player to remove them and starts the run when everyone is ready.
+- **Join a game:** friends' games and public Spellcaster lobbies, or accept a Steam invite / "Join game"
+  in the friends list (also while the game is closed).
+- **Different versions can't play together**; full lobbies and runs in progress refuse joins.
+- **Direct IP (debug):** with Options > Dev mode on, copies of the game connect by address
+  (127.0.0.1:7777 on one PC) without Steam.
+- Starting the run puts everyone on the same seeded floor. Seeing each other in the world comes next.
+- In a multiplayer session the pause menu doesn't stop the game, and only the host saves.
+
 ## Controls
 
 Defaults (rebind them in Options > Controls). These are for the **Classic** casting style; see
