@@ -65,12 +65,26 @@ namespace Spellcaster.Net
                 if (!p) continue;
                 p.NetId = r.id;
                 p.DisplayName = r.name;
+                p.NetKey = r.key;
                 p.ColorIndex = i;
             }
             Running = true;
         }
 
-        /// <summary>A player left mid-run (Phase 6 decides what stays): their character is removed.</summary>
+        /// <summary>A player joined a run in progress: their character appears (host: simulated, client: snapshots).</summary>
+        public static Player AddRemote(RosterEntry r, int slot, Vector3 at)
+        {
+            var p = Players.ByNetId(r.id);
+            if (!p) p = Player.Create(at + Vector3.up * 0.1f, local: false);
+            p.Mode = NetworkServer.active ? Player.Control.Simulated : Player.Control.Interpolated;
+            p.NetId = r.id;
+            p.DisplayName = r.name;
+            p.NetKey = r.key;
+            p.ColorIndex = slot;
+            return p;
+        }
+
+        /// <summary>A player left mid-run: their character is removed (the host keeps it in case they come back).</summary>
         public static void RemovePlayer(int id)
         {
             var p = Players.ByNetId(id);
@@ -93,6 +107,7 @@ namespace Spellcaster.Net
             NetEnemies.EndRun();
             NetGrimoire.EndRun();
             NetLoot.EndRun();
+            NetSave.Forget(); // kept characters belong to that session (a resumed save loads them again)
         }
 
         static void ResetState()

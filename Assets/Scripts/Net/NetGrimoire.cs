@@ -90,7 +90,23 @@ namespace Spellcaster.Net
 
         public static void RemovePlayer(int id) => remotes.Remove(id);
 
-        static void Send(int id, string toast = null)
+        /// <summary>A player joining a run in progress gets a starting deck (their kept deck replaces it).</summary>
+        public static void AddPlayer(int id)
+        {
+            if (!Enabled || remotes.ContainsKey(id)) return;
+            var deck = new Deck();
+            deck.Build(C.StartingDeck);
+            remotes[id] = new Remote { deck = deck };
+        }
+
+        public static void SetDeck(int id, List<string> draw, List<string> hand, List<string> discard)
+        {
+            if (!Enabled) return;
+            if (!remotes.TryGetValue(id, out var r)) remotes[id] = r = new Remote { deck = new Deck() };
+            r.deck.Restore(draw, hand, discard);
+        }
+
+        public static void Send(int id, string toast = null)
         {
             if (!remotes.TryGetValue(id, out var r) || !NetworkServer.connections.TryGetValue(id, out var conn)) return;
             conn.Send(new DeckStateMsg

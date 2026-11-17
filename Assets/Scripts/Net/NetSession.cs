@@ -69,6 +69,7 @@ namespace Spellcaster.Net
         {
             if (Instance) return;
             SteamService.Init();
+            NetSave.Register();
             var go = new GameObject("Network");
             go.SetActive(false); // configure before NetworkManager.Awake runs
             var k = go.AddComponent<KcpTransport>();
@@ -151,6 +152,8 @@ namespace Spellcaster.Net
         /// <summary>Test only: the latest report from each client (host).</summary>
         public readonly Dictionary<int, DebugReportMsg> Reports = new Dictionary<int, DebugReportMsg>();
         bool reportMode, walkTest, combatTest, lootTest;
+        /// <summary>Debug / tests (-netkey NAME): who this copy is, instead of its SteamID (several copies on one account).</summary>
+        string debugKey;
 
         /// <summary>
         /// Test only (-nettestloot): take any item in reach, use a consumable once one arrives, and fuse the
@@ -325,12 +328,26 @@ namespace Spellcaster.Net
             StartAcks = 0;
             if (SteamService.Ready && SteamLobby != CSteamID.Nil) SteamMatchmaking.SetLobbyJoinable(SteamLobby, false);
             BroadcastRoster();
-            int seed = RunRandom.NewSeed();
+            int seed = RunRandom.NewSeed(), floor = 1;
+            bool resume = ContinueSaved && SaveSystem.HasValidSave && ReadSave(out seed, out floor);
+            if (!resume) { seed = RunRandom.NewSeed(); floor = 1; }
             var players = Roster.ToArray();
             var spells = SpellBook.StartingIds.Where(id => SpellBook.CreateBase(id) != null).ToArray(); // everyone starts like a new run
             foreach (var conn in NetworkServer.connections.Values)
-                conn.Send(new StartRunMsg { seed = seed, players = players, yourId = conn.connectionId, spells = spells, grimoire = Settings.GrimoireEnabled });
+                conn.Send(new StartRunMsg { seed = seed, players = players, yourId = conn.connectionId, spells = spells, grimoire = Settings.GrimoireEnabled, floor = floor, resume = resume });
             return true;
+        }
+
+        /// <summary>The saved run's seed and floor (the host resumes it).</summary>
+        static bool ReadSave(out int seed, out int floor)
+        {
+            seed = 0; floor = 1;
+            var f = SaveSystem.Read(SaveSystem.FilePath);
+            if (f == null) return false;
+            seed = f.runSeed;
+            var dj = f.Get("dungeon");
+            if (!string.IsNullOrEmpty(dj)) floor = Mathf.Max(1, JsonUtility.FromJson<DungeonSave>(dj).floor);
+            return seed != 0;
         }
 
         /// <summary>Host: opens the Steam overlay to invite friends to the lobby.</summary>
@@ -356,12 +373,12 @@ namespace Spellcaster.Net
             NetworkServer.ReplaceHandler<DebugReportMsg>((c, m) => { if (AutoTest.Active) Reports[c.connectionId] = m; });
         }
 
-        /// <summary>Why a player can't join, or null. (Also the test hook.)</summary>
-        public static string Validate(HelloMsg hello, int playersNow, int maxPlayers, bool inRun)
+        /// <summary>Why a player can't join, or null. A run in progress only takes players coming back. (Also the test hook.)</summary>
+        public static string Validate(HelloMsg hello, int playersNow, int maxPlayers, bool inRun, bool comingBack = false)
         {
             if (hello.version != NetConfig.Version)
                 return $"Version mismatch: the host runs {NetConfig.Version}, you run {hello.version}. Update the game to join.";
-            if (inRun) return "That game's run is already in progress.";
+            if (inRun && !comingBack) return "That game's run is already in progress.";
             if (playersNow >= maxPlayers) return "That lobby is full.";
             return null;
         }
@@ -369,14 +386,17 @@ namespace Spellcaster.Net
         void OnHello(NetworkConnectionToClient conn, HelloMsg hello)
         {
             if (Roster.Any(r => r.id == conn.connectionId)) return;
-            string reason = Validate(hello, Roster.Count, MaxPlayers, InRun);
+            bool comingBack = InRun && NetSave.HasCharacter(hello.key) && !Players.All.Any(p => p && p.NetKey == hello.key);
+            string reason = Validate(hello, Roster.Count, MaxPlayers, InRun, comingBack);
             if (reason != null) { Reject(conn, reason); return; }
             bool isHost = conn is LocalConnectionToClient;
-            Roster.Add(new RosterEntry
+            var entry = new RosterEntry
             {
-                id = conn.connectionId, steamId = hello.steamId, ready = isHost, host = isHost,
+                id = conn.connectionId, steamId = hello.steamId, ready = isHost || InRun, host = isHost, key = hello.key,
                 name = string.IsNullOrWhiteSpace(hello.name) ? "Player " + conn.connectionId : hello.name.Trim(),
-            });
+            };
+            Roster.Add(entry);
+            if (InRun && NetPlayers.Running) NetSave.JoinInProgress(conn, entry, FreeSlot());
             BroadcastRoster();
             Debug.Log($"[Spellcaster] {hello.name} joined the lobby ({Roster.Count}/{MaxPlayers})");
         }
@@ -393,10 +413,25 @@ namespace Spellcaster.Net
 
         void OnRunStarted(NetworkConnectionToClient conn, RunStartedMsg msg) => StartAcks++;
 
+        /// <summary>The lowest colour slot nobody uses.</summary>
+        int FreeSlot()
+        {
+            for (int i = 0; i < PlayerColors.Count; i++)
+                if (!Players.All.Any(p => p && p.NetId >= 0 && p.ColorIndex == i)) return i;
+            return Roster.Count;
+        }
+
+        /// <summary>Host (lobby): start by resuming the saved run instead of a new one.</summary>
+        public bool ContinueSaved;
+
         public override void OnServerDisconnect(NetworkConnectionToClient conn)
         {
             int removed = Roster.RemoveAll(r => r.id == conn.connectionId);
-            if (NetPlayers.Running) NetPlayers.RemovePlayer(conn.connectionId);
+            if (NetPlayers.Running)
+            {
+                NetSave.Departed(Players.ByNetId(conn.connectionId)); // kept in case they come back
+                NetPlayers.RemovePlayer(conn.connectionId);
+            }
             base.OnServerDisconnect(conn);
             if (removed > 0) BroadcastRoster();
         }
@@ -455,7 +490,8 @@ namespace Spellcaster.Net
             Status = null;
             string name = SteamService.MyName;
             if (string.IsNullOrEmpty(name)) name = (NetworkServer.active ? "Host " : "Player ") + UnityEngine.Random.Range(100, 999);
-            NetworkClient.Send(new HelloMsg { version = NetConfig.Version, steamId = SteamService.MySteamId, name = name });
+            string key = debugKey ?? (SteamService.MySteamId != 0 ? SteamService.MySteamId.ToString() : name);
+            NetworkClient.Send(new HelloMsg { version = NetConfig.Version, steamId = SteamService.MySteamId, name = name, key = key });
         }
 
         void OnRoster(RosterMsg msg)
@@ -466,10 +502,15 @@ namespace Spellcaster.Net
             InRun = msg.inRun;
             MyId = msg.yourId;
             if (autoReady && !MyReady) SetReady(true);
-            // Someone left during the run: their character goes (the host already removed it on its side).
+            // Someone left during the run: their character goes; someone (re)joined: theirs appears.
             if (NetPlayers.Running && !NetworkServer.active)
+            {
                 foreach (var p in Players.All.ToArray())
                     if (p && !p.IsLocal && p.NetId >= 0 && !Roster.Any(r => r.id == p.NetId)) NetPlayers.RemovePlayer(p.NetId);
+                for (int i = 0; i < Roster.Count; i++)
+                    if (Roster[i].id != MyId && !Players.ByNetId(Roster[i].id))
+                        NetPlayers.AddRemote(Roster[i], i, Player.Instance ? Player.Instance.transform.position : Vector3.zero);
+            }
         }
 
         void OnReject(RejectMsg msg)
@@ -666,6 +707,7 @@ namespace Spellcaster.Net
                 else if (a == "-netwalk") walkTest = true;
                 else if (a == "-nettestcombat") { combatTest = true; NetGrimoire.autoTake = true; }
                 else if (a == "-nettestloot") lootTest = true;
+                else if (a == "-netkey" && next != null) debugKey = next;
             }
         }
 

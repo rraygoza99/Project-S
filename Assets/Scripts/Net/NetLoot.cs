@@ -159,7 +159,22 @@ namespace Spellcaster.Net
             }
         }
 
-        static RunNet Describe(Run r)
+        /// <summary>Host: every pickup a player (joining mid-run) can still take.</summary>
+        public static void SendAll(NetworkConnectionToClient conn, Player forPlayer)
+        {
+            foreach (var kv in byId)
+            {
+                var p = kv.Value;
+                if (!p || (forPlayer && !p.For(forPlayer))) continue;
+                conn.Send(new PickupSpawnMsg
+                {
+                    id = p.NetId, item = p.Item.Id, spell = p.Item.Spell != null ? SpellCodec.ToJson(p.Item.Spell) : null,
+                    pos = p.transform.position, height = p.Height, price = p.Price, onlyFor = p.OnlyFor,
+                });
+            }
+        }
+
+        public static RunNet Describe(Run r)
         {
             var n = new RunNet
             {

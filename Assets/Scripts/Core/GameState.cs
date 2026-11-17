@@ -130,6 +130,18 @@ namespace Spellcaster
             Show("Seed " + RunRandom.SeedLabel, 2f);
         }
 
+        /// <summary>Multiplayer: starts on this floor of this seed (joining a run in progress, or the host's resumed save).</summary>
+        public void BeginAtFloor(int seed, int floor)
+        {
+            if (Phase != Phase.Title || seed == 0) return;
+            PracticeMode = false;
+            TutorialMode = false;
+            RunRandom.RunSeed = seed;
+            RunRandom.TypedSeed = null;
+            if (Dungeon.Instance) Dungeon.Instance.BuildFloor(floor);
+            Begin();
+        }
+
         /// <summary>Starts a run that opens with the tutorial.</summary>
         public void StartTutorial()
         {

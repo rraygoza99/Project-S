@@ -85,6 +85,9 @@ namespace Spellcaster.Net
                 case FxPoison: PoisonCloud.Create(m.a, m.f0, m.f1, 0f, m.color); break;
                 case FxLava: LavaPool.CreateTemporary(m.a, m.f0, m.f1); break;
                 case FxBanner: if (GameState.Instance) GameState.Instance.Show(m.s, m.f0); break;
+                case FxPortal:
+                    if (Dungeon.Instance && Dungeon.Instance.RoomById(m.s) is Room pr && !Dungeon.Instance.PortalOpen) Dungeon.Instance.OpenPortal(pr);
+                    break;
                 case FxSound:
                 {
                     string name = m.s ?? "", fallback = null;
@@ -260,7 +263,38 @@ namespace Spellcaster.Net
             if (NetworkServer.connections.TryGetValue(p.NetId, out var conn)) conn.Send(new CooldownResetMsg());
         }
 
-        public const byte FxBanner = 11;
+        public const byte FxBanner = 11, FxPortal = 12;
+
+        public static void PortalOpened(Room room)
+        {
+            if (HostMirroring && room != null) SendFx(new FxMsg { kind = FxPortal, s = room.Id }, true);
+        }
+
+        /// <summary>A player joining a run in progress gets the starting spells (their kept book replaces it).</summary>
+        public static void AddCaster(Player p)
+        {
+            var c = new Caster();
+            foreach (var id in SpellBook.StartingIds) { var s = SpellBook.CreateBase(id); if (s != null) c.book.Add(s); }
+            casters[p.NetId] = c;
+        }
+
+        public static List<string> BookJson(Player p)
+        {
+            var list = new List<string>();
+            var c = CasterOf(p);
+            if (c != null) foreach (var s in c.book) list.Add(SpellCodec.ToJson(s));
+            return list;
+        }
+
+        public static void SetBook(Player p, List<string> jsons)
+        {
+            var c = CasterOf(p);
+            if (c == null) return;
+            c.book.Clear();
+            foreach (var j in jsons) { var s = SpellCodec.FromJson(j); if (s != null) c.book.Add(s); }
+            c.readyAt.Clear();
+            SendBook(p);
+        }
         public static void Banner(string text, float seconds) =>
             SendFx(new FxMsg { kind = FxBanner, s = text, f0 = seconds }, true);
 

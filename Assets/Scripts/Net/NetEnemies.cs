@@ -62,6 +62,17 @@ namespace Spellcaster.Net
             });
         }
 
+        /// <summary>Host: every living enemy, for a player joining mid-run.</summary>
+        public static void SendAll(NetworkConnectionToClient conn)
+        {
+            foreach (var kv in tracked)
+            {
+                var e = kv.Value;
+                if (!e || !e.IsAlive) continue;
+                conn.Send(new EnemySpawnMsg { id = kv.Key, type = e.Type.Name, pos = e.transform.position, hp = e.HP, maxHp = e.MaxHP, boss = e.Type.IsBoss });
+            }
+        }
+
         /// <summary>An enemy object is gone (host): clients remove its proxy.</summary>
         public static void OnDestroyed(Enemy e)
         {

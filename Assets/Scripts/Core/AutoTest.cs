@@ -2254,7 +2254,7 @@ namespace Spellcaster
                 try
                 {
                     wsClient = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
-                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -nettestcombat -nettestloot -logFile \"{Path.Combine(outDir, "net_client2.log")}\"") { UseShellExecute = false });
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -nettestcombat -nettestloot -netkey testclient -logFile \"{Path.Combine(outDir, "net_client2.log")}\"") { UseShellExecute = false });
                 }
                 catch (Exception wsEx) { Debug.LogWarning("[AutoTest] couldn't start a second copy: " + wsEx.Message); }
                 float wsT = 0f;
@@ -2467,11 +2467,77 @@ namespace Spellcaster
                 player.God = true;
                 gs.ForcePlayingForTest();
 
-                // The player leaves: their character goes.
+                // ---- disconnects and saving (Phase 6) ----
+                bool svOk = SaveSystem.Save();
+                var svFile = SaveSystem.Read(SaveSystem.FilePath);
+                string svCoop = svFile != null ? svFile.Get("coop") : null;
+                int svGold = wsOther.Run.Gold, svSpells = Net.NetCombat.BookCount(wsOther), svFloor = d.Floor;
+                Check($"only the host saves, and its save keeps the other player's character by SteamID (coop section: {(svCoop != null && svCoop.Contains("\"testclient\"") ? "testclient" : "missing")}, {svGold} gold, {svSpells} spells)",
+                    svOk && svCoop != null && svCoop.Contains("\"testclient\""));
+
+                // The player leaves: their character goes from the world; the host keeps it.
                 if (Mirror.NetworkServer.connections.TryGetValue(wsClientId, out var wsConn)) wsConn.Disconnect();
                 yield return new WaitForSecondsRealtime(0.5f);
-                Check("a player who leaves mid-run is removed from the world", Players.All.Count == 1 && Players.ByNetId(wsClientId) == null);
+                var svKept = Net.NetSave.Stored("testclient");
+                Check($"a player who leaves mid-run is removed from the world, and the host keeps their character ({(svKept != null ? svKept.run.gold + " gold" : "none")})",
+                    Players.All.Count == 1 && Players.ByNetId(wsClientId) == null && svKept != null && svKept.run.gold == svGold);
                 if (wsClient != null && !wsClient.HasExited) { try { wsClient.Kill(); } catch { } }
+                var svStranger = new Net.HelloMsg { version = Net.NetConfig.Version, name = "x", key = "stranger" };
+                Check("a newcomer can't join a run in progress, but a player coming back can",
+                    Net.NetSession.Validate(svStranger, 1, 4, true) != null && Net.NetSession.Validate(svStranger, 1, 4, true, comingBack: true) == null);
+
+                // They come back to the same run: their character returns.
+                System.Diagnostics.Process svClient2 = null;
+                try
+                {
+                    svClient2 = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netkey testclient -netreport -logFile \"{Path.Combine(outDir, "net_client3.log")}\"") { UseShellExecute = false });
+                }
+                catch (Exception svEx) { Debug.LogWarning("[AutoTest] couldn't start a copy: " + svEx.Message); }
+                float svT = 0f;
+                while (svT < 45f && Players.All.Count < 2) { svT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(3f);
+                var svBack = Players.All.FirstOrDefault(p => p && !p.IsLocal);
+                Net.DebugReportMsg svRep = default;
+                if (svBack) ws.Reports.TryGetValue(svBack.NetId, out svRep);
+                Check($"the player comes back to the run in progress with their character (gold {(svBack ? svBack.Run.Gold : -1)}/{svGold}, spells {(svBack ? Net.NetCombat.BookCount(svBack) : -1)}/{svSpells}; their screen: {svRep.gold} gold, {svRep.spells} spells, floor {svRep.floor}, {svRep.players} players)",
+                    svBack && svBack.Run.Gold == svGold && Net.NetCombat.BookCount(svBack) == svSpells && svBack.Run.Has("ruby_heart")
+                    && svRep.gold == svGold && svRep.spells == svSpells && svRep.floor == d.Floor && svRep.players == 2);
+                if (svClient2 != null && !svClient2.HasExited) { try { svClient2.Kill(); } catch { } }
+                ws.Leave();
+                yield return new WaitForSecondsRealtime(0.3f);
+
+                // The host resumes the saved run in a new session: the returning player gets their saved character.
+                bool svResumed = false;
+                Net.NetSession.StartRunHandler = m =>
+                {
+                    svResumed = m.resume;
+                    Net.NetPlayers.SetupRun(m);
+                    SaveSystem.LoadRun();
+                    Net.NetSave.AfterResume();
+                };
+                ws.HostDirect(Net.NetConfig.DebugPort, 4);
+                ws.ContinueSaved = true;
+                System.Diagnostics.Process svClient3 = null;
+                try
+                {
+                    svClient3 = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netkey testclient -netreport -logFile \"{Path.Combine(outDir, "net_client4.log")}\"") { UseShellExecute = false });
+                }
+                catch (Exception svEx2) { Debug.LogWarning("[AutoTest] couldn't start a copy: " + svEx2.Message); }
+                svT = 0f;
+                while (svT < 45f && !(ws.Roster.Count == 2 && ws.AllReady)) { svT += Time.unscaledDeltaTime; yield return null; }
+                bool svStarted = ws.StartRun();
+                svT = 0f;
+                while (svT < 10f && ws.StartAcks < 2) { svT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(3f);
+                var svRes = Players.All.FirstOrDefault(p => p && !p.IsLocal);
+                svRep = default;
+                if (svRes) ws.Reports.TryGetValue(svRes.NetId, out svRep);
+                Check($"resuming the saved co-op run: the returning player gets their saved character back (gold {(svRes ? svRes.Run.Gold : -1)}/{svGold}; their screen: {svRep.gold} gold, {svRep.spells} spells, floor {svRep.floor}/{svFloor})",
+                    svStarted && svResumed && svRes && svRes.Run.Gold == svGold && svRep.gold == svGold && svRep.spells == svSpells && svRep.floor == svFloor);
+                if (svClient3 != null && !svClient3.HasExited) { try { svClient3.Kill(); } catch { } }
+                ws.ContinueSaved = false;
                 ws.Leave();
                 Settings.SetGrimoireEnabled(gbSetting);
                 Net.NetSession.StartRunHandler = null;

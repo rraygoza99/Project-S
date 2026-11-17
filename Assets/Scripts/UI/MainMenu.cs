@@ -140,6 +140,9 @@ namespace Spellcaster
                 list.Add(new Item { Label = "Ready", Value = () => ns.MyReady ? "Yes" : "No", Change = d => ns.SetReady(!ns.MyReady), Activate = () => ns.SetReady(!ns.MyReady) });
             if (ns.IsHost && ns.Using == NetSession.Kind.Steam)
                 list.Add(new Item { Label = "Invite friends (Steam overlay)", Activate = ns.OpenInviteOverlay });
+            if (ns.IsHost && SaveSystem.HasValidSave)
+                list.Add(new Item { Label = "Run", Value = () => ns.ContinueSaved ? "Continue saved (" + SaveSystem.Describe() + ")" : "New run",
+                    Change = d => ns.ContinueSaved = !ns.ContinueSaved, Activate = () => ns.ContinueSaved = !ns.ContinueSaved });
             if (ns.IsHost)
             {
                 int waiting = ns.Roster.Count(r => !r.ready && !r.host);
@@ -156,7 +159,14 @@ namespace Spellcaster
             if (!GameState.Instance || GameState.Instance.Phase != Phase.Title) return;
             LeaveMenu();
             NetPlayers.SetupRun(msg);
-            GameState.Instance.BeginSeeded(msg.seed, null);
+            if (msg.resume && NetSession.Instance.IsHost)
+            {
+                // The host resumes its save; the others get their kept characters and the world.
+                if (GameState.Instance.Continue()) NetSave.AfterResume();
+                return;
+            }
+            if (msg.floor > 1 || msg.join) GameState.Instance.BeginAtFloor(msg.seed, Mathf.Max(1, msg.floor));
+            else GameState.Instance.BeginSeeded(msg.seed, null);
             // Enemies and fights are the host's (replicated in Phase 3): a client's own world stays empty of them.
             if (NetSession.IsClientOnly && Dungeon.Instance) Dungeon.Instance.HoldEncounters = true;
         }

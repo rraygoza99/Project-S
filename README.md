@@ -108,6 +108,13 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
   (35% HP); otherwise you bleed out after 30 seconds and spectate a teammate (click to switch) until the
   room is cleared, then come back next to them (35% HP). The run ends only when everyone is down at once.
   Tunables: `Net/NetDowned.cs`. Single-player death is unchanged.
+- **Leaving and coming back:** a player who disconnects mid-run is removed from the world; the host keeps
+  their character (by SteamID), and if they rejoin the same run they get it back next to a teammate, with
+  the world as it is. Newcomers can't join a run in progress. If the host leaves, the session ends for
+  everyone ("The host left the game").
+- **Saving:** only the host saves (at each cleared room). The save keeps every player's character by
+  SteamID (HP, gold, items, consumables, spells, Grimoire deck). In the lobby the host can pick
+  **Run: Continue saved**; returning players get their character back, new players start fresh.
 - **More players, harder fights:** enemy HP and wave size scale with the player count (bosses: HP only).
   The table is `Scaling` in `Net/NetConfig.cs` (2 players: HP x1.4, enemies x1.35 ... 6: x2.7, x2.6).
 - In a multiplayer session the pause menu doesn't stop the game, and only the host saves.

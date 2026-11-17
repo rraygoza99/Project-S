@@ -55,6 +55,14 @@ namespace Spellcaster
             }
         }
 
+        /// <summary>A player came back with a new connection id: what they took stays taken.</summary>
+        public static void RemapTaken(int oldId, int newId)
+        {
+            if (oldId == newId) return;
+            foreach (var p in All)
+                if (p && p.takenBy.Remove(oldId)) p.takenBy.Add(newId);
+        }
+
         public void MarkTaken(Player p)
         {
             takenBy.Add(p.NetId);

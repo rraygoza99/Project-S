@@ -9,6 +9,8 @@ namespace Spellcaster.Net
         public string version;
         public ulong steamId;
         public string name;
+        /// <summary>Who this player is across sessions (SteamID; a name in the debug direct mode).</summary>
+        public string key;
     }
 
     /// <summary>Host to client: you can't join (or you were removed). The connection closes right after.</summary>
@@ -23,6 +25,7 @@ namespace Spellcaster.Net
         public int id;          // the host's connection id for this player
         public ulong steamId;   // 0 in the debug direct-IP mode
         public string name;
+        public string key;      // SteamID (debug: a name) - characters are kept by this
         public bool ready;
         public bool host;
     }
@@ -54,6 +57,10 @@ namespace Spellcaster.Net
         public string[] spells;
         /// <summary>The Grimoire is on for this run (the host's setting).</summary>
         public bool grimoire;
+        /// <summary>The floor to start on (a resumed save, or joining a run in progress).</summary>
+        public int floor;
+        /// <summary>Joining a run in progress / the host is resuming its save.</summary>
+        public bool join, resume;
     }
 
     // ---------------- combat (Phase 3) ----------------

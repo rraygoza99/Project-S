@@ -536,8 +536,17 @@ namespace Spellcaster
         static readonly Color BossPedestalGlow = new Color(1f, 0.8f, 0.3f);
 
         /// <summary>The portal out of a cleared boss room (also rebuilt when a save is loaded).</summary>
+        /// <summary>The room whose portal is open (the boss room), or null.</summary>
+        public Room PortalRoom { get; private set; }
+
+        /// <summary>Breakable props destroyed so far on this floor (kind and position).</summary>
+        public List<(PropKind kind, Vector3 pos)> DestroyedProps() =>
+            BuiltProps.Where(b => !b.prop || !Prop.All.Contains(b.prop)).Select(b => (b.kind, b.pos)).ToList();
+
         public void OpenPortal(Room room)
         {
+            PortalRoom = room;
+            Net.NetCombat.PortalOpened(room);
             PortalPosition = FindFreeSpot(room, room.Center + new Vector3(0, 0, 3f), 1.5f);
             PortalOpen = true;
             var portal = Fx.CreateQuad(room.Root, new Color(0.6f, 0.3f, 1f, 0.9f), 3.2f);

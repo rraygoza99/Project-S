@@ -289,6 +289,8 @@ namespace Spellcaster
         /// <summary>The lobby id of this player (-1 offline).</summary>
         public int NetId = -1;
         public string DisplayName = "";
+        /// <summary>Who this player is across sessions (SteamID; a name in the debug direct mode).</summary>
+        public string NetKey;
         public int ColorIndex;
         /// <summary>This player's colour: their sprite's robe and their spell glow.</summary>
         public Color Color => PlayerColors.Get(ColorIndex);
