@@ -103,16 +103,113 @@ namespace Spellcaster
             if (canAct)
             {
                 bool held = Bindings.Held(GameAction.Channel);
-                ProcessChannelInput(held, new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y")), dt);
+                // A style change applies from the next cast: a cast in progress keeps its style.
+                var style = Channeling ? ActiveStyle : Settings.CastingStyle;
+                if (style == CastingStyle.Momentum)
+                {
+                    if (HUD.MapOpen) Block(); // the map stops casting mode like a panel does
+                    else
+                    {
+                        for (int i = 0; i < 4; i++)
+                        {
+                            arrowPressed[i] = Bindings.Pressed(ArrowActions[i]);
+                            arrowHeld[i] = Bindings.Held(ArrowActions[i]);
+                        }
+                        ProcessMomentumInput(held, arrowPressed, arrowHeld, dt);
+                    }
+                }
+                else ProcessChannelInput(held, new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y")), dt);
 
                 if (CastLock > 0f) { }
                 else if (Readied != null && Bindings.Pressed(GameAction.Cast)) CastReadied();
                 else if (Readied == null && Bindings.Held(GameAction.Cast) && boltCooldown <= 0f) FireBasic();
             }
-            else if (!AutoTest.Active) SetChanneling(false);
+            else if (!AutoTest.Active) Block();
 
             UpdateHands();
         }
+
+        // ---------------- Momentum casting style ----------------
+
+        /// <summary>The style of the cast in progress (set when casting mode starts).</summary>
+        public CastingStyle ActiveStyle { get; private set; }
+        /// <summary>In Momentum casting mode right now (running the way you were moving, W A S D type the rune).</summary>
+        public bool InMomentum => Channeling && ActiveStyle == CastingStyle.Momentum;
+        /// <summary>Momentum was cancelled (panel, pause, map, focus): it waits for the cast key to be pressed again.</summary>
+        public bool WaitingForFreshPress { get; private set; }
+        /// <summary>This Momentum cast started from standing still: you stay put and only type the rune.</summary>
+        public bool CastFromRest { get; private set; }
+
+        /// <summary>W A S D (the movement bindings) type up, left, down, right in Momentum casting mode.</summary>
+        static readonly GameAction[] ArrowActions = { GameAction.MoveForward, GameAction.MoveLeft, GameAction.MoveBack, GameAction.MoveRight };
+        static readonly Arrow[] ArrowDirs = { Arrow.Up, Arrow.Left, Arrow.Down, Arrow.Right };
+        readonly bool[] arrowPressed = new bool[4], arrowHeld = new bool[4], arrowIgnored = new bool[4];
+
+        /// <summary>
+        /// One frame of Momentum input (also the test hook): the cast key, and for up / left / down / right
+        /// whether the key went down this frame and whether it is held. Keys already held when casting mode
+        /// starts don't count until they are released and pressed again; a held key is one input.
+        /// </summary>
+        public void ProcessMomentumInput(bool held, bool[] pressed, bool[] keysHeld, float dt)
+        {
+            if (WaitingForFreshPress)
+            {
+                if (held) return; // still the press from before the cancel
+                WaitingForFreshPress = false;
+            }
+            if (held)
+            {
+                if (!Channeling)
+                {
+                    // Standing still (slow, no movement key held) when the key goes down: this cast doesn't run.
+                    // The run keeps the direction you were going: the movement keys held, or else how you
+                    // were moving (sliding on ice, the last keys just let go).
+                    var pl = Player.Instance;
+                    var dir = new Vector3((keysHeld[3] ? 1f : 0f) - (keysHeld[1] ? 1f : 0f), 0f,
+                                          (keysHeld[0] ? 1f : 0f) - (keysHeld[2] ? 1f : 0f));
+                    if (dir.sqrMagnitude < 0.01f && pl && pl.PlanarSpeed >= MomentumConfig.StillSpeed) dir = pl.LocalMoveDir;
+                    CastFromRest = dir.sqrMagnitude < 0.01f;
+                    if (pl) pl.AutoDir = CastFromRest ? Vector3.forward : dir.normalized;
+                    ActiveStyle = CastingStyle.Momentum;
+                    SetChanneling(true);
+                    for (int i = 0; i < 4; i++) arrowIgnored[i] = keysHeld[i];
+                }
+                releaseTimer = 0f;
+                if (Player.Instance)
+                {
+                    Player.Instance.AutoForward = !CastFromRest;
+                    Player.Instance.HoldStill = CastFromRest;
+                }
+                for (int i = 0; i < 4; i++)
+                {
+                    if (!keysHeld[i] && !pressed[i]) { arrowIgnored[i] = false; continue; }
+                    if (pressed[i] && !arrowIgnored[i]) PushArrow(ArrowDirs[i]);
+                }
+                return;
+            }
+            if (!Channeling) return;
+            if (Player.Instance) Player.Instance.AutoForward = false; // running stops at once; the rune survives a short slip
+            releaseTimer += dt;
+            if (releaseTimer >= ReleaseGrace) SetChanneling(false);
+        }
+
+        /// <summary>
+        /// Gameplay input is blocked (pause, a panel, the map, focus lost). Classic just ends casting as before;
+        /// Momentum also stops you at once and waits for a fresh press of the cast key.
+        /// </summary>
+        public void Block()
+        {
+            bool momentum = Channeling ? ActiveStyle == CastingStyle.Momentum : Settings.CastingStyle == CastingStyle.Momentum;
+            if (momentum)
+            {
+                if (InMomentum && Player.Instance) Player.Instance.StopNow();
+                if (InMomentum || Bindings.Held(GameAction.Channel)) WaitingForFreshPress = true;
+            }
+            SetChanneling(false);
+        }
+
+        /// <summary>Test hook: as if the cast key were released before the next press.</summary>
+        public void ClearFreshPressForTest() => WaitingForFreshPress = false;
 
         void UpdateHands()
         {
@@ -132,7 +229,15 @@ namespace Spellcaster
         {
             if (on == Channeling) return;
             Channeling = on;
-            if (Player.Instance) Player.Instance.Channeling = on;
+            if (Player.Instance)
+            {
+                // Classic: the view stops and you slow down. Momentum: free look, keep running.
+                bool momentum = ActiveStyle == CastingStyle.Momentum;
+                Player.Instance.Channeling = on && !momentum;
+                Player.Instance.AutoForward = on && momentum && !CastFromRest;
+                Player.Instance.HoldStill = on && momentum && CastFromRest;
+            }
+            if (!on) { ActiveStyle = CastingStyle.Classic; CastFromRest = false; }
             if (on) Sfx.Play("channel", 0.4f);
             Entered.Clear(); // a partial sequence is lost when you let go; a readied spell is kept
             Gesture.Reset();
@@ -156,6 +261,7 @@ namespace Spellcaster
             {
                 if (!Channeling)
                 {
+                    ActiveStyle = CastingStyle.Classic;
                     SetChanneling(true);
                     settleTimer = StartSettle;
                 }

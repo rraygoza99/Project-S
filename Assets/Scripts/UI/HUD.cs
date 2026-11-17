@@ -20,6 +20,16 @@ namespace Spellcaster
         /// <summary>Map open in toggle mode (Options > Map key: Toggle).</summary>
         public static bool MapToggled;
 
+        /// <summary>The full map is on screen (held or toggled).</summary>
+        public static bool MapOpen
+        {
+            get
+            {
+                var gs = GameState.Instance;
+                return gs && gs.InRun && !gs.Paused && !gs.ForgeOpen && (Settings.MapToggle ? MapToggled : Bindings.Held(GameAction.Map));
+            }
+        }
+
         /// <summary>Hooks for optional systems (Grimoire): (W, H, u). Gameplay overlay, full-screen panels, pause screen.</summary>
         public static event System.Action<float, float, float> DrawOverlay, DrawPanels, DrawPauseExtra;
 
@@ -63,7 +73,13 @@ namespace Spellcaster
                 MainMenu.Instance.DrawGUI(Screen.width, Screen.height);
                 return;
             }
-            if (Event.current.type != EventType.Repaint) return;
+            // The pause menu needs mouse and keyboard events too (drawn on the repaint below, over the game).
+            bool pauseMenu = gs0 && MainMenu.Instance && MainMenu.Instance.PauseUp && gs0.Phase == Phase.Playing;
+            if (Event.current.type != EventType.Repaint)
+            {
+                if (pauseMenu) { EnsureStyles(); MainMenu.Instance.DrawGUI(Screen.width, Screen.height); }
+                return;
+            }
             EnsureStyles();
             float W = Screen.width, H = Screen.height;
             float px = H / RetroView.Height;
@@ -105,11 +121,13 @@ namespace Spellcaster
             }
             DrawOverlay?.Invoke(W, H, u);
 
-            if (player && gs.InRun) DrawInteractPrompt(W, H, u, player);
+            if (player && gs.InRun && !pauseMenu) DrawInteractPrompt(W, H, u, player);
             if (run && run.ToastTimer > 0f && !gs.Paused) DrawToast(W, H, u, run);
 
-            Shadowed(new Rect(0, H - pad - 1.6f * u, W, 2 * u),
-                $"Hold {Bindings.Short(GameAction.Channel)} + draw: rune   {Bindings.Short(GameAction.Cast)}: cast   " +
+            if (!pauseMenu) Shadowed(new Rect(0, H - pad - 1.6f * u, W, 2 * u),
+                (Settings.CastingStyle == CastingStyle.Momentum
+                    ? $"Hold {Bindings.Short(GameAction.Channel)}: run + {MomentumKeysHint()}   "
+                    : $"Hold {Bindings.Short(GameAction.Channel)} + draw: rune   ") + $"{Bindings.Short(GameAction.Cast)}: cast   " +
                 $"{Bindings.Short(GameAction.Item1)}-{Bindings.Short(GameAction.Item3)}: items   {Bindings.Short(GameAction.Interact)}: take   " +
                 $"{Bindings.Short(GameAction.Map)}: map   {Bindings.Short(GameAction.Forge)}: Forge", Small.Center());
 
@@ -129,15 +147,16 @@ namespace Spellcaster
 
             if (gs.Phase == Phase.Dead) DrawEnd(W, H, u, gs, false);
             else if (gs.Phase == Phase.Victory) DrawEnd(W, H, u, gs, true);
-            else if (gs.Paused)
+            else if (pauseMenu)
             {
-                Fill(new Rect(0, 0, W, H), new Color(0, 0, 0, 0.6f));
-                string quit = GameState.PracticeMode || GameState.TutorialMode ? "Q: main menu"
-                    : SaveSystem.HasValidSave ? "Q: save & quit to menu (you'll continue from the last cleared room)"
-                    : "Q: quit to menu (nothing saved yet: clear a room first)";
-                Shadowed(new Rect(0, H * 0.08f, W, 6 * u), (gs.FocusPaused ? "Paused (window lost focus)" : "Paused") + " - click to resume\n" + quit, Centered);
-                if (run) DrawItemList(W * 0.3f, H * 0.24f, W * 0.4f, u, run, true);
-                DrawPauseExtra?.Invoke(W, H, u);
+                // Resume / Options / Save & quit on the left; on the first page the seed, items and deck stay visible.
+                MainMenu.Instance.DrawGUI(W, H);
+                if (MainMenu.Instance.Current == MainMenu.Page.Pause)
+                {
+                    if (!GameState.PracticeMode && !GameState.TutorialMode) DrawSeedLine(W, H * 0.14f, u);
+                    if (run) DrawItemList(W * 0.3f, H * 0.24f, W * 0.4f, u, run, true);
+                    DrawPauseExtra?.Invoke(W, H, u);
+                }
             }
         }
 
@@ -165,6 +184,16 @@ namespace Spellcaster
                     "New unlocks: " + string.Join(", ", Progress.NewThisRun.Select(a => a.RewardName)), ns);
             }
             Shadowed(new Rect(0, H * 0.64f, W, 4 * u), "R: new run      Esc: main menu", Centered);
+            DrawSeedLine(W, H * 0.71f, u);
+        }
+
+        /// <summary>"Seed 12345   C: copy" (and "Copied" for a moment after copying).</summary>
+        static void DrawSeedLine(float W, float y, float u)
+        {
+            bool copied = Time.unscaledTime - RunRandom.CopiedAt < 1.5f;
+            var st = new GUIStyle(Label) { alignment = TextAnchor.MiddleCenter };
+            st.normal.textColor = copied ? new Color(0.6f, 1f, 0.6f) : new Color(0.85f, 0.8f, 1f);
+            Shadowed(new Rect(0, y, W, 2.4f * u), $"Seed {RunRandom.SeedLabel}   " + (copied ? "copied!" : "C: copy"), st);
         }
 
         static void DrawCrosshair(float W, float H, float px)
@@ -518,6 +547,11 @@ namespace Spellcaster
             }
         }
 
+        /// <summary>"W A S D: rune arrows" with the player's own movement keys.</summary>
+        public static string MomentumKeysHint() =>
+            $"{Bindings.KeyName(Bindings.Get(GameAction.MoveForward, 0))} {Bindings.KeyName(Bindings.Get(GameAction.MoveLeft, 0))} " +
+            $"{Bindings.KeyName(Bindings.Get(GameAction.MoveBack, 0))} {Bindings.KeyName(Bindings.Get(GameAction.MoveRight, 0))}: rune arrows";
+
         // ---------------- helpers ----------------
 
         public static void Fill(Rect r, Color color)
@@ -569,6 +603,13 @@ namespace Spellcaster
             if (ss.Entered.Count > 0)
                 foreach (var s in ss.Book)
                     if (ss.IsCandidate(s)) { col = Color.Lerp(s.Color, Color.white, 0.25f); break; }
+            if (ss.InMomentum)
+            {
+                // Momentum: no mouse trail; the arrows typed so far are drawn as the rune's shape.
+                if (ss.Entered.Count > 0) DrawGlyph(ss.Entered, new Rect(center.x - size * 0.3f, center.y - size * 0.3f, size * 0.6f, size * 0.6f), col, 1f, ss.Entered.Count, Mathf.Max(2f, 0.45f * u));
+                else Shadowed(new Rect(0, box.yMax - 2f * u, W, 2f * u), ss.Lockout > 0f ? "..." : MomentumKeysHint(), Small.Center());
+                return;
+            }
             var trail = ss.Gesture.Trail;
             if (trail.Count > 1) DrawPolyline(trail, box, 1.1f * u, Mathf.Max(2f, 0.45f * u), col, true);
             else Shadowed(new Rect(0, box.yMax - 2f * u, W, 2f * u), ss.Lockout > 0f ? "..." : "draw a rune", Small.Center());

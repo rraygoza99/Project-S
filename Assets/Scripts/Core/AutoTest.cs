@@ -650,10 +650,28 @@ namespace Spellcaster
                 // #3 Losing window focus pauses the run; a dropped render texture is rebuilt.
                 gs.SetFocus(false);
                 yield return null;
-                bool fxPaused = gs.Paused && gs.FocusPaused && Time.timeScale == 0f;
-                gs.ClearFocusPause();
                 yield return null;
-                Check("losing window focus pauses the game; clicking back resumes it", fxPaused && !gs.Paused && Time.timeScale == 1f);
+                var pmMenu = MainMenu.Instance;
+                bool fxPaused = gs.Paused && gs.FocusPaused && Time.timeScale == 0f;
+                var pmLabels = string.Join(", ", pmMenu.LabelsForTest());
+                bool pmFirst = pmMenu.PauseUp && pmMenu.Current == MainMenu.Page.Pause && pmLabels == "Resume, Options, Save & quit";
+                Check($"pausing opens the pause menu ({pmLabels})", pmFirst);
+                yield return Shot("05i_pause_menu");
+                pmMenu.ChooseForTest("Options");
+                bool pmOptions = pmMenu.Current == MainMenu.Page.Options && pmMenu.LabelsForTest().Contains("Casting style");
+                yield return Shot("05j_pause_options");
+                pmMenu.ChooseForTest("Back");
+                Check("pause menu: Options opens the settings, Back returns to the pause menu",
+                    pmOptions && pmMenu.Current == MainMenu.Page.Pause && gs.Paused);
+                float pmBefore = SaveSystem.LastSaveTime;
+                yield return null;
+                bool pmSaved = MainMenu.SaveForQuit();
+                var pmD = Dungeon.Instance;
+                Check($"pause menu: Save & quit saves the run (checkpoint {pmD.CheckpointRoomId}, in a fight: {pmD.InCombat})",
+                    pmSaved && SaveSystem.HasValidSave && SaveSystem.LastSaveTime > pmBefore && (pmD.InCombat || pmD.CheckpointRoomId == pmD.Current.Id));
+                pmMenu.ChooseForTest("Resume");
+                yield return null;
+                Check("losing window focus pauses the game; Resume goes back to it", fxPaused && !gs.Paused && Time.timeScale == 1f && pmMenu.Current == MainMenu.Page.Main);
                 RetroView.DropForTest();
                 bool fxDropped = !RetroView.Ready;
                 yield return null;
@@ -1098,6 +1116,144 @@ namespace Spellcaster
                 yield return new WaitForSeconds(0.8f);
                 gs.ClearEnemies();
                 ClearPickups();
+            }
+
+            // ---- casting style: Momentum ----
+            {
+                Check("Classic is the default casting style", Settings.CastingStyle == CastingStyle.Classic);
+                Settings.SetCastingStyle(CastingStyle.Momentum);
+                var mmRoom = d.Current;
+                Vector3 mmHome = player.transform.position;
+                float mmHomeYaw = player.transform.eulerAngles.y;
+                player.Teleport(mmRoom.Center + new Vector3(0f, 0.1f, -6f), 0f);
+                player.SetLook(0f, 0f);
+                gs.ClearEnemies();
+                ss.ResetCooldowns();
+                ss.ClearReadied();
+                ss.ClearFreshPressForTest();
+                yield return null;
+                // order: up (W), left (A), down (S), right (D)
+                var mmDown = new bool[4];
+                var mmHeld = new bool[4];
+                void MmFrame(bool castKey, int pressKey = -1, int holdKey = -1)
+                {
+                    for (int i = 0; i < 4; i++) { mmDown[i] = i == pressKey; mmHeld[i] = i == pressKey || i == holdKey; }
+                    ss.ProcessMomentumInput(castKey, mmDown, mmHeld, Time.deltaTime);
+                }
+
+                // W already held when entering casting mode: not an input.
+                MmFrame(true, pressKey: 0);
+                bool mmIgnoredHeld = ss.InMomentum && ss.Entered.Count == 0 && player.AutoForward && !player.Channeling;
+                MmFrame(true, holdKey: 0);
+                MmFrame(true);                 // W released
+                MmFrame(true, pressKey: 2);    // S: down
+                MmFrame(true, holdKey: 2);     // S held: still one input
+                MmFrame(true, holdKey: 2);
+                int mmAfterHold = ss.Entered.Count;
+                MmFrame(true);
+                Check($"Momentum: a key held when casting starts doesn't count, and a held key is one input ({mmAfterHold} arrow)",
+                    mmIgnoredHeld && mmAfterHold == 1);
+                MmFrame(true, pressKey: 3);    // D: right
+                MmFrame(true);
+                MmFrame(true, pressKey: 0);    // W: up -> Fireball
+                MmFrame(true);
+                Check($"Momentum: S D W types Fireball (readied {ss.Readied?.Name})", ss.Readied != null && ss.Readied.Name == "Fireball");
+
+                // Running forward where the camera looks; the mouse steers.
+                Vector3 mmP0 = player.transform.position;
+                yield return new WaitForSeconds(0.5f);
+                Vector3 mmRun = player.transform.position - mmP0;
+                mmRun.y = 0f;
+                float mmSpeed = player.PlanarSpeed;
+                float mmWant = (run ? run.MoveSpeed : player.MoveSpeed) * MomentumConfig.SpeedMultiplier;
+                Check($"Momentum: you run forward ({mmRun.magnitude:0.0} m in 0.5 s, speed {mmSpeed:0.0} of {mmWant:0.0}), with free mouse look and the cue on (FOV +{player.Cam.fieldOfView - Settings.FieldOfView:0.0})",
+                    mmRun.z > 1.5f && Mathf.Abs(mmRun.x) < 0.3f && Mathf.Abs(mmSpeed - mmWant) < 0.3f && !player.Channeling && player.Cue > 0.5f
+                    && player.Cam.fieldOfView > Settings.FieldOfView + 1f);
+                player.SetLook(90f, 0f);
+                yield return new WaitForSeconds(0.35f);
+                Vector3 mmVel = player.PlanarVelocity.normalized;
+                Check($"Momentum: turning the camera steers the run (heading {mmVel.x:0.00}, {mmVel.z:0.00})", mmVel.x > 0.9f);
+                Settings.SetCastingStyle(CastingStyle.Classic);
+                bool mmKeptStyle = ss.InMomentum;
+                Settings.SetCastingStyle(CastingStyle.Momentum);
+                bool mmFired = ss.CastReadied();
+                Check("Momentum: Left Click fires while running; a style change waits for the next cast", mmFired && ss.InMomentum && player.AutoForward && mmKeptStyle);
+
+                // A wall stops you without going through it.
+                yield return new WaitForSeconds(2.5f);
+                Check($"Momentum: running into a wall slides along it, never through ({player.transform.position.x - mmRoom.Center.x:0.0} m from the centre)",
+                    mmRoom.Contains(player.transform.position, 0f));
+
+                // Letting go: running stops with a short slow-down; the rune survives a short slip.
+                player.SetLook(180f, 0f);
+                yield return new WaitForSeconds(0.4f);
+                MmFrame(false);
+                bool mmStopsRunning = !player.AutoForward && ss.InMomentum;
+                ss.ProcessMomentumInput(false, mmDown, mmHeld, SpellSystem.ReleaseGrace + 0.01f);
+                float mmSpeedAtRelease = player.PlanarSpeed;
+                yield return new WaitForSeconds(MomentumConfig.RampOut + 0.15f);
+                Check($"Momentum: letting go stops the run smoothly ({mmSpeedAtRelease:0.0} -> {player.PlanarSpeed:0.00} m/s) and ends casting mode; the cue fades",
+                    mmStopsRunning && !ss.Channeling && player.PlanarSpeed < 0.1f && mmSpeedAtRelease > 1f && player.Cue < 0.5f);
+
+                // A panel / pause / map / focus loss stops you on the spot, until the key is pressed again.
+                MmFrame(true, holdKey: 0);     // moving (W held), so this cast runs
+                yield return new WaitForSeconds(0.3f);
+                ss.Block();
+                bool mmStopped = !ss.Channeling && !player.AutoForward && player.PlanarSpeed == 0f && ss.WaitingForFreshPress;
+                MmFrame(true);
+                yield return null;
+                bool mmStaysOff = !ss.Channeling && !player.AutoForward;
+                MmFrame(false);
+                MmFrame(true, holdKey: 0);
+                bool mmResumes = ss.InMomentum && player.AutoForward;
+                Check("Momentum: a panel, pause or focus loss stops you at once, and only a fresh press resumes casting mode",
+                    mmStopped && mmStaysOff && mmResumes);
+                MmFrame(false);
+                ss.ProcessMomentumInput(false, mmDown, mmHeld, 1f);
+                yield return new WaitForSeconds(0.3f);
+
+                // The run keeps the direction you were going: D held when the cast starts runs right.
+                ss.ProcessMomentumInput(false, mmDown, mmHeld, 1f);
+                player.SetLook(0f, 0f);
+                yield return new WaitForSeconds(0.3f);
+                MmFrame(true, holdKey: 3);
+                for (int mmF = 0; mmF < 30; mmF++) { MmFrame(true, holdKey: 3); yield return null; }
+                yield return new WaitForSeconds(0.2f);
+                Vector3 mmSide = player.PlanarVelocity.normalized;
+                int mmSideTyped = ss.Entered.Count;
+                Check($"Momentum: the run keeps the direction you were moving (D held -> heading {mmSide.x:0.00}, {mmSide.z:0.00}); the held key doesn't type ({mmSideTyped})",
+                    mmSide.x > 0.9f && player.AutoForward && mmSideTyped == 0);
+                MmFrame(false);
+                ss.ProcessMomentumInput(false, mmDown, mmHeld, 1f);
+                yield return new WaitForSeconds(0.4f);
+
+                // Standing still when the key goes down: you stay put and W A S D only type the rune.
+                Vector3 mmStill0 = player.transform.position;
+                MmFrame(true);
+                bool mmRestStart = ss.InMomentum && ss.CastFromRest && !player.AutoForward && player.HoldStill;
+                MmFrame(true, pressKey: 0);    // W: up, typed, not walked
+                for (int mmF = 0; mmF < 20; mmF++) { MmFrame(true, holdKey: 0); yield return null; }
+                yield return new WaitForSeconds(0.3f);
+                Vector3 mmStillMove = player.transform.position - mmStill0;
+                mmStillMove.y = 0f;
+                int mmStillTyped = ss.Entered.Count;
+                Check($"Momentum: casting from standing still doesn't move you ({mmStillMove.magnitude:0.00} m), W A S D still type ({mmStillTyped} arrow), no cue",
+                    mmRestStart && mmStillMove.magnitude < 0.1f && player.PlanarSpeed < 0.05f && mmStillTyped == 1 && player.Cue == 0f);
+                MmFrame(false);
+                ss.ProcessMomentumInput(false, mmDown, mmHeld, 1f);
+                yield return null;
+                Check("Momentum: letting go of a still cast frees you to walk again",
+                    !ss.Channeling && !player.HoldStill && !player.AutoForward);
+                yield return new WaitForSeconds(0.2f);
+                player.SetLook(0f, 0f);
+                yield return Shot("05h_momentum_cue");
+                Settings.SetCastingStyle(CastingStyle.Classic);
+                ss.SetChanneling(false);
+                ss.ClearReadied();
+                ss.ResetCooldowns();
+                player.Teleport(mmHome, mmHomeYaw);
+                yield return new WaitForSeconds(0.3f);
+                Check("back to Classic: casting mode stops the view again and doesn't run", Settings.CastingStyle == CastingStyle.Classic && !player.AutoForward && player.Cue == 0f);
             }
 
             // ---- stats and passive items ----
@@ -1901,6 +2057,39 @@ namespace Spellcaster
             Check($"practice: a fizzle is reported with the strokes read ({practice.Feedback})", practice.Attempts == 2 && practice.Feedback.StartsWith("Fizzle"));
             yield return Shot("23b_practice_fizzle");
             ss.SetChanneling(false);
+
+            // ---- seeded runs ----
+            {
+                MainMenu.Instance.SetSeedText("ab c-1!?");
+                Check($"seeds: numbers are used as they are, words become a number, case and spaces don't matter (\"{MainMenu.Instance.SeedText}\")",
+                    RunRandom.ParseSeed("12345") == 12345 && RunRandom.ParseSeed(" moon ") == RunRandom.ParseSeed("MOON")
+                    && RunRandom.ParseSeed("moon") > 0 && RunRandom.ParseSeed("   ") == 0 && MainMenu.Instance.SeedText == "ab c-1");
+                string SdSig()
+                {
+                    var combatRoom = d.AllRooms.First(r => r.Type == RoomType.Combat);
+                    return string.Join(",", d.AllRooms.Select(r => r.Id + ":" + r.Type + ":" + r.Size.x + "x" + r.Size.y))
+                        + " | " + string.Join(",", Pickup.All.Where(p => p && p.Price > 0).Select(p => p.Item.Id).OrderBy(x => x))
+                        + " | " + string.Join(",", d.PreviewWave(combatRoom).Select(t => t.Name))
+                        + " | " + string.Join(",", d.BuiltProps.Select(b => b.kind + "@" + b.pos.x.ToString("0.0") + "," + b.pos.z.ToString("0.0")));
+                }
+                RunRandom.RunSeed = RunRandom.ParseSeed("spellcaster");
+                d.BuildFloor(1);
+                string sd1 = SdSig();
+                RunRandom.RunSeed = 777;
+                d.BuildFloor(1);
+                string sd2 = SdSig();
+                RunRandom.RunSeed = RunRandom.ParseSeed("SPELLCASTER");
+                d.BuildFloor(1);
+                string sd3 = SdSig();
+                Check($"the same seed builds the same floor 1: rooms, shop, first wave and props ({sd1.Length} chars); another seed builds a different one",
+                    sd1 == sd3 && sd1 != sd2);
+                gs.ExitPracticeForTest(); // the seed line shows in real runs only
+                gs.SetFocus(false);
+                yield return null;
+                yield return Shot("23b_pause_seed");
+                gs.ClearFocusPause();
+                yield return null;
+            }
 
             // ---- death ----
             gs.ForcePlayingForTest();

@@ -76,7 +76,6 @@ namespace Spellcaster
         void Update()
         {
             BannerTimer = Mathf.Max(0f, BannerTimer - Time.unscaledDeltaTime);
-            if (FocusPaused && Application.isFocused && !AutoTest.Active && Input.GetMouseButtonDown(0)) ClearFocusPause();
             Paused = InRun && !ForgeOpen && (FocusPaused || (!AutoTest.Active && Cursor.lockState != CursorLockMode.Locked));
             Time.timeScale = (Paused || ForgeOpen || Phase == Phase.Dead || Phase == Phase.Victory) ? 0f : 1f;
             if (Phase == Phase.Playing) RunTime += Time.deltaTime;
@@ -84,10 +83,11 @@ namespace Spellcaster
             switch (Phase)
             {
                 case Phase.Playing:
-                    if (Paused && Input.GetKeyDown(KeyCode.Q)) ToMenu();
+                    // Paused: the pause menu (MainMenu) handles Esc / Q / C.
                     break;
                 case Phase.Dead:
                 case Phase.Victory:
+                    if (Input.GetKeyDown(KeyCode.C)) RunRandom.CopySeed();
                     if (Input.GetKeyDown(KeyCode.R)) Restart();
                     else if (Input.GetKeyDown(KeyCode.Escape)) ToMenu();
                     break;
@@ -102,6 +102,19 @@ namespace Spellcaster
             if (PracticeMode) SetupPractice();
             else if (TutorialMode && Tutorial.Instance) Tutorial.Instance.Begin();
             Sfx.Play("wave", 0.6f);
+        }
+
+        /// <summary>Starts a run from a chosen seed: floor 1 is rebuilt from it, and every later floor follows from it.</summary>
+        public void BeginSeeded(int seed, string typed)
+        {
+            if (Phase != Phase.Title || seed == 0) return;
+            PracticeMode = false;
+            TutorialMode = false;
+            RunRandom.RunSeed = seed;
+            RunRandom.TypedSeed = typed;
+            if (Dungeon.Instance) Dungeon.Instance.BuildFloor(1);
+            Begin();
+            Show("Seed " + RunRandom.SeedLabel, 2f);
         }
 
         /// <summary>Starts a run that opens with the tutorial.</summary>

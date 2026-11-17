@@ -31,6 +31,10 @@ namespace Spellcaster
         public static bool DevMode { get; private set; }
         /// <summary>Map key: false = hold to show (default), true = press to open / close.</summary>
         public static bool MapToggle { get; private set; }
+        /// <summary>How runes are entered: Classic (mouse draws) or Momentum (keep running, W A S D type).</summary>
+        public static CastingStyle CastingStyle { get; private set; } = CastingStyle.Classic;
+        /// <summary>Momentum style: a small FOV push and head bob while you run in casting mode.</summary>
+        public static bool MomentumCue { get; private set; } = true;
         /// <summary>Experimental Grimoire card system (GRIMOIRE_ENABLED). Off = the game as before.</summary>
         public static bool GrimoireEnabled { get; private set; } = Grimoire.GrimoireConfig.EnabledByDefault;
         /// <summary>Set after the tutorial has been finished or skipped once.</summary>
@@ -54,6 +58,8 @@ namespace Spellcaster
             ShowFps = PlayerPrefs.GetInt("show_fps", 1) == 1;
             DevMode = PlayerPrefs.GetInt("dev_mode", 0) == 1;
             MapToggle = PlayerPrefs.GetInt("map_toggle", 0) == 1;
+            CastingStyle = PlayerPrefs.GetInt("casting_style", 0) == 1 ? CastingStyle.Momentum : CastingStyle.Classic;
+            MomentumCue = PlayerPrefs.GetInt("momentum_cue", 1) == 1;
             GrimoireEnabled = PlayerPrefs.GetInt("grimoire_enabled", Grimoire.GrimoireConfig.EnabledByDefault ? 1 : 0) == 1;
             TutorialDone = PlayerPrefs.GetInt("tutorial_done", 0) == 1;
             Bindings.Load();
@@ -68,6 +74,8 @@ namespace Spellcaster
         public static void SetShowFps(bool on) { ShowFps = on; Save(); }
         public static void SetDevMode(bool on) { DevMode = on; Save(); }
         public static void SetMapToggle(bool on) { MapToggle = on; Save(); }
+        public static void SetCastingStyle(CastingStyle s) { CastingStyle = s; Save(); }
+        public static void SetMomentumCue(bool on) { MomentumCue = on; Save(); }
         public static void SetGrimoireEnabled(bool on) { GrimoireEnabled = on; Save(); }
         public static void SetTutorialDone(bool on) { TutorialDone = on; Save(); }
 
@@ -119,6 +127,8 @@ namespace Spellcaster
             ShowFps = true;
             DevMode = false;
             MapToggle = false;
+            CastingStyle = CastingStyle.Classic;
+            MomentumCue = true;
             GrimoireEnabled = Grimoire.GrimoireConfig.EnabledByDefault;
             Fullscreen = false;
             ResolutionW = ResolutionH = 0;
@@ -157,6 +167,8 @@ namespace Spellcaster
             PlayerPrefs.SetInt("show_fps", ShowFps ? 1 : 0);
             PlayerPrefs.SetInt("dev_mode", DevMode ? 1 : 0);
             PlayerPrefs.SetInt("map_toggle", MapToggle ? 1 : 0);
+            PlayerPrefs.SetInt("casting_style", CastingStyle == CastingStyle.Momentum ? 1 : 0);
+            PlayerPrefs.SetInt("momentum_cue", MomentumCue ? 1 : 0);
             PlayerPrefs.SetInt("grimoire_enabled", GrimoireEnabled ? 1 : 0);
             PlayerPrefs.SetInt("tutorial_done", TutorialDone ? 1 : 0);
             PlayerPrefs.Save();

@@ -67,7 +67,7 @@ namespace Spellcaster
                     else if (!dummy.IsFrozen) dummy.Freeze(30f);
                     break;
                 case Step.Channel:
-                    if (ss.Channeling && (ss.Gesture.Trail.Count > 6 || ss.Entered.Count > 0)) Next(Step.Fireball);
+                    if (ss.Channeling && (ss.Gesture.Trail.Count > 6 || ss.Entered.Count > 0 || ss.InMomentum)) Next(Step.Fireball);
                     break;
                 case Step.Cast:
                     foreach (var e in group) if (e && e.IsAlive && !e.IsFrozen) e.Freeze(30f);
@@ -83,7 +83,9 @@ namespace Spellcaster
             if (!Active) return;
             if (Current == Step.Fireball && e == "ready Fireball") Next(Step.Cast);
             else if (Current == Step.Fireball && e == "fizzle")
-                Hint("Fizzled! Let go and try again: three clear strokes, down, right, up. (Options: rune drawing size)");
+                Hint(Settings.CastingStyle == CastingStyle.Momentum
+                    ? "Fizzled! Let go and try again: down, right, up."
+                    : "Fizzled! Let go and try again: three clear strokes, down, right, up. (Options: rune drawing size)");
             else if (Current == Step.Cast && e == "cast Fireball" && castTimer <= 0f) castTimer = 1.4f;
         }
 
@@ -154,6 +156,16 @@ namespace Spellcaster
             string ch = Bindings.Short(GameAction.Channel), cast = Bindings.Short(GameAction.Cast);
             string move = Bindings.KeyName(Bindings.Get(GameAction.MoveForward, 0)) + Bindings.KeyName(Bindings.Get(GameAction.MoveLeft, 0))
                 + Bindings.KeyName(Bindings.Get(GameAction.MoveBack, 0)) + Bindings.KeyName(Bindings.Get(GameAction.MoveRight, 0));
+            if (Settings.CastingStyle == CastingStyle.Momentum)
+            {
+                string K(GameAction a) => Bindings.KeyName(Bindings.Get(a, 0));
+                switch (s)
+                {
+                    case Step.Channel: return ("Start a rune", $"Hold {ch}: you keep running the way you were moving and steer with the mouse.\n{K(GameAction.MoveForward)} {K(GameAction.MoveLeft)} {K(GameAction.MoveBack)} {K(GameAction.MoveRight)} now type rune arrows instead of moving.");
+                    case Step.Fireball: return ("Type Fireball", $"Hold {ch} and press {K(GameAction.MoveBack)}, {K(GameAction.MoveRight)}, {K(GameAction.MoveForward)}: down, right, up.\nThe spell panel on the right shows every rune.");
+                    case Step.Cast: return ("Cast it", $"Fireball is ready (your hands glow). Aim at the imps and press {cast}. You can keep holding {ch} while you fire.");
+                }
+            }
             return s switch
             {
                 Step.Move => ("Walk around", $"Move with {move} and look with the mouse."),

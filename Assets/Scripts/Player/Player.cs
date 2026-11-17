@@ -99,16 +99,28 @@ namespace Spellcaster
                 Pitch = Mathf.Clamp(Pitch - Input.GetAxisRaw("Mouse Y") * sens * (Settings.InvertY ? -1f : 1f), -85f, 85f);
             }
             ApplyLook();
-            Cam.fieldOfView = Settings.FieldOfView;
 
-            // WASD always moves (arrow keys are the spell inputs); channeling slows you down.
-            Vector3 wish = Vector3.zero;
-            if (InputEnabled && gameplay)
+            // Momentum casting just ended: keys still held don't move you until pressed again
+            // (or until the slow-down is over), so letting go never jerks you sideways.
+            if ((wasAuto && !AutoForward) || (wasStill && !HoldStill)) BeginDecel();
+            wasAuto = AutoForward;
+            wasStill = HoldStill;
+            if (AutoForward) decelTimer = 0f;
+            else if (decelTimer > 0f)
             {
-                if (Bindings.Held(GameAction.MoveForward)) wish.z += 1;
-                if (Bindings.Held(GameAction.MoveBack)) wish.z -= 1;
-                if (Bindings.Held(GameAction.MoveRight)) wish.x += 1;
-                if (Bindings.Held(GameAction.MoveLeft)) wish.x -= 1;
+                decelTimer -= dt;
+                if (decelTimer <= 0f) for (int i = 0; i < 4; i++) masked[i] = false;
+            }
+
+            // WASD moves (in Momentum casting mode they type the rune instead); channeling slows you down.
+            Vector3 wish = Vector3.zero;
+            if (InputEnabled && gameplay && !AutoForward && !HoldStill)
+            {
+                for (int i = 0; i < 4; i++) if (masked[i] && !Bindings.Held(MoveActions[i])) masked[i] = false;
+                if (Bindings.Held(GameAction.MoveForward) && !masked[0]) wish.z += 1;
+                if (Bindings.Held(GameAction.MoveBack) && !masked[2]) wish.z -= 1;
+                if (Bindings.Held(GameAction.MoveRight) && !masked[3]) wish.x += 1;
+                if (Bindings.Held(GameAction.MoveLeft) && !masked[1]) wish.x -= 1;
             }
             if (wish.sqrMagnitude > 1f) wish.Normalize();
             if (Channeling) wish *= ChannelSpeedFactor;
@@ -116,13 +128,89 @@ namespace Spellcaster
             float speed = Run.Instance ? Run.Instance.MoveSpeed : MoveSpeed;
             ChillTimer = Mathf.Max(0f, ChillTimer - dt);
             if (ChillTimer > 0f) speed *= ChillSpeedFactor; // a frost crystal burst next to you
+            float accel = Acceleration;
+            float autoSpeed = speed * MomentumConfig.SpeedMultiplier;
+            if (AutoForward)
+            {
+                // Momentum: keep running the way you were going when the cast started (relative to the
+                // camera, so the mouse steers), with a short speed-up.
+                wish = AutoDir;
+                speed = autoSpeed;
+                accel = autoSpeed / Mathf.Max(0.01f, MomentumConfig.RampIn);
+            }
+            else if (decelTimer > 0f) accel = Mathf.Max(autoSpeed, 0.1f) / Mathf.Max(0.01f, MomentumConfig.RampOut);
             Vector3 target = transform.TransformDirection(wish) * speed;
             // Ice patches (floor 2): you keep sliding and steer slowly.
             Grip = IcePatch.GripAt(transform.position);
-            planarVelocity = Vector3.MoveTowards(planarVelocity, target, Acceleration * Grip * dt);
+            planarVelocity = Vector3.MoveTowards(planarVelocity, target, accel * Grip * dt);
+            UpdateCue(dt, autoSpeed);
             verticalVelocity = cc.isGrounded ? -2f : verticalVelocity - 20f * dt;
             cc.Move((planarVelocity + Vector3.up * verticalVelocity) * dt);
         }
+
+        // ---------------- Momentum casting style ----------------
+
+        /// <summary>Set by SpellSystem in Momentum casting mode: keep running in AutoDir.</summary>
+        public bool AutoForward { get; set; }
+        /// <summary>Set by SpellSystem when a Momentum cast starts from standing still: you don't move at all.</summary>
+        public bool HoldStill { get; set; }
+        /// <summary>The run direction in Momentum casting, relative to the camera (set when the cast starts).</summary>
+        public Vector3 AutoDir { get; set; } = Vector3.forward;
+        /// <summary>The current movement direction relative to the camera (zero when not moving).</summary>
+        public Vector3 LocalMoveDir
+        {
+            get
+            {
+                var v = transform.InverseTransformDirection(planarVelocity);
+                v.y = 0f;
+                return v.sqrMagnitude > 0.0001f ? v.normalized : Vector3.zero;
+            }
+        }
+        bool wasStill;
+        static readonly GameAction[] MoveActions = { GameAction.MoveForward, GameAction.MoveLeft, GameAction.MoveBack, GameAction.MoveRight };
+        readonly bool[] masked = new bool[4];
+        bool wasAuto;
+        float decelTimer, cue, bobTime;
+        Vector3 camBase;
+        bool camBaseSet;
+
+        /// <summary>Movement keys held right now are ignored until pressed again (or the slow-down ends).</summary>
+        void BeginDecel()
+        {
+            decelTimer = MomentumConfig.RampOut;
+            for (int i = 0; i < 4; i++) masked[i] = Bindings.Held(MoveActions[i]);
+        }
+
+        /// <summary>A panel, pause or focus loss cancelled Momentum casting: stop on the spot.</summary>
+        public void StopNow()
+        {
+            AutoForward = false;
+            wasAuto = false;
+            planarVelocity = Vector3.zero;
+            BeginDecel();
+        }
+
+        /// <summary>Test hook: how many of the four movement keys are being ignored after Momentum casting.</summary>
+        public int MaskedKeys { get { int n = 0; foreach (var m in masked) if (m) n++; return n; } }
+
+        /// <summary>The field of view and a light head bob while running in Momentum casting mode (Options toggle).</summary>
+        void UpdateCue(float dt, float autoSpeed)
+        {
+            if (!camBaseSet) { camBase = Cam.transform.localPosition; camBaseSet = true; }
+            float want = AutoForward && Settings.MomentumCue ? Mathf.Clamp01(PlanarSpeed / Mathf.Max(0.1f, autoSpeed)) : 0f;
+            bool wasOn = cue > 0f;
+            cue = Mathf.MoveTowards(cue, want, dt * 5f);
+            Cam.fieldOfView = Settings.FieldOfView + MomentumConfig.CueFov * cue;
+            if (cue > 0f)
+            {
+                bobTime += dt * MomentumConfig.CueBobRate;
+                Cam.transform.localPosition = camBase + Vector3.up * (Mathf.Abs(Mathf.Sin(bobTime * Mathf.PI)) - 0.5f) * MomentumConfig.CueBobHeight * cue;
+            }
+            else if (wasOn) Cam.transform.localPosition = camBase;
+        }
+
+        /// <summary>How strong the Momentum cue is right now (0..1, tests).</summary>
+        public float Cue => cue;
 
         /// <summary>Seconds you move slower after a frost burst (floor 2 frost crystals).</summary>
         public float ChillTimer;
@@ -135,12 +223,15 @@ namespace Spellcaster
         {
             if (AutoTest.Active || !GameState.Instance.InRun) return; // the menu manages the cursor
             bool forgeJustClosed = SpellForgeUI.Instance && SpellForgeUI.Instance.ClosedFrame == Time.frameCount;
-            if (Input.GetKeyDown(KeyCode.Escape) && !GameState.Instance.ForgeOpen && !forgeJustClosed)
+            // Esc pauses (the pause menu's own Esc resumes: not in the same frame).
+            if (Input.GetKeyDown(KeyCode.Escape) && !GameState.Instance.ForgeOpen && !forgeJustClosed
+                && Cursor.lockState == CursorLockMode.Locked && Time.frameCount != MainMenu.ResumedFrame)
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
             }
-            else if (Cursor.lockState != CursorLockMode.Locked && Input.GetMouseButtonDown(0) && !IsDead && !GameState.Instance.ForgeOpen)
+            else if (Cursor.lockState != CursorLockMode.Locked && Input.GetMouseButtonDown(0) && !IsDead && !GameState.Instance.ForgeOpen
+                && !(MainMenu.Instance && MainMenu.Instance.PauseUp))
             {
                 LockCursor();
                 lockClickFrame = Time.frameCount;

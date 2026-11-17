@@ -37,7 +37,8 @@ namespace Spellcaster
         void Awake()
         {
             Instance = this;
-            RunRandom.RunSeed = RunRandom.NewSeed(); // a fresh run (Continue replaces it with the saved one)
+            RunRandom.RunSeed = RunRandom.NewSeed(); // a fresh run (a typed seed or Continue replaces it)
+            RunRandom.TypedSeed = null;
             SpellBook.StartRun();
             Progress.NewThisRun.Clear();
             Enemy.Killed += OnKilled;

@@ -13,7 +13,7 @@ namespace Spellcaster
     {
         public static MainMenu Instance { get; private set; }
 
-        public enum Page { Main, Options, Controls, Unlocks, Confirm }
+        public enum Page { Main, Options, Controls, Unlocks, Confirm, Seed, Pause }
         public Page Current { get; private set; } = Page.Main;
         public int Selected { get; private set; }
         /// <summary>Action and slot waiting for a key press (Controls page), or null.</summary>
@@ -26,15 +26,106 @@ namespace Spellcaster
             public Action Activate;
             public Action<int> Change;          // -1 / +1
             public GameAction? Binding;         // Controls page rows
+            public bool Field;                  // a text box (the seed): Value is shown without < >
         }
 
-        List<Item> mainItems, optionItems, controlItems, unlockItems, confirmItems;
+        List<Item> mainItems, optionItems, controlItems, unlockItems, confirmItems, seedItems, pauseItems;
+        /// <summary>What the player has typed on the Seeded run page.</summary>
+        public string SeedText { get; private set; } = "";
+        public const int MaxSeedLength = 24;
         /// <summary>What "Yes" on the confirm page starts (a new run or the tutorial) after deleting the save.</summary>
         Action confirmAction;
         Vector2 lastMouse;
         int listenFrame;
 
-        List<Item> Items => Current switch { Page.Main => mainItems, Page.Options => optionItems, Page.Unlocks => unlockItems, Page.Confirm => confirmItems, _ => controlItems };
+        List<Item> Items => Current switch { Page.Main => mainItems, Page.Options => optionItems, Page.Unlocks => unlockItems, Page.Confirm => confirmItems, Page.Seed => seedItems, Page.Pause => pauseItems, _ => controlItems };
+
+        // ---------------- pause menu (in a run) ----------------
+
+        /// <summary>The run is paused: the menu shows Resume / Options / Quit over the game.</summary>
+        public bool PauseUp
+        {
+            get { var gs = GameState.Instance; return gs && gs.InRun && gs.Paused; }
+        }
+        bool wasPauseUp;
+        int pauseOpenedFrame = -10;
+        /// <summary>The frame the pause menu resumed the game (the Esc that resumed must not pause again).</summary>
+        public static int ResumedFrame = -10;
+
+        /// <summary>A real run (not the tutorial or practice): Quit saves.</summary>
+        static bool QuitSaves => !GameState.PracticeMode && !GameState.TutorialMode;
+
+        void BuildPause()
+        {
+            pauseItems = new List<Item>
+            {
+                new Item { Label = "Resume", Activate = Resume },
+                new Item { Label = "Options", Activate = () => Open(Page.Options) },
+                new Item { Label = QuitSaves ? "Save & quit" : "Quit to menu", Activate = SaveAndQuit },
+            };
+        }
+
+        /// <summary>Closes the pause menu and goes back to the game.</summary>
+        public void Resume()
+        {
+            var gs = GameState.Instance;
+            gs.ClearFocusPause(); // also: the click / key that resumed must not act in the game
+            ResumedFrame = Time.frameCount;
+            if (!AutoTest.Active) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
+            Current = Page.Main;
+            Sfx.Play("cast", 0.5f);
+        }
+
+        /// <summary>
+        /// Saves the run for Quit. Out of a fight the save is right here (this room becomes the checkpoint);
+        /// in a fight you keep everything you have, and the fight starts over from the last cleared room.
+        /// </summary>
+        public static bool SaveForQuit()
+        {
+            if (!QuitSaves || !SaveSystem.CanSave) return false;
+            var d = Dungeon.Instance;
+            if (d && d.Current != null && !d.InCombat) d.CheckpointRoomId = d.Current.Id;
+            return SaveSystem.Save();
+        }
+
+        /// <summary>Quit from the pause menu: saves the run (a real run only), then the main menu.</summary>
+        public static void SaveAndQuit()
+        {
+            SaveForQuit();
+            GameState.Instance.ToMenu();
+        }
+
+        /// <summary>Test hook: choose a row of the current page by its label.</summary>
+        public bool ChooseForTest(string label)
+        {
+            int i = Items.FindIndex(it => it.Label == label);
+            if (i < 0) return false;
+            Choose(i);
+            return true;
+        }
+
+        /// <summary>Test hook: the labels of the current page.</summary>
+        public List<string> LabelsForTest() => Items.ConvertAll(it => it.Label);
+
+        /// <summary>The pause menu opens on its first page each time the game pauses, and closes with it.</summary>
+        void TrackPause()
+        {
+            bool up = PauseUp;
+            if (up && !wasPauseUp)
+            {
+                BuildPause();
+                Current = Page.Pause;
+                Selected = 0;
+                Listening = null;
+                pauseOpenedFrame = Time.frameCount;
+            }
+            else if (!up && wasPauseUp && Current != Page.Main)
+            {
+                Current = Page.Main;
+                Listening = null;
+            }
+            wasPauseUp = up;
+        }
 
         /// <summary>The main page: Continue appears first when a valid save exists.</summary>
         void BuildMain()
@@ -42,6 +133,7 @@ namespace Spellcaster
             mainItems = new List<Item>();
             if (SaveSystem.HasValidSave) mainItems.Add(new Item { Label = "Continue", Activate = ContinueRun });
             mainItems.Add(new Item { Label = "Start game", Activate = StartGame });
+            mainItems.Add(new Item { Label = "Seeded run", Activate = () => { Open(Page.Seed); Selected = 1; } });
             mainItems.Add(new Item { Label = "Tutorial", Activate = StartTutorial });
             mainItems.Add(new Item { Label = "Practice tool", Activate = StartPractice });
             mainItems.Add(new Item { Label = "Unlocks", Activate = () => Open(Page.Unlocks) });
@@ -72,6 +164,13 @@ namespace Spellcaster
         {
             Instance = this;
             BuildMain();
+            seedItems = new List<Item>
+            {
+                new Item { Label = "Seed", Field = true, Value = () => SeedText.Length > 0 ? SeedText + (Mathf.Repeat(Time.unscaledTime, 1f) < 0.5f ? "_" : " ") : "type a number or a word" },
+                new Item { Label = "Start run with this seed", Activate = StartSeeded },
+                new Item { Label = "Random seed", Activate = () => { SetSeedText(UnityEngine.Random.Range(100000, 999999999).ToString()); Tick(); } },
+                new Item { Label = "Back", Activate = () => Open(Page.Main) },
+            };
             confirmItems = new List<Item>
             {
                 new Item { Label = "Yes, start a new run", Activate = () =>
@@ -103,6 +202,10 @@ namespace Spellcaster
                     Change = d => Settings.CycleResolution(d) },
                 new Item { Label = "Show FPS", Value = () => OnOff(Settings.ShowFps),
                     Change = d => Settings.SetShowFps(!Settings.ShowFps) },
+                new Item { Label = "Casting style", Value = () => Settings.CastingStyle == CastingStyle.Momentum ? "Momentum" : "Classic",
+                    Change = d => Settings.SetCastingStyle(Settings.CastingStyle == CastingStyle.Momentum ? CastingStyle.Classic : CastingStyle.Momentum) },
+                new Item { Label = "Momentum cue (FOV, bob)", Value = () => OnOff(Settings.MomentumCue),
+                    Change = d => Settings.SetMomentumCue(!Settings.MomentumCue) },
                 new Item { Label = "Map key", Value = () => Settings.MapToggle ? "Toggle" : "Hold",
                     Change = d => Settings.SetMapToggle(!Settings.MapToggle) },
                 new Item { Label = "Dev mode: hitboxes (F3)", Value = () => OnOff(Settings.DevMode),
@@ -111,7 +214,7 @@ namespace Spellcaster
                     Change = d => Settings.SetGrimoireEnabled(!Settings.GrimoireEnabled) },
                 new Item { Label = "Controls...", Activate = () => Open(Page.Controls) },
                 new Item { Label = "Reset to defaults", Activate = () => { Settings.ResetToDefaults(); Sfx.Play("pickup", 0.5f); } },
-                new Item { Label = "Back", Activate = () => Open(Page.Main) },
+                new Item { Label = "Back", Activate = () => Open(PauseUp ? Page.Pause : Page.Main) },
             };
             foreach (var it in optionItems)
                 if (it.Change != null && it.Activate == null) { var ch = it.Change; it.Activate = () => ch(1); }
@@ -131,12 +234,21 @@ namespace Spellcaster
 
         void Update()
         {
-            if (!Visible) return;
-            if (Cursor.lockState != CursorLockMode.None) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+            TrackPause();
+            bool paused = PauseUp;
+            if (!Visible && !paused) return;
+            if (!paused && Cursor.lockState != CursorLockMode.None) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
             if (Listening.HasValue) return; // the next key press is captured in DrawGUI
+            if (paused && Current == Page.Pause)
+            {
+                if (Input.GetKeyDown(KeyCode.Escape) && Time.frameCount > pauseOpenedFrame + 1) { Resume(); return; }
+                if (Input.GetKeyDown(KeyCode.Q)) { SaveAndQuit(); return; }
+                if (Input.GetKeyDown(KeyCode.C) && QuitSaves) RunRandom.CopySeed();
+            }
 
-            if (Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.UpArrow)) Move(-1);
-            if (Input.GetKeyDown(KeyCode.S) || Input.GetKeyDown(KeyCode.DownArrow)) Move(1);
+            bool typing = Current == Page.Seed; // letters go into the seed: arrows move, Enter chooses
+            if ((!typing && Input.GetKeyDown(KeyCode.W)) || Input.GetKeyDown(KeyCode.UpArrow)) Move(-1);
+            if ((!typing && Input.GetKeyDown(KeyCode.S)) || Input.GetKeyDown(KeyCode.DownArrow)) Move(1);
             var item = Items[Selected];
             if (item.Change != null)
             {
@@ -148,11 +260,13 @@ namespace Spellcaster
                 Bindings.Set(item.Binding.Value, 1, KeyCode.None); // clear the secondary key
                 Tick();
             }
-            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || Input.GetKeyDown(KeyCode.Space)) Choose(Selected);
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)) Choose(typing && Selected == 0 ? 1 : Selected);
+            else if (!typing && Input.GetKeyDown(KeyCode.Space)) Choose(Selected);
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 if (Current == Page.Controls) Open(Page.Options);
-                else if (Current == Page.Options || Current == Page.Unlocks || Current == Page.Confirm) Open(Page.Main);
+                else if (Current == Page.Options && paused) Open(Page.Pause);
+                else if (Current == Page.Options || Current == Page.Unlocks || Current == Page.Confirm || Current == Page.Seed) Open(Page.Main);
             }
         }
 
@@ -210,6 +324,28 @@ namespace Spellcaster
             if (!Settings.TutorialDone && !AutoTest.Active) GameState.Instance.StartTutorial();
             else GameState.Instance.Begin();
         });
+
+        /// <summary>Sets the typed seed (letters, digits, spaces and dashes; at most MaxSeedLength).</summary>
+        public void SetSeedText(string s)
+        {
+            var b = new System.Text.StringBuilder();
+            foreach (char c in s ?? "")
+                if ((char.IsLetterOrDigit(c) || c == ' ' || c == '-') && b.Length < MaxSeedLength) b.Append(c);
+            SeedText = b.ToString();
+        }
+
+        /// <summary>Starts a run from the typed seed (asks first if a saved run would be replaced).</summary>
+        public void StartSeeded()
+        {
+            int seed = RunRandom.ParseSeed(SeedText);
+            if (seed == 0) { Sfx.Play("fizzle", 0.4f, 1.3f); return; }
+            string typed = SeedText.Trim();
+            ConfirmNewRun(() =>
+            {
+                LeaveMenu();
+                GameState.Instance.BeginSeeded(seed, typed);
+            });
+        }
 
         /// <summary>Starts a run that opens with the tutorial.</summary>
         public void StartTutorial() => ConfirmNewRun(() =>
@@ -304,13 +440,29 @@ namespace Spellcaster
             }
 
             bool confirm = Current == Page.Confirm;
-            bool main = Current == Page.Main || confirm;
+            bool seedPage = Current == Page.Seed;
+            bool pausePage = Current == Page.Pause;
+            bool main = Current == Page.Main || confirm || pausePage;
+
+            // Typing the seed (KeyDown events carry the characters).
+            if (seedPage && e.type == EventType.KeyDown)
+            {
+                if (e.keyCode == KeyCode.Backspace) { if (SeedText.Length > 0) SeedText = SeedText.Substring(0, SeedText.Length - 1); e.Use(); }
+                else if (e.character != '\0' && e.character != '\n' && e.character != '\r' && e.character != '\t') { SetSeedText(SeedText + e.character); e.Use(); }
+                else if (e.keyCode == KeyCode.V && (e.control || e.command)) { SetSeedText(SeedText + GUIUtility.systemCopyBuffer); e.Use(); }
+            }
             if (repaint)
             {
-                HUD.Fill(new Rect(0, 0, W, H), new Color(0.03f, 0.01f, 0.05f, main ? 0.7f : 0.82f));
+                HUD.Fill(new Rect(0, 0, W, H), new Color(0.03f, 0.01f, 0.05f, pausePage ? 0.6f : main ? 0.7f : 0.82f));
                 var title = new GUIStyle(HUD.Title);
                 title.normal.textColor = new Color(1f, 0.85f, 0.45f);
-                if (confirm)
+                if (pausePage)
+                {
+                    title.fontSize = Mathf.RoundToInt(title.fontSize * 0.55f);
+                    bool focus = GameState.Instance && GameState.Instance.FocusPaused;
+                    HUD.Shadowed(new Rect(0, H * 0.04f, W, H * 0.09f), focus ? "PAUSED (window lost focus)" : "PAUSED", title);
+                }
+                else if (confirm)
                 {
                     title.fontSize = Mathf.RoundToInt(title.fontSize * 0.55f);
                     HUD.Shadowed(new Rect(0, H * 0.1f, W, H * 0.09f), "START A NEW RUN?", title);
@@ -332,7 +484,7 @@ namespace Spellcaster
                 else
                 {
                     title.fontSize = Mathf.RoundToInt(title.fontSize * 0.55f);
-                    string head = Current switch { Page.Options => "OPTIONS", Page.Controls => "CONTROLS", _ => $"UNLOCKS  {Progress.UnlockedCount} / {Progress.All.Count}" };
+                    string head = Current switch { Page.Options => "OPTIONS", Page.Controls => "CONTROLS", Page.Seed => "SEEDED RUN", _ => $"UNLOCKS  {Progress.UnlockedCount} / {Progress.All.Count}" };
                     HUD.Shadowed(new Rect(0, H * 0.03f, W, H * 0.09f), head, title);
                 }
                 if (Current == Page.Unlocks) DrawUnlocks(W, H, u);
@@ -341,18 +493,21 @@ namespace Spellcaster
             var items = Items;
             bool unlocks = Current == Page.Unlocks;
             float rowH = main || unlocks ? 4.6f * u : (Current == Page.Options ? 3.5f * u : 3.1f * u);
-            float w = main || unlocks ? 26f * u : 48f * u;
-            float y0 = main ? H * 0.31f : unlocks ? H * 0.86f : H * 0.14f;
+            float w = pausePage ? Mathf.Min(22f * u, W * 0.22f) : main || unlocks ? 26f * u : 48f * u;
+            float y0 = pausePage ? H * 0.3f : main ? H * 0.31f : unlocks ? H * 0.86f : H * 0.14f;
+            float x0 = pausePage ? W * 0.04f : (W - w) / 2; // paused: a column on the left, the run's items stay readable
+            // Long pages (Options, Controls) shrink their rows to stay above the hint line.
+            if (!main && !unlocks) rowH = Mathf.Min(rowH, (H - 4.5f * u - y0) / Mathf.Max(1, items.Count));
             Vector2 mouse = e.mousePosition;
             for (int i = 0; i < items.Count; i++)
             {
                 var it = items[i];
-                var row = new Rect((W - w) / 2, y0 + i * rowH, w, rowH - 0.5f * u);
+                var row = new Rect(x0, y0 + i * rowH, w, rowH - 0.5f * u);
                 bool hover = row.Contains(mouse);
                 if (hover && repaint && mouse != lastMouse && Selected != i && !Listening.HasValue) { Selected = i; Tick(); }
 
                 Rect left = default, right = default, slot0 = default, slot1 = default;
-                if (it.Value != null)
+                if (it.Value != null && !it.Field)
                 {
                     right = new Rect(row.xMax - 4f * u, row.y, 4f * u, row.height);
                     left = new Rect(right.x - 16f * u, row.y, 4f * u, row.height);
@@ -389,7 +544,16 @@ namespace Spellcaster
 
                 var vs = new GUIStyle(st) { alignment = TextAnchor.MiddleCenter };
                 vs.normal.textColor = new Color(1f, 0.85f, 0.45f);
-                if (it.Value != null)
+                if (it.Field)
+                {
+                    var box = new Rect(row.x + 12f * u, row.y + 0.3f * u, row.width - 13f * u, row.height - 0.6f * u);
+                    HUD.Fill(box, new Color(0f, 0f, 0f, 0.5f));
+                    HUD.Frame(box, new Color(1f, 0.85f, 0.45f, sel ? 0.9f : 0.35f), Mathf.Max(1f, 0.1f * u));
+                    var fs = new GUIStyle(vs) { alignment = TextAnchor.MiddleLeft };
+                    if (SeedText.Length == 0) fs.normal.textColor = new Color(0.6f, 0.6f, 0.65f);
+                    HUD.Shadowed(new Rect(box.x + u, box.y, box.width - u, box.height), it.Value(), fs);
+                }
+                else if (it.Value != null)
                 {
                     HUD.Shadowed(left, "<", vs);
                     HUD.Shadowed(new Rect(left.xMax, row.y, right.x - left.xMax, row.height), it.Value(), vs);
@@ -413,7 +577,11 @@ namespace Spellcaster
                 string hint = Current switch
                 {
                     Page.Main => "Mouse or W/S + Enter",
+                    Page.Pause => "Esc: resume   W/S + Enter or click   Q: " + (QuitSaves ? "save & quit" : "quit") +
+                        (QuitSaves && Dungeon.Instance && Dungeon.Instance.InCombat
+                            ? "   (in a fight: you keep what you have, the fight starts over from the last cleared room)" : ""),
                     Page.Confirm => "Esc: back",
+                    Page.Seed => "Type a seed (a number or any word); the same seed always builds the same dungeon, shops and enemy waves.   Ctrl+V: paste   Esc: back",
                     Page.Unlocks => "Reach a goal to add its spell or item to future runs. Your stats are never upgraded.",
                     Page.Options => "A/D or click < > to change   Esc: back   (rune size: how far the mouse moves per stroke)",
                     _ => Listening.HasValue

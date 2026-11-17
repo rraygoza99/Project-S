@@ -72,7 +72,8 @@ jumps (blue), and enemy blasts and swings (bright red). A legend sits on the lef
 
 ## Controls
 
-Defaults (rebind them in Options > Controls):
+Defaults (rebind them in Options > Controls). These are for the **Classic** casting style; see
+**Casting styles** below for **Momentum**.
 
 | Input | Action |
 |---|---|
@@ -84,9 +85,26 @@ Defaults (rebind them in Options > Controls):
 | **E** | Take / buy the item in front of you |
 | Hold **M** | Full map, stats and items (Options > Map key: Toggle to press once instead) |
 | **Tab** | Spell Forge (outside of fights; the game pauses) |
-| Esc | Pause: shows your items (click to resume, Q: main menu). Alt-tabbing out also pauses. |
+| Esc | Pause menu: **Resume**, **Options** (all the main menu settings) and **Save & quit**; your items and seed are listed beside it. Esc again resumes, Q saves and quits. Alt-tabbing out also pauses. |
 | R / Esc | New run / main menu after death or victory |
 | K | Debug: spawn 10 enemies in this room |
+
+### Casting styles (Options > Casting style)
+
+- **Classic** (default): hold Right Mouse or Left Ctrl; the view stops, the mouse draws the rune, and
+  W A S D still walk at 30% speed.
+- **Momentum**: hold Right Mouse or Left Ctrl; you **keep running the way you were already moving** (forward, sideways or back, relative to the camera)
+  and **steer with the mouse**, while **W A S D type the rune** (W up, A left, S down, D right; the
+  arrow keys too, since they are the second movement keys). Left Click fires while you run. Let go
+  and you slow down and walk normally again. A key you were already holding when you started
+  doesn't count until you press it again, and keys still held when you let go don't move you until
+  you press them again. Opening the map, a panel, pausing or alt-tabbing stops you on the spot;
+  press the cast key again to carry on. **Options > Momentum cue** adds a small field-of-view push
+  and head bob while you run (on by default). If you are **standing still** when you press the cast
+  key (slower than 0.5 m/s, no movement key held), that cast doesn't run: you stay where you are and
+  W A S D only type the rune.
+- Tuning: `Player/MomentumConfig.cs` (`SpeedMultiplier` 1.0, `RampIn` 0.15 s, `RampOut` 0.2 s, `StillSpeed` 0.5 m/s,
+  `CueFov` 4 degrees, `CueBobHeight` 0.025 m, `CueBobRate` 9).
 
 Every spell is a **rune**: a few straight up / down / left / right strokes drawn with the mouse
 (Fireball is a U: down, right, up). Draw in one go; a stroke counts once you move far enough in a new
@@ -128,8 +146,15 @@ cleared rooms, so you can't wait out Heal between fights).
 - **Saving.** The run saves itself every time you clear a fight room (a small "Saving..." shows in
   the corner). **Continue** on the main menu puts you back in the last room you cleared, with the same
   HP, gold, items, spells, map and Grimoire deck. A room you were in the middle of starts over.
-  Esc, then **Q**, saves and quits to the menu. The rest of the run plays out the same as if you had
+  **Save & quit** on the pause menu (or Esc, then Q) saves right where you are when no fight is on; in
+  the middle of a fight you keep everything you have and the fight starts over from the last cleared
+  room. The rest of the run plays out the same as if you had
   never quit: same rooms, same shops, same enemy waves, same rewards.
+- **Seeds.** Every run has a seed, shown on the pause screen and the end screen (**C** copies it).
+  **Seeded run** on the main menu starts a run from a seed you type: a number, or any word or
+  phrase (case doesn't matter). The same seed always builds the same floors, props, shops, enemy
+  waves and rewards, so you can share a run with friends. What enemies and crates drop when they
+  die still depends on how each fight goes.
 - **Death** (or winning) ends the run and deletes the save. Nothing carries over between runs.
   Starting a new run while a save exists asks first.
 
