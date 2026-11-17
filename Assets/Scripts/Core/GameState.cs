@@ -20,7 +20,10 @@ namespace Spellcaster
         public bool FocusPaused { get; private set; }
         int resumeFrame = -10;
 
-        public bool ForgeOpen => SpellForgeUI.Instance && SpellForgeUI.Instance.IsOpen;
+        /// <summary>True while a full-screen panel is open (the Forge, or one registered in <see cref="ExtraPanelOpen"/>): the game is paused.</summary>
+        public bool ForgeOpen => (SpellForgeUI.Instance && SpellForgeUI.Instance.IsOpen) || (ExtraPanelOpen != null && ExtraPanelOpen());
+        /// <summary>Hook: another panel that pauses the game like the Forge (Grimoire rewards).</summary>
+        public static System.Func<bool> ExtraPanelOpen;
         // The click that pressed "Start game" must not also fire a bolt.
         public bool AcceptsGameplayInput => Phase == Phase.Playing && !ForgeOpen && !Paused && Time.frameCount > beganFrame + 1 && Time.frameCount > resumeFrame + 1;
         int beganFrame = -10;
@@ -54,6 +57,9 @@ namespace Spellcaster
             FocusPaused = true;
             if (!AutoTest.Active) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         }
+
+        /// <summary>The key or click that closed a panel this frame must not also act in the game.</summary>
+        public void IgnoreInputThisFrame() => resumeFrame = Time.frameCount;
 
         public void ClearFocusPause()
         {

@@ -46,7 +46,7 @@ namespace Spellcaster
         public override void Spread(SpellCast cast, Enemy from, Vector3 point)
         {
             point.y = 0f;
-            PoisonCloud.Create(point, Radius * cast.Stats.AreaMult, Seconds, Dps * cast.Power, cast.Spell.Color);
+            PoisonCloud.Create(point, Radius * cast.AreaMult, Seconds, Dps * cast.Power, cast.Spell.Color);
         }
     }
 
@@ -60,7 +60,7 @@ namespace Spellcaster
         public override EffectRole Role => EffectRole.Caster;
         public override SpellEffect Scaled(float p) => new BlinkEffect(Distance);
         public override string Describe() => $"blink {Distance:0}m";
-        public override void ApplyToCaster(SpellCast cast) => cast.Caster.Blink(Distance, cast.Spell.Color);
+        public override void ApplyToCaster(SpellCast cast) => cast.Caster.Blink(Distance * cast.Mods.RangeMult, cast.Spell.Color);
     }
 
     /// <summary>A lingering poison zone (Poison Cloud).</summary>

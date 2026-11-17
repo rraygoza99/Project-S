@@ -24,10 +24,10 @@ namespace Spellcaster
             for (int i = 0; i < Count; i++)
             {
                 // Each missile is its own cast (its own hit), fanned out, then curving onto a target.
-                var c = i == 0 ? cast : new SpellCast(cast.Spell, cast.Caster) { Power = cast.Power };
-                float ang = (i - (Count - 1) * 0.5f) * 14f;
+                var c = i == 0 ? cast : new SpellCast(cast.Spell, cast.Caster) { Power = cast.Power, Mods = cast.Mods };
+                float ang = (i - (Count - 1) * 0.5f) * 14f + cast.Mods.AimYaw;
                 Vector3 dir = Quaternion.AngleAxis(ang, cam.up) * Quaternion.AngleAxis(-12f, cam.right) * cam.forward;
-                var p = Projectile.Spawn(origin, dir * Speed, color, 0.4f, 0.15f, Layers.PlayerShotMask,
+                var p = Projectile.Spawn(origin, dir * Speed, color, 0.4f * cast.Mods.SizeMult, 0.15f * cast.Mods.SizeMult, Layers.PlayerShotMask,
                     (point, col) =>
                     {
                         Fx.Flash(point, color, 0.9f, 0.2f, 1.5f);
@@ -36,6 +36,7 @@ namespace Spellcaster
                         c.Resolve(col ? col.GetComponentInParent<Enemy>() : null, point);
                     }, life: 3f, onExpire: point => c.Resolve((Enemy)null, point));
                 if (targets.Count > 0) p.Home(targets[i % targets.Count], 260f);
+                if (cast.Mods.Pierce) p.PassThroughEnemies(ProjectileDelivery.PierceHit(c, color, 0.6f));
             }
             Sfx.Play("bolt", 0.6f, 1.4f);
         }
@@ -63,9 +64,10 @@ namespace Spellcaster
             if (Physics.Raycast(point + Vector3.up * 0.5f, Vector3.down, out var ground, 10f, Layers.WorldMask, QueryTriggerInteraction.Ignore))
                 point = ground.point;
             else point.y = 0f;
+            point += cast.Mods.Offset;
             var color = cast.Spell.Color;
             // Warning: the real blast size, held until it lands.
-            float blast = cast.Spell.AreaRadius > 0f ? cast.Spell.AreaRadius : 5f;
+            float blast = (cast.Spell.AreaRadius > 0f ? cast.Spell.AreaRadius : 5f) * cast.Mods.AreaMult;
             Fx.Ring(point + Vector3.up * 0.05f, color, blast, 0.6f);
             Fx.AreaMarker(point, color, blast, 1.1f);
             Vector3 start = point + new Vector3(0.6f, Dungeon.WallH - 0.4f, 0.6f);

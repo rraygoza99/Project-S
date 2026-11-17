@@ -11,6 +11,8 @@ namespace Spellcaster
     {
         public static readonly List<Enemy> All = new List<Enemy>();
         public static event System.Action<Enemy> Killed;
+        /// <summary>Hook: raised for every enemy spawned (Grimoire elites).</summary>
+        public static event System.Action<Enemy> Spawned;
 
         public EnemyType Type { get; private set; }
         public float HP { get; private set; }
@@ -23,6 +25,11 @@ namespace Spellcaster
         public bool IsBurning => burnTimer > 0f;
         public bool IsPoisoned => poisonTimer > 0f;
         public bool IsStunned => stunTimer > 0f;
+        public bool IsSlowed => slowTimer > 0f;
+        /// <summary>Elite variant (Grimoire experiment): tougher and tinted.</summary>
+        public bool IsElite { get; private set; }
+        public static readonly Color EliteTint = new Color(1f, 0.6f, 0.45f);
+        float slowTimer, slowFactor = 1f;
         /// <summary>Element of the last damage taken, and whether it was the magic bolt (kill tracking).</summary>
         public Element LastElement { get; private set; }
         public bool LastHitByBolt { get; private set; }
@@ -130,6 +137,7 @@ namespace Spellcaster
             e.bobPhase = Random.value * 6f;
             e.ApplyVisual(type.Sprites.Walk, 0, 1f);
             All.Add(e);
+            Spawned?.Invoke(e);
             return e;
         }
 
@@ -168,6 +176,7 @@ namespace Spellcaster
             if (state == State.Dead) return; // burned or poisoned to death this frame
             float realDt = dt;
             dt *= TimeFactor; // Time Scroll: movement and attacks at half speed
+            if (slowTimer > 0f) { slowTimer -= realDt; dt *= slowFactor; }
 
             var player = Player.Instance;
             if (!player) return;
@@ -607,6 +616,23 @@ namespace Spellcaster
             return was;
         }
 
+        /// <summary>Moves and attacks at factor speed (0.5 = half) for a while.</summary>
+        public void Slow(float factor, float seconds)
+        {
+            if (!IsAlive) return;
+            slowFactor = slowTimer > 0f ? Mathf.Min(slowFactor, factor) : factor;
+            slowTimer = Mathf.Max(slowTimer, seconds);
+        }
+
+        /// <summary>Turns this enemy into an elite: more HP, tinted.</summary>
+        public void MakeElite(float hpMult)
+        {
+            if (!IsAlive || IsElite || Type.IsBoss) return;
+            IsElite = true;
+            MaxHP *= hpMult;
+            HP *= hpMult;
+        }
+
         public void Ignite(float dps, float seconds)
         {
             if (!IsAlive) return;
@@ -681,6 +707,8 @@ namespace Spellcaster
                 : stunTimer > 0f ? new Color(1f, 0.92f, 0.55f)
                 : burnTimer > 0f ? new Color(1f, 0.75f + 0.25f * Mathf.Sin(Time.time * 20f), 0.55f)
                 : poisonTimer > 0f ? new Color(0.6f, 1f, 0.5f)
+                : slowTimer > 0f ? new Color(0.7f, 0.75f, 1f)
+                : IsElite ? EliteTint
                 : Color.white;
             tint.a = alpha;
             mpb.SetTexture(MainTexId, anim.Texture);

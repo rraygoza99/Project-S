@@ -255,7 +255,8 @@ namespace Spellcaster
             }
         }
 
-        void Pedestal(Room room, Vector3 local, ItemDef item, int price, Color glow)
+        /// <summary>An item on a pedestal (price 0 = free). Public for optional systems that add stock (Grimoire).</summary>
+        public void Pedestal(Room room, Vector3 local, ItemDef item, int price, Color glow)
         {
             var pos = room.Center + local;
             Box(room.Root, "Pedestal", pos + Vector3.up * 0.45f, new Vector3(1.1f, 0.9f, 1.1f), pal.Pedestal);
@@ -339,6 +340,9 @@ namespace Spellcaster
             }
         }
 
+        /// <summary>Hook: a fight room was cleared for the first time (Grimoire rewards).</summary>
+        public static event System.Action<Room> RoomCleared;
+
         public void ClearCurrent()
         {
             var room = Current;
@@ -367,6 +371,7 @@ namespace Spellcaster
                 GameState.Instance.Show(Floor >= FinalFloor ? "Step into the portal to escape" : "Portal opened", 3f);
             }
             else Loot.RoomClearReward(room);
+            RoomCleared?.Invoke(room);
         }
 
         void EnterPortal()

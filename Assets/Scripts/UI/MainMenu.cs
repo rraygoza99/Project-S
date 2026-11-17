@@ -70,6 +70,8 @@ namespace Spellcaster
                     Change = d => Settings.SetMapToggle(!Settings.MapToggle) },
                 new Item { Label = "Dev mode: hitboxes (F3)", Value = () => OnOff(Settings.DevMode),
                     Change = d => Settings.SetDevMode(!Settings.DevMode) },
+                new Item { Label = "Grimoire cards (experimental)", Value = () => OnOff(Settings.GrimoireEnabled),
+                    Change = d => Settings.SetGrimoireEnabled(!Settings.GrimoireEnabled) },
                 new Item { Label = "Controls...", Activate = () => Open(Page.Controls) },
                 new Item { Label = "Reset to defaults", Activate = () => { Settings.ResetToDefaults(); Sfx.Play("pickup", 0.5f); } },
                 new Item { Label = "Back", Activate = () => Open(Page.Main) },

@@ -17,6 +17,10 @@ namespace Spellcaster
         public int Kills;
         /// <summary>Multiplier on damage, burn and healing (spell power from items; echoes and split shots are weaker).</summary>
         public float Power = 1f;
+        /// <summary>Outside modifiers for this cast (Grimoire cards); the default changes nothing.</summary>
+        public CastMods Mods = CastMods.None;
+        /// <summary>Area multiplier from items and this cast's modifiers.</summary>
+        public float AreaMult => Stats.AreaMult * Mods.AreaMult;
         public PlayerStats Stats => Run.Instance ? Run.Instance.Stats : Fallback;
         static readonly PlayerStats Fallback = new PlayerStats();
         readonly HashSet<Enemy> hit = new HashSet<Enemy>();
@@ -55,6 +59,13 @@ namespace Spellcaster
                 else foreach (var e in primaries) effect.Spread(this, e, e ? e.Center : point);
             }
 
+            // Extra chain for spells that have none (Grimoire Pierce on novas and meteors).
+            if (Mods.ExtraChains > 0 && !Spell.Payload.Exists(x => x is ChainEffect))
+            {
+                var from = primaries.Count > 0 ? primaries[0] : null;
+                new ChainEffect(0, 8f, 0.8f).Spread(this, from, from ? from.Center : point);
+            }
+
             foreach (var effect in Spell.Payload)
                 if (effect.Role == EffectRole.Caster) effect.ApplyToCaster(this);
 
@@ -64,6 +75,7 @@ namespace Spellcaster
             foreach (var effect in Spell.Payload)
                 if (effect is LifestealEffect l) steal = Mathf.Max(steal, l.Fraction);
             steal += Stats.SpellLifesteal;
+            if (Mods.NoLifesteal) steal = 0f;
             if (steal > 0f && DamageDealt > 0f && Caster)
             {
                 LifestealHealed = Mathf.Min(DamageDealt * steal, MaxLifestealPerCast);
@@ -82,6 +94,8 @@ namespace Spellcaster
                 if (!e.IsAlive && !(effect is DamageEffect)) continue;
                 effect.ApplyTo(this, e, scale);
             }
+
+            if (e.IsAlive) Mods.OnHit?.Invoke(e);
 
             // Relic hooks
             var stats = Stats;

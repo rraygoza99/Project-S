@@ -10,6 +10,9 @@ namespace Spellcaster
         public abstract void Launch(SpellCast cast);
         public abstract SpellDelivery Clone();
         public virtual bool IsSelf => false;
+
+        /// <summary>An extra hit of the same cast (pierce): same power and modifiers, never lifesteals.</summary>
+        public static SpellCast Copy(SpellCast cast) => ProjectileDelivery.PierceCopy(cast);
     }
 
     /// <summary>A travelling glowing orb that resolves where it hits.</summary>
@@ -24,21 +27,23 @@ namespace Spellcaster
         {
             Vector3 origin = SpellSystem.CastOrigin;
             Vector3 dir = SpellSystem.AimDirection(origin);
-            Fire(cast, origin, dir, Size);
+            if (cast.Mods.AimYaw != 0f) dir = Quaternion.AngleAxis(cast.Mods.AimYaw, Vector3.up) * dir;
+            float size = Size * cast.Mods.SizeMult;
+            Fire(cast, origin, dir, size);
             // Splitting Prism relic: extra, weaker projectiles fanned out to the sides.
             int split = cast.Stats.ProjectileSplit;
             for (int i = 0; i < split; i++)
             {
                 float ang = (i / 2 + 1) * 12f * (i % 2 == 0 ? 1f : -1f);
-                var extra = new SpellCast(cast.Spell, cast.Caster) { Power = cast.Power * 0.6f };
-                Fire(extra, origin, Quaternion.AngleAxis(ang, Vector3.up) * dir, Size * 0.75f);
+                var extra = new SpellCast(cast.Spell, cast.Caster) { Power = cast.Power * 0.6f, Mods = cast.Mods };
+                Fire(extra, origin, Quaternion.AngleAxis(ang, Vector3.up) * dir, size * 0.75f);
             }
         }
 
         void Fire(SpellCast cast, Vector3 origin, Vector3 dir, float size)
         {
             var color = cast.Spell.Color;
-            Projectile.Spawn(origin, dir * Speed, color, size, 0.2f,
+            var p = Projectile.Spawn(origin, dir * Speed, color, size, 0.2f * cast.Mods.SizeMult,
                 Layers.PlayerShotMask,
                 (point, col) =>
                 {
@@ -49,6 +54,27 @@ namespace Spellcaster
                 },
                 life: 4f,
                 onExpire: point => cast.Resolve((Enemy)null, point));
+            if (cast.Mods.Pierce) p.PassThroughEnemies(PierceHit(cast, color, size));
+        }
+
+        /// <summary>Pierce: each enemy passed through takes its own hit (the first one is the main cast).</summary>
+        internal static Projectile.HitHandler PierceHit(SpellCast cast, Color color, float size)
+        {
+            bool first = true;
+            return (point, col) =>
+            {
+                Fx.Flash(point, color, size * 1.5f, 0.25f, 1.5f);
+                var c = first ? cast : PierceCopy(cast);
+                first = false;
+                c.Resolve(col ? col.GetComponentInParent<Enemy>() : null, point);
+            };
+        }
+
+        internal static SpellCast PierceCopy(SpellCast cast)
+        {
+            var mods = cast.Mods.Clone();
+            mods.NoLifesteal = true;
+            return new SpellCast(cast.Spell, cast.Caster) { Power = cast.Power, Mods = mods };
         }
     }
 
@@ -64,9 +90,11 @@ namespace Spellcaster
         {
             var cam = cast.Caster.Cam.transform;
             Vector3 origin = SpellSystem.CastOrigin;
-            Vector3 end = cam.position + cam.forward * Range;
+            Vector3 fwd = cast.Mods.AimYaw != 0f ? Quaternion.AngleAxis(cast.Mods.AimYaw, Vector3.up) * cam.forward : cam.forward;
+            Vector3 end = cam.position + fwd * Range;
             Enemy target = null;
-            if (Physics.Raycast(cam.position, cam.forward, out var hit, Range, Layers.PlayerShotMask, QueryTriggerInteraction.Ignore))
+            if (cast.Mods.Pierce) { PierceRay(cast, cam.position, fwd); return; }
+            if (Physics.Raycast(cam.position, fwd, out var hit, Range, Layers.PlayerShotMask, QueryTriggerInteraction.Ignore))
             {
                 end = hit.point;
                 target = hit.collider.GetComponentInParent<Enemy>();
@@ -80,6 +108,37 @@ namespace Spellcaster
             Sfx.Play("zap", 0.7f, Random.Range(0.95f, 1.05f));
             cast.Resolve(target, end);
         }
+
+        /// <summary>Pierce: the ray goes through the first enemy and also hits the next one behind it.</summary>
+        void PierceRay(SpellCast cast, Vector3 from, Vector3 fwd)
+        {
+            var hits = Physics.RaycastAll(from, fwd, Range, Layers.PlayerShotMask, QueryTriggerInteraction.Ignore);
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            Vector3 origin = SpellSystem.CastOrigin, last = from + fwd * Range;
+            int struck = 0;
+            var seen = new HashSet<Enemy>();
+            foreach (var h in hits)
+            {
+                var e = h.collider.GetComponentInParent<Enemy>();
+                if (!e)
+                {
+                    var prop = h.collider.GetComponentInParent<Prop>();
+                    if (prop) prop.TakeDamage(30f * cast.Power);
+                    last = h.point;
+                    break;
+                }
+                if (!seen.Add(e)) continue;
+                last = e.Center;
+                var c = struck == 0 ? cast : SpellDelivery.Copy(cast);
+                Fx.Flash(e.Center, cast.Spell.Color, 1.4f, 0.3f, 1f);
+                c.Resolve(e, e.Center);
+                if (++struck >= 2) break;
+            }
+            LightningFx.Bolt(origin, last, cast.Spell.Color, 0.3f);
+            DevMode.Line(origin, last, DevMode.SpellRay);
+            Sfx.Play("zap", 0.7f, Random.Range(0.95f, 1.05f));
+            if (struck == 0) cast.Resolve((Enemy)null, last);
+        }
     }
 
     /// <summary>Expanding ring around the caster that hits everything in range.</summary>
@@ -92,8 +151,8 @@ namespace Spellcaster
 
         public override void Launch(SpellCast cast)
         {
-            Vector3 center = cast.Caster.transform.position;
-            float radius = Radius * cast.Stats.AreaMult;
+            Vector3 center = cast.Caster.transform.position + cast.Mods.Offset;
+            float radius = Radius * cast.AreaMult;
             Fx.Ring(center + Vector3.up * 0.1f, cast.Spell.Color, radius, 0.45f);
             Fx.AreaMarker(center, cast.Spell.Color, radius, 0.6f);
             DevMode.Ring(center + Vector3.up * 0.1f, radius, DevMode.SpellArea);

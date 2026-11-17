@@ -26,6 +26,16 @@ namespace Spellcaster
         float baseSize, gravity;
         Enemy homingTarget;
         float turnRate;
+        HitHandler onPass;
+        HashSet<Collider> passed;
+        static readonly Comparison<RaycastHit> ByDistance = (a, b) => a.distance.CompareTo(b.distance);
+
+        /// <summary>Pierce: enemies hit call onPass and the projectile keeps going (walls still stop it).</summary>
+        public void PassThroughEnemies(HitHandler onPass)
+        {
+            this.onPass = onPass;
+            passed = new HashSet<Collider>();
+        }
 
         /// <summary>Steers toward the enemy (degrees per second) while it lives.</summary>
         public void Home(Enemy target, float degreesPerSecond)
@@ -75,7 +85,30 @@ namespace Spellcaster
             if (len > 1e-5f)
             {
                 Vector3 dir = step / len;
-                if (Physics.SphereCast(transform.position, radius, dir, out var hit, len, mask, QueryTriggerInteraction.Ignore))
+                if (onPass != null)
+                {
+                    var hits = Physics.SphereCastAll(transform.position, radius, dir, len, mask, QueryTriggerInteraction.Ignore);
+                    Array.Sort(hits, ByDistance);
+                    Vector3 from = transform.position;
+                    foreach (var h in hits)
+                    {
+                        if (passed.Contains(h.collider)) continue;
+                        Vector3 at = from + dir * h.distance;
+                        if (h.collider.gameObject.layer == Layers.Enemy)
+                        {
+                            passed.Add(h.collider);
+                            DevMode.Sphere(at, Mathf.Max(radius, 0.1f), DevMode.PlayerShot, 0.35f);
+                            onPass(at, h.collider);
+                            continue;
+                        }
+                        transform.position = at;
+                        onHit?.Invoke(at, h.collider);
+                        Destroy(gameObject);
+                        return;
+                    }
+                    transform.position += step;
+                }
+                else if (Physics.SphereCast(transform.position, radius, dir, out var hit, len, mask, QueryTriggerInteraction.Ignore))
                 {
                     transform.position += dir * hit.distance;
                     DevMode.Sphere(transform.position, Mathf.Max(radius, 0.1f), (mask & Layers.PlayerMask) != 0 ? DevMode.EnemyShot : DevMode.PlayerShot, 0.35f);

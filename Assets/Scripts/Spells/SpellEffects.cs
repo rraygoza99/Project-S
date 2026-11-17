@@ -130,7 +130,7 @@ namespace Spellcaster
         public override string Describe() => $"explodes {Radius:0.#}m";
         public override void Spread(SpellCast cast, Enemy from, Vector3 point)
         {
-            float radius = Radius * cast.Stats.AreaMult;
+            float radius = Radius * cast.AreaMult;
             Fx.Flash(point, Color.Lerp(cast.Spell.Color, new Color(1f, 0.6f, 0.2f), 0.5f), radius * 1.3f, 0.45f, 0.6f);
             Fx.AreaMarker(point, new Color(1f, 0.6f, 0.25f, 0.9f), radius, 0.7f);
             Fx.Flash(point, new Color(1f, 0.95f, 0.7f), radius * 0.6f, 0.2f, 0.8f);
@@ -160,11 +160,12 @@ namespace Spellcaster
         {
             Vector3 pos = from ? from.Center : point;
             float scale = 1f;
-            int jumps = Jumps + cast.Stats.ExtraChains;
+            int jumps = Jumps + cast.Stats.ExtraChains + cast.Mods.ExtraChains;
+            float range = Range * cast.Mods.AreaMult;
             for (int j = 0; j < jumps; j++)
             {
                 Enemy next = null;
-                float best = Range * Range;
+                float best = range * range;
                 foreach (var e in Enemy.All)
                 {
                     if (!e.IsAlive || cast.WasHit(e)) continue;

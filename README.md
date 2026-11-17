@@ -245,6 +245,54 @@ mind. You always keep at least 2 spells.
 Forged spells can be forged again (tier 3, 4...), up to 12 effects and 9 known spells. Relics apply
 to forged spells too, so a Splitting Prism on a "Frozen Fireball" fires three freezing fireballs.
 
+### Grimoire (experimental, off by default)
+
+A deck of enhancement cards that ride on your spells. Turn it on in **Options > Grimoire cards**. With
+it off, the game plays exactly as without it.
+
+- **Deck:** a draw pile, a hand of 3 (bottom right, next to your hands) and a discard pile. Every run
+  starts with 5 Blank, 1 Amplify, 1 Split and 1 Echo.
+- **Casting** a spell plays the leftmost card (**NEXT**): its effect applies to that cast, it goes to
+  the discard pile and a new card is drawn. The basic bolt only uses up **Blank** cards, so special
+  cards wait for a rune spell. While a spell is readied, your hands glow in the Next card's colour.
+- An empty draw pile is refilled by **reshuffling** the discard pile.
+- **Q** discards the Next card unused (you can't cast for 1 s). Blank cards and curses can't be
+  discarded this way: you have to play them.
+- **Clearing a fight room** offers 3 cards (click or press 1-3), **Remove a card** for 50 gold (4), or
+  **Skip** (5). The game is paused while the panel is open.
+- **Shops** also sell a **Scroll of Erasure** (35 gold): use it like any item to remove one card from
+  your deck for free (backing out gives the scroll back).
+- **Elites** (one in about 15% of fight rooms, "ELITE" over their head, double HP) put a **Fumble**
+  curse in your deck when they die.
+- The pause screen lists your whole deck.
+
+| Card | Effect |
+|---|---|
+| Blank | Nothing |
+| Amplify | +50% damage (Heal: +50% healing; Blink: +50% distance) |
+| Overload | +100% damage, cooldown doubled |
+| Split | Projectiles and rays: 3 in a fan at 60% each. Novas: 3 smaller novas around you. Meteor: 3 smaller meteors around the target. Heal / Blink: twice at 60% |
+| Pierce | Projectiles pass through enemies; rays hit the next enemy too (Lightning also +1 chain); novas and meteors chain to 1 more enemy; Blink hurts enemies along its path |
+| Wide | +50% area and projectile size (Blink: +50% distance; Heal: also slows enemies around you) |
+| Echo | The spell goes off again 0.5 s later |
+| Quicken | This cast has no cooldown |
+| Burning | Hits burn enemies (self spells: burn enemies around you) |
+| Frozen | Hits slow enemies by 50% for 2 s (self spells: around you) |
+| Fumble (curse) | The spell fizzles; no cooldown spent |
+
+Extra copies from Split, Pierce and Echo never lifesteal, so lifesteal balance is unchanged.
+
+**Debug (dev mode on, F4; the game pauses):** G turns the Grimoire on or off, 1-9 / 0 / - add a card
+as Next (Shift: into the discard pile), C clears the deck, X reshuffles, P switches between starting
+decks (presets in `GrimoireConfig.cs`), B changes which cards the bolt uses, L shows the cast log
+("Cast Fireball + Split").
+
+**Add a card:** add one entry to `Cards.All` in `Grimoire/Cards.cs` (id, name, description, symbol,
+colour, category) with an `Apply` function that edits the cast (`CardContext`: change the copies'
+`CastMods`, the cooldown, add an echo or a fizzle). It then appears in rewards automatically; add it
+to `GrimoireConfig.StartingDeck` or a preset to start with it. All numbers are in
+`Grimoire/GrimoireConfig.cs`.
+
 ## How it's built (and how to add things)
 
 **Add a spell:** add an entry to `Spells/SpellBook.cs`, for example

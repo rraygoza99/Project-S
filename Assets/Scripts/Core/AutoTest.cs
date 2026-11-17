@@ -779,6 +779,315 @@ namespace Spellcaster
             }
             ClearPickups();
 
+            // ---- Grimoire (experimental deck-building cards) ----
+            {
+                var gm = Grimoire.GrimoireRun.Instance;
+                Check("Grimoire is off by default: no deck, no cast hook, no Scroll of Erasure in the shop",
+                    gm && !Settings.GrimoireEnabled && !gm.Active && gm.Deck == null && !SpellSystem.HasCastHooks && !Pickup.All.Any(p => p && p.Item == Grimoire.GrimoireShop.Erasure));
+                Settings.SetGrimoireEnabled(true);
+                yield return null;
+                var gmDeck = gm.Deck;
+                var gmGroups = gmDeck != null ? gmDeck.Grouped() : new List<(Grimoire.CardDef def, int count)>();
+                Check($"Grimoire on: starting deck {string.Join(", ", gmGroups.Select(g => g.count + " " + g.def.Name))}; hand 3, draw pile 5",
+                    gm.Active && SpellSystem.HasCastHooks && gmDeck.Count == 8 && gmDeck.Hand.Count == 3 && gmDeck.DrawPile.Count == 5 &&
+                    gmGroups.Any(g => g.def.Id == "blank" && g.count == 5) && gmGroups.Any(g => g.def.Id == "amplify" && g.count == 1) &&
+                    gmGroups.Any(g => g.def.Id == "split" && g.count == 1) && gmGroups.Any(g => g.def.Id == "echo" && g.count == 1));
+
+                // Rotation: hand -> discard, draw refills, an empty draw pile reshuffles the discard pile.
+                gm.StartDeck(new[] { "blank", "amplify", "overload", "split", "pierce" });
+                gmDeck = gm.Deck;
+                var gmFirst = gmDeck.Next;
+                var gmSecond = gmDeck.Hand[1];
+                gmDeck.PlayNext();
+                bool gmRot = gmDeck.DiscardPile.Count == 1 && gmDeck.DiscardPile[0] == gmFirst && gmDeck.Next == gmSecond && gmDeck.Hand.Count == 3 && gmDeck.DrawPile.Count == 1;
+                gmDeck.PlayNext();
+                gmDeck.PlayNext();
+                Check($"cards rotate hand -> discard -> reshuffled into the draw pile ({gmDeck.Reshuffles} reshuffle, draw {gmDeck.DrawPile.Count}, hand {gmDeck.Hand.Count})",
+                    gmRot && gmDeck.Reshuffles == 1 && gmDeck.Count == 5 && gmDeck.Hand.Count == 3 && gmDeck.DrawPile.Count == 2 && gmDeck.DiscardPile.Count == 0);
+                Check("reshuffle plays its card-HUD animation", Grimoire.GrimoireHUD.Animating);
+                yield return Shot("13a_grimoire_reshuffle");
+                gmDeck.AddToHand(Grimoire.Cards.Get("pierce"));
+                var gmCyc = gmDeck.Next;
+                gm.Cycle();
+                Check($"cycling (Q) discards the Next card unused and locks casting for {Grimoire.GrimoireConfig.CycleLockout:0.#} s",
+                    gmDeck.DiscardPile.Contains(gmCyc) && ss.CastLock > 0.9f && gmDeck.Hand.Count == 3);
+                ss.CastLock = 0f;
+                gmDeck.AddToHand(Grimoire.Cards.Get("blank"));
+                bool gmBlankStays = !gm.Cycle() && gmDeck.Next.Def.Id == "blank";
+                gmDeck.AddToHand(Grimoire.Cards.Get("fumble"));
+                bool gmCurseStays = !gm.Cycle() && gmDeck.Next.Def.Id == "fumble";
+                Check("Blank and curse cards can't be cycled away", gmBlankStays && gmCurseStays && ss.CastLock == 0f);
+                gmDeck.PlayNext();
+                gmDeck.AddToHand(Grimoire.Cards.Get("amplify"));
+                ss.FireBasic();
+                bool gmKept = gmDeck.Next.Def.Id == "amplify";
+                gmDeck.AddToHand(Grimoire.Cards.Get("blank"));
+                ss.FireBasic();
+                Check("the basic bolt only uses Blank cards; special cards wait for a spell", gmKept && gmDeck.Next.Def.Id == "amplify");
+                foreach (var pr in Projectile.All.ToArray()) Destroy(pr.gameObject); // those bolts must not hit the next target
+
+                // Amplify, on an elite (double HP) so it survives.
+                ss.ResetCooldowns();
+                var gmFb = Spell("Fireball");
+                var gmTank = SpawnAhead(player, EnemyType.Cultist, 8f, 0f);
+                yield return new WaitForSeconds(0.3f);
+                gm.MakeElite(gmTank);
+                gmTank.Freeze(6f);
+                player.LookAt(gmTank.Center);
+                float gmHp0 = gmTank.HP;
+                ss.ReadyForTest(gmFb);
+                yield return null;
+                yield return Shot("13b_grimoire_ready_tint");
+                ss.CastReadied();
+                yield return new WaitForSeconds(0.7f);
+                float gmExp = 40f * 1.5f * run.Stats.Power;
+                Check($"Amplify: Fireball hits the elite (HP {gmTank.MaxHP:0}) for {gmHp0 - gmTank.HP:0} (expected {gmExp:0}); log '{gm.LastCast}'",
+                    gmTank && gmTank.IsElite && Mathf.Approximately(gmTank.MaxHP, 120f) && Mathf.Abs(gmHp0 - gmTank.HP - gmExp) < 1f && gm.LastCast == "Fireball + Amplify");
+                var gmShard = Spell("Frost Shard");
+                ss.ResetCooldowns();
+                gmDeck.AddToHand(Grimoire.Cards.Get("frozen"));
+                ss.ReadyForTest(gmShard);
+                ss.CastReadied();
+                yield return new WaitForSeconds(0.5f);
+                bool gmSlowed = gmTank && gmTank.IsSlowed;
+                ss.ResetCooldowns();
+                gmDeck.AddToHand(Grimoire.Cards.Get("burning"));
+                ss.ReadyForTest(gmShard);
+                ss.CastReadied();
+                yield return new WaitForSeconds(0.5f);
+                Check("Frozen slows the enemy hit; Burning sets it burning", gmSlowed && gmTank && gmTank.IsBurning);
+                int gmCurses = gmDeck.AllCards.Count(c => c.Def.IsCurse);
+                if (gmTank) gmTank.TakeDamage(99999f);
+                yield return null;
+                Check("an elite's death puts a Fumble curse in the discard pile", gmDeck.AllCards.Count(c => c.Def.IsCurse) == gmCurses + 1 && gmDeck.DiscardPile.Last().Def.Id == "fumble");
+
+                // Cooldown cards, Split, Fumble, Echo.
+                ss.ResetCooldowns();
+                gmDeck.AddToHand(Grimoire.Cards.Get("overload"));
+                ss.ReadyForTest(gmFb);
+                ss.CastReadied();
+                float gmCdO = ss.CooldownRemaining(gmFb);
+                ss.ResetCooldowns();
+                gmDeck.AddToHand(Grimoire.Cards.Get("quicken"));
+                ss.ReadyForTest(gmFb);
+                ss.CastReadied();
+                Check($"Overload doubles the cooldown ({gmCdO:0.0} s, normally {SpellSystem.EffectiveCooldown(gmFb):0.0} s); Quicken leaves none",
+                    Mathf.Abs(gmCdO - 2f * SpellSystem.EffectiveCooldown(gmFb)) < 0.05f && !ss.OnCooldown(gmFb));
+                ss.ResetCooldowns();
+                int gmShots0 = FindObjectsByType<Projectile>(FindObjectsSortMode.None).Length;
+                gmDeck.AddToHand(Grimoire.Cards.Get("split"));
+                ss.ReadyForTest(gmFb);
+                ss.CastReadied();
+                int gmShots = FindObjectsByType<Projectile>(FindObjectsSortMode.None).Length - gmShots0;
+                Check($"Split: Fireball fires 3 projectiles in a fan ({gmShots})", gmShots == 3);
+                yield return Shot("13c_grimoire_split");
+                ss.ResetCooldowns();
+                int gmEv = events.Count;
+                int gmShots1 = FindObjectsByType<Projectile>(FindObjectsSortMode.None).Length;
+                gmDeck.AddToHand(Grimoire.Cards.Get("fumble"));
+                ss.ReadyForTest(gmFb);
+                ss.CastReadied();
+                Check("Fumble: the readied spell fizzles and spends no cooldown",
+                    ss.Readied == null && !ss.OnCooldown(gmFb) && FindObjectsByType<Projectile>(FindObjectsSortMode.None).Length <= gmShots1 && events.Skip(gmEv).Contains("fumble Fireball"));
+                gmEv = events.Count;
+                gmDeck.AddToHand(Grimoire.Cards.Get("echo"));
+                ss.ReadyForTest(gmFb);
+                ss.CastReadied();
+                yield return new WaitForSeconds(0.8f);
+                Check("Echo: the spell goes off again 0.5 s later", events.Skip(gmEv).Contains("echo Fireball"));
+                gs.ClearEnemies();
+                yield return new WaitForSeconds(0.6f);
+
+                // Pierce and Wide.
+                var gmA = SpawnAhead(player, EnemyType.Cultist, 4f, 0f);
+                Vector3 gmLine = gmA.transform.position - player.transform.position;
+                gmLine.y = 0f;
+                var gmB = EnemySpawner.Instance.SpawnAt(EnemyType.Cultist, gmA.transform.position + gmLine.normalized * 3f);
+                yield return new WaitForSeconds(0.3f);
+                gmA.Freeze(4f);
+                gmB.Freeze(4f);
+                player.LookAt(gmA.Center);
+                ss.ResetCooldowns();
+                gmDeck.AddToHand(Grimoire.Cards.Get("pierce"));
+                ss.ReadyForTest(gmShard);
+                ss.CastReadied();
+                yield return new WaitForSeconds(0.7f);
+                Check("Pierce: Frost Shard passes through the first enemy and hits the one behind",
+                    gmA && gmB && gmA.HP < gmA.MaxHP && gmB.HP < gmB.MaxHP);
+                gs.ClearEnemies();
+                yield return new WaitForSeconds(0.6f);
+                var gmFar = SpawnAhead(player, EnemyType.Cultist, 8f, 0f);
+                yield return new WaitForSeconds(0.3f);
+                Vector3 gmDelta = gmFar.transform.position - player.transform.position;
+                gmDelta.y = 0f;
+                float gmDist = gmDelta.magnitude;
+                ss.ResetCooldowns();
+                gmDeck.AddToHand(Grimoire.Cards.Get("wide"));
+                ss.ReadyForTest(Spell("Frost Nova"));
+                ss.CastReadied();
+                yield return null;
+                Check($"Wide: Frost Nova (6.5 m -> 9.75 m) freezes an enemy {gmDist:0.0} m away", gmDist > 6.6f && gmFar && gmFar.IsFrozen);
+                yield return Shot("13d_grimoire_wide_nova");
+                gs.ClearEnemies();
+                yield return new WaitForSeconds(0.6f);
+
+                // Heal: Amplify heals 50% more; Split heals twice at 60%.
+                player.God = false;
+                player.TakeDamage(60f);
+                float gmH0 = player.HP;
+                ss.ResetCooldowns();
+                gmDeck.AddToHand(Grimoire.Cards.Get("amplify"));
+                ss.ReadyForTest(Spell("Heal"));
+                ss.CastReadied();
+                float gmHealA = player.HP - gmH0;
+                player.TakeDamage(40f);
+                float gmH1 = player.HP;
+                ss.ResetCooldowns();
+                gmDeck.AddToHand(Grimoire.Cards.Get("split"));
+                ss.ReadyForTest(Spell("Heal"));
+                ss.CastReadied();
+                float gmHealS = player.HP - gmH1;
+                player.God = true;
+                float gmHp = 25f * run.Stats.Power;
+                Check($"Heal + Amplify heals {gmHealA:0.#} (expected {gmHp * 1.5f:0.#}); Heal + Split heals {gmHealS:0.#} (expected {gmHp * 1.2f:0.#})",
+                    Mathf.Abs(gmHealA - gmHp * 1.5f) < 0.1f && Mathf.Abs(gmHealS - gmHp * 1.2f) < 0.1f);
+
+                // Every card on every base spell and on the bolt: nothing throws, each cast is logged right.
+                Vector3 gmPos = player.transform.position;
+                float gmYaw = player.transform.eulerAngles.y;
+                int gmErrors = 0;
+                string gmFirstError = null;
+                Application.LogCallback gmLog = (msg, st, type) =>
+                {
+                    if (type != LogType.Exception && type != LogType.Error) return;
+                    gmErrors++;
+                    if (gmFirstError == null) gmFirstError = msg;
+                };
+                Application.logMessageReceived += gmLog;
+                var gmBad = new List<string>();
+                var gmBoltUse = Grimoire.GrimoireConfig.BoltUse;
+                Grimoire.GrimoireConfig.BoltUse = Grimoire.BoltCardUse.Any;
+                var gmSpells = SpellBook.Defaults();
+                foreach (var card in Grimoire.Cards.All)
+                {
+                    var gmTargets = new[] { SpawnAhead(player, EnemyType.Cultist, 6f, -1.5f), SpawnAhead(player, EnemyType.Imp, 7f, 1.5f) };
+                    yield return null;
+                    foreach (var tg in gmTargets) tg.Freeze(5f);
+                    foreach (var sp in gmSpells)
+                    {
+                        player.Teleport(gmPos, gmYaw);
+                        if (gmTargets[0]) player.LookAt(gmTargets[0].Center);
+                        gmDeck.AddToHand(card);
+                        ss.ResetCooldowns();
+                        ss.ReadyForTest(sp);
+                        ss.CastReadied();
+                        if (gm.LastCast != sp.Name + " + " + card.Name) gmBad.Add($"{sp.Name} + {card.Name} logged as {gm.LastCast}");
+                        yield return null;
+                    }
+                    player.Teleport(gmPos, gmYaw);
+                    gmDeck.AddToHand(card);
+                    ss.FireBasic();
+                    if (gm.LastCast != "Bolt + " + card.Name) gmBad.Add($"Bolt + {card.Name} logged as {gm.LastCast}");
+                    yield return new WaitForSeconds(0.6f); // echoes go off, shots land
+                    gs.ClearEnemies();
+                }
+                Application.logMessageReceived -= gmLog;
+                Grimoire.GrimoireConfig.BoltUse = gmBoltUse;
+                player.Teleport(gmPos, gmYaw);
+                Check($"every card ({Grimoire.Cards.All.Count}) works on every base spell ({gmSpells.Count}) and the bolt: {gmErrors} errors{(gmFirstError != null ? " (" + gmFirstError + ")" : "")}" +
+                    (gmBad.Count > 0 ? "; " + string.Join("; ", gmBad.Take(3)) : ""), gmErrors == 0 && gmBad.Count == 0);
+                yield return new WaitForSeconds(0.8f);
+                gs.ClearEnemies();
+                ClearPickups();
+
+                // Room reward panel: pauses the game; mouse picks a card; removal costs gold, once per panel.
+                gm.StartDeck(Grimoire.GrimoireConfig.StartingDeck);
+                gmDeck = gm.Deck;
+                var rw = gm.Rewards;
+                int gmN = gmDeck.Count;
+                rw.Open(gm);
+                yield return null;
+                yield return null;
+                bool gmPaused = gs.ForgeOpen && Time.timeScale == 0f && !gs.AcceptsGameplayInput;
+                yield return Shot("13e_grimoire_reward");
+                var gmPick = rw.Choices.Count > 1 ? rw.Choices[1] : null;
+                if (rw.ChoiceRects.Count > 1) rw.Click(rw.ChoiceRects[1].center);
+                Check($"room reward: the panel pauses the game and offers {rw.Choices.Count} non-curse cards; clicking one puts {gmPick?.Name} in the discard pile",
+                    gmPaused && rw.Choices.Count == 3 && rw.Choices.All(c => !c.IsCurse) && !rw.IsOpen && gmDeck.Count == gmN + 1 && gmDeck.DiscardPile.Last().Def == gmPick);
+                yield return null;
+                Check("closing the panel resumes the game", !gs.ForgeOpen && Time.timeScale == 1f);
+                run.Gold = 60;
+                rw.Open(gm);
+                yield return null;
+                yield return null;
+                rw.Click(rw.RemoveButton.center);
+                yield return null;
+                yield return null;
+                yield return Shot("13f_grimoire_remove");
+                var gmG0 = gmDeck.Grouped()[0];
+                if (rw.RemoveRects.Count > 0) rw.Click(rw.RemoveRects[0].center);
+                int gmLeft = gmDeck.AllCards.Count(c => c.Def == gmG0.def);
+                int gmCost = Grimoire.GrimoireConfig.RemoveCost;
+                Check($"removing a card (click) costs {gmCost} gold and takes one {gmG0.def.Name} out of the deck",
+                    gmDeck.Count == gmN && run.Gold == 60 - gmCost && gmLeft == gmG0.count - 1);
+                bool gmOnce = rw.RemoveBlocked() != null;
+                rw.Click(rw.SkipButton.center);
+                Check("only one removal per panel; Skip closes the panel", gmOnce && !rw.IsOpen);
+                run.Gold = 0;
+                rw.Open(gm);
+                rw.StartRemove();
+                Check($"removal needs {gmCost} gold (\"{rw.Message}\")", !rw.Removing && rw.Message != null && rw.Message.Contains("gold"));
+                rw.Skip();
+                yield return null;
+
+                // Scroll of Erasure: sold in the shop while the Grimoire is on; using it removes a card for free.
+                var gmScroll = Pickup.All.FirstOrDefault(p => p && p.Item == Grimoire.GrimoireShop.Erasure);
+                var gmShop = d.FirstOfType(RoomType.Shop);
+                Check($"the shop sells a Scroll of Erasure ({(gmScroll ? gmScroll.Price + " gold" : "missing")})",
+                    gmScroll && gmScroll.Price > 0 && gmShop != null && gmShop.Contains(gmScroll.transform.position, 0.5f));
+                if (gmScroll)
+                {
+                    for (int i = 0; i < Run.Slots; i++) run.Consumables[i] = null;
+                    run.Gold = gmScroll.Price + 10;
+                    bool gmBought = gmScroll.TryCollect(run) && run.Consumables[0] == Grimoire.GrimoireShop.Erasure && run.Gold == 10;
+                    int gmBefore = gmDeck.Count;
+                    run.UseConsumable(0);
+                    yield return null;
+                    yield return null;
+                    bool gmFreeOpen = rw.IsOpen && rw.IsFree && rw.Removing && run.Consumables[0] == null;
+                    yield return Shot("13f2_grimoire_erasure");
+                    if (rw.RemoveRects.Count > 0) rw.Click(rw.RemoveRects[0].center);
+                    Check("buying and using the Scroll of Erasure removes a card for free", gmBought && gmFreeOpen && !rw.IsOpen &&
+                        gmDeck.Count == gmBefore - 1 && run.Gold == 10 && run.Consumables[0] == null);
+                    run.Consumables[0] = Grimoire.GrimoireShop.Erasure;
+                    run.UseConsumable(0);
+                    rw.Back();
+                    Check("backing out of the Scroll of Erasure gives the scroll back", !rw.IsOpen && run.Consumables[0] == Grimoire.GrimoireShop.Erasure && gmDeck.Count == gmBefore - 1);
+                    run.Consumables[0] = null;
+                    yield return null;
+                }
+
+                gs.SetFocus(false);
+                yield return null;
+                yield return Shot("13g_grimoire_pause");
+                gs.ClearFocusPause();
+                yield return null;
+
+                // Off again: nothing is modified.
+                Settings.SetGrimoireEnabled(false);
+                yield return null;
+                string gmLast = gm.LastCast;
+                ss.ResetCooldowns();
+                ss.ReadyForTest(gmFb);
+                ss.CastReadied();
+                Check("Grimoire off again: cast hook gone, casts unmodified, no card used",
+                    !SpellSystem.HasCastHooks && !gm.Active && gm.LastCast == gmLast && Mathf.Abs(ss.CooldownRemaining(gmFb) - SpellSystem.EffectiveCooldown(gmFb)) < 0.01f);
+                ss.ResetCooldowns();
+                yield return new WaitForSeconds(0.8f);
+                gs.ClearEnemies();
+                ClearPickups();
+            }
+
             // ---- stats and passive items ----
             run.Acquire(Items.Get("arcane_focus"));
             run.Acquire(Items.Get("ruby_heart"));
@@ -922,6 +1231,47 @@ namespace Spellcaster
                 float trT = 0f;
                 while (trT < 4f && trFar) { trT += Time.deltaTime; yield return null; }
                 Check($"after a room is cleared, coins anywhere in it fly to you ({trT:0.0} s)", !trFar && run.Gold > trGold);
+            }
+
+            // ---- Grimoire: elites in fight rooms, reward on room clear ----
+            {
+                var gmRoom = d.AllRooms.FirstOrDefault(r => r.Type == RoomType.Combat && !r.Cleared && r != combat);
+                var gmR = Grimoire.GrimoireRun.Instance;
+                if (gmRoom == null) Log("no second fight room for the Grimoire room check");
+                else
+                {
+                    Settings.SetGrimoireEnabled(true);
+                    float gmChance = Grimoire.GrimoireConfig.EliteChance;
+                    Grimoire.GrimoireConfig.EliteChance = 1f;
+                    yield return null;
+                    int gmCurses = gmR.Deck.AllCards.Count(c => c.Def.IsCurse);
+                    EnterRoom(player, gmRoom);
+                    yield return new WaitForSeconds(1.6f);
+                    var gmElite = Enemy.All.FirstOrDefault(e => e.IsElite);
+                    Check($"Grimoire on: a fight room gets one elite ({(gmElite ? gmElite.Type.Name + ", " + gmElite.MaxHP.ToString("0") + " HP" : "none")})",
+                        gmElite && Enemy.All.Count(e => e.IsElite) == 1);
+                    if (gmElite)
+                    {
+                        player.LookAt(gmElite.Center);
+                        yield return Shot("13h_grimoire_elite");
+                    }
+                    gs.ClearEnemies();
+                    float gmT = 0f;
+                    while (gmT < 6f && !gmR.Rewards.IsOpen)
+                    {
+                        if (Enemy.All.Count > 0) gs.ClearEnemies(); // queued spawns and split-off children
+                        gmT += Time.unscaledDeltaTime;
+                        yield return null;
+                    }
+                    int gmCursesNow = gmR.Deck.AllCards.Count(c => c.Def.IsCurse);
+                    Check($"clearing a fight room opens the Grimoire reward ({gmR.Rewards.IsOpen}); the elite added a Fumble (curses {gmCurses} -> {gmCursesNow})",
+                        gmR.Rewards.IsOpen && gmCursesNow == gmCurses + 1);
+                    gmR.Rewards.Skip();
+                    Grimoire.GrimoireConfig.EliteChance = gmChance;
+                    Settings.SetGrimoireEnabled(false);
+                    yield return new WaitForSeconds(0.5f);
+                    ClearPickups();
+                }
             }
 
             // ---- special rooms ----
@@ -1119,7 +1469,7 @@ namespace Spellcaster
             var lsCast = new SpellCast(lsSpell, player);
             lsCast.Launch();
             yield return null;
-            Check($"lifesteal is capped per cast ({lsCast.DamageDealt:0} dmg -> healed {lsCast.LifestealHealed:0}, cap {SpellCast.MaxLifestealPerCast:0})",
+            Check($"lifesteal is capped per cast ({lsCast.DamageDealt:0} dmg -> healed {lsCast.LifestealHealed:0}, cap {SpellCast.MaxLifestealPerCast:0}, HP +{player.HP - lsHp:0.##}, kills {lsCast.Kills})",
                 lsCast.DamageDealt * 0.35f > SpellCast.MaxLifestealPerCast && Mathf.Approximately(lsCast.LifestealHealed, SpellCast.MaxLifestealPerCast)
                 && Mathf.Abs(player.HP - lsHp - SpellCast.MaxLifestealPerCast) < 0.01f);
             player.God = true;

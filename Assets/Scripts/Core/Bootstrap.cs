@@ -48,6 +48,7 @@ namespace Spellcaster
             root.AddComponent<MainMenu>();
             root.AddComponent<PracticeTool>();
             root.AddComponent<Tutorial>();
+            root.AddComponent<Grimoire.GrimoireRun>(); // experimental; idle unless enabled in Options
             dungeon.BuildFloor(1);
             AutoTest.TryStart(root);
             Settings.Load(); // after TryStart, so the self-test runs with default settings

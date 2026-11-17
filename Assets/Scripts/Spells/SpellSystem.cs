@@ -34,6 +34,16 @@ namespace Spellcaster
         /// <summary>Raised whenever an arrow is accepted, a spell readies, fizzles or casts (for tests/UI).</summary>
         public event System.Action<string> Event;
 
+        /// <summary>
+        /// Hook: a spell or basic bolt is about to go off; handlers may modify the request (Grimoire cards).
+        /// With no handler, casting is exactly as before.
+        /// </summary>
+        public static event System.Action<CastRequest> BeforeCast;
+        /// <summary>Hook: overrides the hands' glow colour while a spell is readied (null = spell colour).</summary>
+        public static System.Func<Color?> GlowTint;
+        /// <summary>Seconds during which nothing can be cast (set from outside, e.g. Grimoire card cycling).</summary>
+        public float CastLock;
+
         readonly Dictionary<SpellDefinition, float> cooldownLeft = new Dictionary<SpellDefinition, float>();
         readonly List<SpellDefinition> cooldownKeys = new List<SpellDefinition>();
         readonly Dictionary<SpellDefinition, float> cooldownLengths = new Dictionary<SpellDefinition, float>();
@@ -59,6 +69,7 @@ namespace Spellcaster
             boltCooldown -= dt;
             if (CooldownsTick) TickCooldowns(dt);
             Lockout = Mathf.Max(0f, Lockout - dt);
+            CastLock = Mathf.Max(0f, CastLock - dt);
             FizzleFlash = Mathf.Max(0f, FizzleFlash - dt * 3f);
             ReadyFlash = Mathf.Max(0f, ReadyFlash - dt * 2f);
             MessageTimer = Mathf.Max(0f, MessageTimer - dt);
@@ -72,7 +83,8 @@ namespace Spellcaster
                 bool held = Bindings.Held(GameAction.Channel);
                 ProcessChannelInput(held, new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y")), dt);
 
-                if (Readied != null && Bindings.Pressed(GameAction.Cast)) CastReadied();
+                if (CastLock > 0f) { }
+                else if (Readied != null && Bindings.Pressed(GameAction.Cast)) CastReadied();
                 else if (Readied == null && Bindings.Held(GameAction.Cast) && boltCooldown <= 0f) FireBasic();
             }
             else if (!AutoTest.Active) SetChanneling(false);
@@ -86,6 +98,7 @@ namespace Spellcaster
             if (!hands) return;
             hands.Casting = Channeling || Readied != null;
             Color glow = Readied != null ? Readied.Color : (Channeling ? ChannelGlow : IdleGlow);
+            if (Readied != null && GlowTint != null) { var tint = GlowTint(); if (tint.HasValue) glow = tint.Value; }
             if (Readied != null) glow.a = 0.75f + 0.25f * ReadyFlash;
             if (FizzleFlash > 0f) glow = Color.Lerp(glow, new Color(1f, 0.2f, 0.1f, 0.9f), FizzleFlash);
             hands.Glow = glow;
@@ -251,6 +264,16 @@ namespace Spellcaster
             var s = Readied;
             if (s == null || !Player.Instance) return false;
             Readied = null;
+            var req = Request(s);
+            if (req != null && req.Fizzle)
+            {
+                // The spell is lost, but no cooldown is spent.
+                FizzleFlash = 1f;
+                Sfx.Play("fizzle", 0.7f, 0.8f);
+                Flash("Fumble!");
+                Raise("fumble " + s.Name);
+                return true;
+            }
             float cd = EffectiveCooldown(s);
             castCount++;
             Progress.Add("spells_cast");
@@ -258,15 +281,49 @@ namespace Spellcaster
             if (stats.FreeCastEvery > 0 && castCount % stats.FreeCastEvery == 0) { cd = 0f; Flash("Free cast!"); } // Storm Crown
             float power = stats.Power;
             if (stats.Overcharge && Time.time - readiedAt >= 1.5f) { power *= 1.5f; Flash("Overcharged!"); }
+            if (req != null) cd = req.ResetCooldown ? 0f : cd * req.CooldownMult;
             if (cd > 0f) cooldownLeft[s] = cd; else cooldownLeft.Remove(s);
             cooldownLengths[s] = cd;
             Sfx.Play("cast", 0.6f);
             WizardHands.Instance.Kick();
-            new SpellCast(s, Player.Instance) { Power = power }.Launch();
+            if (req == null) new SpellCast(s, Player.Instance) { Power = power }.Launch();
+            else LaunchCopies(s, power, req, false);
             Raise("cast " + s.Name);
             // Echo Stone relic: sometimes the spell goes off a second time, a little weaker.
             if (Stats.EchoChance > 0f && Random.value < Stats.EchoChance) StartCoroutine(Echo(s));
+            if (req != null && req.EchoDelay > 0f) StartCoroutine(RequestEcho(s, power, req));
             return true;
+        }
+
+        /// <summary>Asks the BeforeCast handlers about a cast; null when there are none.</summary>
+        static CastRequest Request(SpellDefinition s)
+        {
+            if (BeforeCast == null) return null;
+            var req = new CastRequest { Spell = s };
+            BeforeCast(req);
+            return req;
+        }
+
+        static void LaunchCopies(SpellDefinition s, float power, CastRequest req, bool echo)
+        {
+            foreach (var m in req.Copies)
+            {
+                var mods = echo ? m.Clone() : m;
+                if (echo) mods.NoLifesteal = true; // echoes never lifesteal (balance unchanged)
+                new SpellCast(s, Player.Instance) { Power = power * mods.DamageMult, Mods = mods }.Launch();
+            }
+            if (!echo) req.AfterLaunch?.Invoke();
+        }
+
+        System.Collections.IEnumerator RequestEcho(SpellDefinition s, float power, CastRequest req)
+        {
+            yield return new WaitForSeconds(req.EchoDelay);
+            if (!Player.Instance || Player.Instance.IsDead) yield break;
+            if (s == null) FireBolts(req, true);
+            else LaunchCopies(s, power, req, true);
+            Sfx.Play("cast", 0.5f, 1.25f);
+            Flash("Echo!");
+            Raise("echo " + (s != null ? s.Name : "bolt"));
         }
 
         System.Collections.IEnumerator Echo(SpellDefinition s)
@@ -293,6 +350,12 @@ namespace Spellcaster
 
         /// <summary>Drops a readied spell (debug / tests).</summary>
         public void ClearReadied() => Readied = null;
+
+        /// <summary>Test hook: readies a spell without drawing its rune.</summary>
+        public void ReadyForTest(SpellDefinition s) => Ready(s);
+
+        /// <summary>Whether anything is attached to <see cref="BeforeCast"/> (tests: the Grimoire is fully off).</summary>
+        public static bool HasCastHooks => BeforeCast != null;
 
         public void Flash(string message)
         {
@@ -327,32 +390,66 @@ namespace Spellcaster
         {
             var stats = Stats;
             boltCooldown = stats.BoltInterval;
-            float damage = stats.BoltDamage, freezeChance = stats.BoltFreezeChance;
-            Vector3 origin = CastOrigin;
-            Vector3 aim = AimDirection(origin);
-            for (int i = 0; i <= stats.BoltSplit; i++) // Bolt Splitter: extra bolts fanned out
+            CastRequest req = null;
+            if (BeforeCast != null)
             {
-                float ang = i == 0 ? 0f : ((i + 1) / 2) * 8f * (i % 2 == 1 ? 1f : -1f);
-                SpawnBolt(origin, Quaternion.AngleAxis(ang, Vector3.up) * aim, damage, freezeChance);
+                req = new CastRequest();
+                BeforeCast(req);
+                if (req.Fizzle)
+                {
+                    FizzleFlash = 1f;
+                    Sfx.Play("fizzle", 0.6f, 0.9f);
+                    Flash("Fumble!");
+                    Raise("fumble bolt");
+                    return;
+                }
+                boltCooldown = req.ResetCooldown ? 0f : boltCooldown * req.CooldownMult;
             }
-            Sfx.Play("bolt", 0.5f, Random.Range(0.95f, 1.05f));
+            FireBolts(req, false);
             WizardHands.Instance.Kick();
+            if (req != null && req.EchoDelay > 0f) StartCoroutine(RequestEcho(null, 1f, req));
         }
 
-        void SpawnBolt(Vector3 origin, Vector3 dir, float damage, float freezeChance)
+        void FireBolts(CastRequest req, bool echo)
         {
-            Projectile.Spawn(origin, dir * BoltSpeed, BoltColor, 0.45f, 0.12f,
-                Layers.PlayerShotMask, (point, col) =>
+            var stats = Stats;
+            float freezeChance = stats.BoltFreezeChance;
+            Vector3 origin = CastOrigin;
+            Vector3 aim = AimDirection(origin);
+            var copies = req != null ? req.Copies : null;
+            int n = copies != null ? copies.Count : 1;
+            for (int c = 0; c < n; c++)
+            {
+                var mods = copies != null ? copies[c] : CastMods.None;
+                float damage = stats.BoltDamage * mods.DamageMult;
+                Vector3 dir = mods.AimYaw != 0f ? Quaternion.AngleAxis(mods.AimYaw, Vector3.up) * aim : aim;
+                for (int i = 0; i <= stats.BoltSplit; i++) // Bolt Splitter: extra bolts fanned out
                 {
-                    Combat.HitCollider(col, damage, Element.Arcane, bolt: true);
-                    var enemy = col ? col.GetComponentInParent<Enemy>() : null;
-                    if (enemy && enemy.IsAlive && freezeChance > 0f && Random.value < freezeChance)
-                    {
-                        enemy.Freeze(1.5f);
-                        Fx.Flash(enemy.Center, new Color(0.6f, 0.9f, 1f), 1.4f, 0.3f, 0.8f);
-                    }
-                    Fx.Flash(point, BoltColor, 0.6f, 0.2f, 1.5f);
-                });
+                    float ang = i == 0 ? 0f : ((i + 1) / 2) * 8f * (i % 2 == 1 ? 1f : -1f);
+                    SpawnBolt(origin, Quaternion.AngleAxis(ang, Vector3.up) * dir, damage, freezeChance, mods);
+                }
+            }
+            Sfx.Play("bolt", 0.5f, Random.Range(0.95f, 1.05f));
+            if (req != null && !echo) req.AfterLaunch?.Invoke();
+        }
+
+        void SpawnBolt(Vector3 origin, Vector3 dir, float damage, float freezeChance, CastMods mods)
+        {
+            Projectile.HitHandler hit = (point, col) =>
+            {
+                Combat.HitCollider(col, damage, Element.Arcane, bolt: true);
+                var enemy = col ? col.GetComponentInParent<Enemy>() : null;
+                if (enemy && enemy.IsAlive && freezeChance > 0f && Random.value < freezeChance)
+                {
+                    enemy.Freeze(1.5f);
+                    Fx.Flash(enemy.Center, new Color(0.6f, 0.9f, 1f), 1.4f, 0.3f, 0.8f);
+                }
+                if (enemy && enemy.IsAlive) mods.OnHit?.Invoke(enemy);
+                Fx.Flash(point, BoltColor, 0.6f, 0.2f, 1.5f);
+            };
+            var p = Projectile.Spawn(origin, dir * BoltSpeed, BoltColor, 0.45f * mods.SizeMult, 0.12f * mods.SizeMult,
+                Layers.PlayerShotMask, hit);
+            if (mods.Pierce) p.PassThroughEnemies(hit);
         }
     }
 }

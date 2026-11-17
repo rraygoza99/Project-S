@@ -31,6 +31,8 @@ namespace Spellcaster
         public static bool DevMode { get; private set; }
         /// <summary>Map key: false = hold to show (default), true = press to open / close.</summary>
         public static bool MapToggle { get; private set; }
+        /// <summary>Experimental Grimoire card system (GRIMOIRE_ENABLED). Off = the game as before.</summary>
+        public static bool GrimoireEnabled { get; private set; } = Grimoire.GrimoireConfig.EnabledByDefault;
         /// <summary>Set after the tutorial has been finished or skipped once.</summary>
         public static bool TutorialDone { get; private set; }
 
@@ -52,6 +54,7 @@ namespace Spellcaster
             ShowFps = PlayerPrefs.GetInt("show_fps", 1) == 1;
             DevMode = PlayerPrefs.GetInt("dev_mode", 0) == 1;
             MapToggle = PlayerPrefs.GetInt("map_toggle", 0) == 1;
+            GrimoireEnabled = PlayerPrefs.GetInt("grimoire_enabled", Grimoire.GrimoireConfig.EnabledByDefault ? 1 : 0) == 1;
             TutorialDone = PlayerPrefs.GetInt("tutorial_done", 0) == 1;
             Bindings.Load();
             Apply();
@@ -65,6 +68,7 @@ namespace Spellcaster
         public static void SetShowFps(bool on) { ShowFps = on; Save(); }
         public static void SetDevMode(bool on) { DevMode = on; Save(); }
         public static void SetMapToggle(bool on) { MapToggle = on; Save(); }
+        public static void SetGrimoireEnabled(bool on) { GrimoireEnabled = on; Save(); }
         public static void SetTutorialDone(bool on) { TutorialDone = on; Save(); }
 
         public static void SetFullscreen(bool on)
@@ -115,6 +119,7 @@ namespace Spellcaster
             ShowFps = true;
             DevMode = false;
             MapToggle = false;
+            GrimoireEnabled = Grimoire.GrimoireConfig.EnabledByDefault;
             Fullscreen = false;
             ResolutionW = ResolutionH = 0;
             Apply();
@@ -152,6 +157,7 @@ namespace Spellcaster
             PlayerPrefs.SetInt("show_fps", ShowFps ? 1 : 0);
             PlayerPrefs.SetInt("dev_mode", DevMode ? 1 : 0);
             PlayerPrefs.SetInt("map_toggle", MapToggle ? 1 : 0);
+            PlayerPrefs.SetInt("grimoire_enabled", GrimoireEnabled ? 1 : 0);
             PlayerPrefs.SetInt("tutorial_done", TutorialDone ? 1 : 0);
             PlayerPrefs.Save();
         }

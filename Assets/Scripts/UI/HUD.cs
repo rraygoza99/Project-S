@@ -20,6 +20,9 @@ namespace Spellcaster
         /// <summary>Map open in toggle mode (Options > Map key: Toggle).</summary>
         public static bool MapToggled;
 
+        /// <summary>Hooks for optional systems (Grimoire): (W, H, u). Gameplay overlay, full-screen panels, pause screen.</summary>
+        public static event System.Action<float, float, float> DrawOverlay, DrawPanels, DrawPauseExtra;
+
         void Update()
         {
             float dt = Mathf.Max(Time.unscaledDeltaTime, 1e-4f);
@@ -100,6 +103,7 @@ namespace Spellcaster
                 DrawSpellPanel(W, H, u, spells);
                 DrawCastingInput(W, H, u, spells);
             }
+            DrawOverlay?.Invoke(W, H, u);
 
             if (player && gs.InRun) DrawInteractPrompt(W, H, u, player);
             if (run && run.ToastTimer > 0f && !gs.Paused) DrawToast(W, H, u, run);
@@ -121,6 +125,7 @@ namespace Spellcaster
             if (showMap && dungeon) DrawBigMap(W, H, u, dungeon, run);
 
             if (SpellForgeUI.Instance) SpellForgeUI.Instance.Draw();
+            DrawPanels?.Invoke(W, H, u);
 
             if (gs.Phase == Phase.Dead) DrawEnd(W, H, u, gs, false);
             else if (gs.Phase == Phase.Victory) DrawEnd(W, H, u, gs, true);
@@ -129,6 +134,7 @@ namespace Spellcaster
                 Fill(new Rect(0, 0, W, H), new Color(0, 0, 0, 0.6f));
                 Shadowed(new Rect(0, H * 0.08f, W, 6 * u), (gs.FocusPaused ? "Paused (window lost focus)" : "Paused") + " - click to resume\nQ: main menu", Centered);
                 if (run) DrawItemList(W * 0.3f, H * 0.24f, W * 0.4f, u, run, true);
+                DrawPauseExtra?.Invoke(W, H, u);
             }
         }
 
