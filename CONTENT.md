@@ -1,10 +1,11 @@
-# Spellcaster content list (v0.12)
+# Spellcaster content list (v0.13)
 
 Everything currently in the game, read from the code. **Locked** means it only appears in runs after
 you earn the achievement shown (see `Assets/Scripts/Core/Progress.cs`).
 
 Totals: 12 spells (6 locked at first), 12 runes, 29 items (13 locked at first, 1 Grimoire only),
-3 pickups, 11 Grimoire cards, 3 floors, 13 enemies and 3 bosses, 2 casting styles, online co-op for 2-6 players.
+3 pickups, 11 Grimoire cards, 3 scenarios rotating in an endless dungeon, 13 enemies and 3 bosses, 2 casting styles,
+online co-op for 2-6 players.
 
 ## Spells and their runes
 
@@ -105,7 +106,7 @@ Defined in `Assets/Scripts/Loot/Items.cs`.
 | Gold pile | Worth 5 gold | – |
 | Heart | Restores 20 HP | 6 |
 
-## Floors
+## Floors (endless)
 
 Three scenarios, each with its own look, room layouts, hazards, enemies and boss. Defined in
 `Assets/Scripts/Level/Scenarios.cs`, `Assets/Scripts/Level/FloorThemes.cs`, `Assets/Scripts/Level/Hazards.cs`
