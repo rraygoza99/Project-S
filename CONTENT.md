@@ -1,4 +1,4 @@
-# Spellcaster content list (v0.13)
+# Spellcaster content list (v0.14)
 
 Everything currently in the game, read from the code. **Locked** means it only appears in runs after
 you earn the achievement shown (see `Assets/Scripts/Core/Progress.cs`).
@@ -123,6 +123,13 @@ and leads deeper. From floor 4 on:
 | Difficulty | Floors 2-3: enemy HP +40% and damage +25% per floor. From floor 4: HP +25% and damage +12% per floor (damage capped at x3); waves grow until 22 enemies |
 | Rewards | From floor 4: coin drops +15% per deep floor, 2 boss reward items, and a 25% heal on arrival |
 | Record | The death screen and the main menu show your deepest floor |
+
+Enemy strength by floor (from `Level/Difficulty.cs`):
+
+| Floor | 1 | 2 | 3 | 4 | 5 | 6 | 8 | 10 | 15 |
+|---|---|---|---|---|---|---|---|---|---|
+| Enemy HP | x1 | x1.4 | x1.8 | x2.05 | x2.3 | x2.55 | x3.05 | x3.55 | x4.8 |
+| Enemy damage | x1 | x1.25 | x1.5 | x1.62 | x1.74 | x1.86 | x2.1 | x2.34 | x2.94 |
 
 The same seed always gives the same floors (saves and co-op agree).
 
