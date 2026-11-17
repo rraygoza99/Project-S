@@ -78,6 +78,7 @@ namespace Spellcaster
             var p = go.AddComponent<Player>();
             p.Cam = cam;
             p.IsLocal = local;
+            p.Mode = local ? Control.Local : Control.Simulated;
             p.Run = go.AddComponent<Run>();
             p.Run.Bind(p);
             if (local)
@@ -88,6 +89,7 @@ namespace Spellcaster
                     s => p.HP = Mathf.Clamp(s.hp, 1f, p.MaxHP)));
                 go.AddComponent<WizardHands>();
             }
+            else go.AddComponent<PlayerAvatar>(); // how this player looks to everyone else
             Players.Add(p);
             return p;
         }
@@ -107,14 +109,56 @@ namespace Spellcaster
             if (IsLocal && !AutoTest.Active && GameState.SkipTitleOnLoad) LockCursor();
         }
 
+        // ---------------- movement: input, then one simulation step ----------------
+
+        /// <summary>Who moves this player: this PC (local), the host from received inputs, or snapshots (others on a client).</summary>
+        public enum Control { Local, Simulated, Interpolated }
+        public Control Mode = Control.Local;
+
+        /// <summary>One frame of movement input. The local player makes one per frame; the host replays a client's.</summary>
+        public struct MoveInput
+        {
+            public uint seq;
+            public float dt;
+            public float yaw, pitch;
+            public Vector2 wish;      // x = right, y = forward, length up to 1 (keys already masked)
+            public byte flags;
+            public Vector2 autoDir;   // Momentum run direction relative to the camera (x, z)
+        }
+        public const byte FlagChanneling = 1, FlagAutoForward = 2, FlagHoldStill = 4, FlagCasting = 8;
+
+        /// <summary>Everything a replay needs to continue from (host state for reconciliation).</summary>
+        public struct SimState
+        {
+            public Vector3 pos, planar;
+            public float vertical, decel, chill;
+            public bool wasAuto, wasStill;
+        }
+
+        /// <summary>The input this PC made last frame (sent to the host by NetPlayers).</summary>
+        public MoveInput LastInput { get; private set; }
+        uint inputSeq;
+        /// <summary>Casting (hands up) as seen by others: set from input flags for remote players.</summary>
+        public bool NetCasting { get; private set; }
+
         void Update()
         {
             float dt = Time.deltaTime;
             HurtFlash = Mathf.Max(0f, HurtFlash - dt * 2.5f);
             HealFlash = Mathf.Max(0f, HealFlash - dt * 1.5f);
             if (IsLocal) HandleCursor();
-            if (IsDead) return;
+            if (IsDead || Mode != Control.Local) return; // others are moved by the network
 
+            var input = GatherInput(dt);
+            Simulate(input);
+            LastInput = input;
+            Net.NetPlayers.RecordLocal(this, input);
+            if (IsLocal) UpdateCue(dt, lastAutoSpeed);
+        }
+
+        /// <summary>Reads mouse look and the movement keys into a MoveInput (local player).</summary>
+        MoveInput GatherInput(float dt)
+        {
             bool gameplay = GameState.Instance.AcceptsGameplayInput;
             // While channeling, the mouse draws the rune instead of turning the view.
             if (Cursor.lockState == CursorLockMode.Locked && InputEnabled && gameplay && !Channeling)
@@ -123,43 +167,81 @@ namespace Spellcaster
                 Yaw += Input.GetAxisRaw("Mouse X") * sens;
                 Pitch = Mathf.Clamp(Pitch - Input.GetAxisRaw("Mouse Y") * sens * (Settings.InvertY ? -1f : 1f), -85f, 85f);
             }
-            ApplyLook();
 
             // Momentum casting just ended: keys still held don't move you until pressed again
             // (or until the slow-down is over), so letting go never jerks you sideways.
-            if ((wasAuto && !AutoForward) || (wasStill && !HoldStill)) BeginDecel();
-            wasAuto = AutoForward;
-            wasStill = HoldStill;
-            if (AutoForward) decelTimer = 0f;
-            else if (decelTimer > 0f)
-            {
-                decelTimer -= dt;
-                if (decelTimer <= 0f) for (int i = 0; i < 4; i++) masked[i] = false;
-            }
+            bool decelStarts = (gatherWasAuto && !AutoForward) || (gatherWasStill && !HoldStill);
+            if (decelStarts) MaskHeldKeys();
+            else if (!AutoForward && decelTimer <= 0f) for (int i = 0; i < 4; i++) masked[i] = false; // the slow-down is over
+            gatherWasAuto = AutoForward;
+            gatherWasStill = HoldStill;
 
-            // WASD moves (in Momentum casting mode they type the rune instead); channeling slows you down.
-            Vector3 wish = Vector3.zero;
+            // WASD moves (in Momentum casting mode they type the rune instead).
+            Vector2 wish = Vector2.zero;
             if (InputEnabled && gameplay && !AutoForward && !HoldStill)
             {
                 for (int i = 0; i < 4; i++) if (masked[i] && !Bindings.Held(MoveActions[i])) masked[i] = false;
-                if (Bindings.Held(GameAction.MoveForward) && !masked[0]) wish.z += 1;
-                if (Bindings.Held(GameAction.MoveBack) && !masked[2]) wish.z -= 1;
+                if (Bindings.Held(GameAction.MoveForward) && !masked[0]) wish.y += 1;
+                if (Bindings.Held(GameAction.MoveBack) && !masked[2]) wish.y -= 1;
                 if (Bindings.Held(GameAction.MoveRight) && !masked[3]) wish.x += 1;
                 if (Bindings.Held(GameAction.MoveLeft) && !masked[1]) wish.x -= 1;
             }
+            if (ForcedWish.HasValue) wish = ForcedWish.Value; // tests drive movement without a keyboard
             if (wish.sqrMagnitude > 1f) wish.Normalize();
-            if (Channeling) wish *= ChannelSpeedFactor;
+
+            byte flags = 0;
+            if (Channeling) flags |= FlagChanneling;
+            if (AutoForward) flags |= FlagAutoForward;
+            if (HoldStill) flags |= FlagHoldStill;
+            var ss = SpellSystem.Instance;
+            if (ss && (ss.Channeling || ss.Readied != null)) flags |= FlagCasting;
+            return new MoveInput
+            {
+                seq = ++inputSeq, dt = dt, yaw = Yaw, pitch = Pitch, wish = wish, flags = flags,
+                autoDir = new Vector2(AutoDir.x, AutoDir.z),
+            };
+        }
+
+        float lastAutoSpeed;
+        bool gatherWasAuto, gatherWasStill;
+        /// <summary>Test hook: movement input to use instead of the keys (x = right, y = forward).</summary>
+        public Vector2? ForcedWish;
+
+        /// <summary>
+        /// One movement step from an input: the same code runs for the local player, for the host replaying a
+        /// client's inputs, and for a client replaying its own unconfirmed inputs after a correction.
+        /// </summary>
+        public void Simulate(MoveInput input)
+        {
+            float dt = Mathf.Clamp(input.dt, 0f, 0.1f);
+            Yaw = input.yaw;
+            Pitch = Mathf.Clamp(input.pitch, -85f, 85f);
+            ApplyLook();
+            bool auto = (input.flags & FlagAutoForward) != 0, still = (input.flags & FlagHoldStill) != 0;
+            bool chan = (input.flags & FlagChanneling) != 0;
+            if (Mode != Control.Local) NetCasting = (input.flags & FlagCasting) != 0;
+
+            if ((wasAuto && !auto) || (wasStill && !still)) decelTimer = MomentumConfig.RampOut;
+            wasAuto = auto;
+            wasStill = still;
+            if (auto) decelTimer = 0f;
+            else if (decelTimer > 0f) decelTimer -= dt;
+
+            Vector3 wish = auto || still ? Vector3.zero : new Vector3(input.wish.x, 0f, input.wish.y);
+            if (wish.sqrMagnitude > 1f) wish.Normalize();
+            if (chan) wish *= ChannelSpeedFactor;
 
             float speed = Run ? Run.MoveSpeed : MoveSpeed;
             ChillTimer = Mathf.Max(0f, ChillTimer - dt);
             if (ChillTimer > 0f) speed *= ChillSpeedFactor; // a frost crystal burst next to you
             float accel = Acceleration;
             float autoSpeed = speed * MomentumConfig.SpeedMultiplier;
-            if (AutoForward)
+            lastAutoSpeed = autoSpeed;
+            if (auto)
             {
                 // Momentum: keep running the way you were going when the cast started (relative to the
                 // camera, so the mouse steers), with a short speed-up.
-                wish = AutoDir;
+                wish = new Vector3(input.autoDir.x, 0f, input.autoDir.y);
                 speed = autoSpeed;
                 accel = autoSpeed / Mathf.Max(0.01f, MomentumConfig.RampIn);
             }
@@ -168,9 +250,56 @@ namespace Spellcaster
             // Ice patches (floor 2): you keep sliding and steer slowly.
             Grip = IcePatch.GripAt(transform.position);
             planarVelocity = Vector3.MoveTowards(planarVelocity, target, accel * Grip * dt);
-            if (IsLocal) UpdateCue(dt, autoSpeed);
             verticalVelocity = cc.isGrounded ? -2f : verticalVelocity - 20f * dt;
             cc.Move((planarVelocity + Vector3.up * verticalVelocity) * dt);
+        }
+
+        public SimState GetSimState() => new SimState
+        {
+            pos = transform.position, planar = planarVelocity, vertical = verticalVelocity,
+            decel = decelTimer, chill = ChillTimer, wasAuto = wasAuto, wasStill = wasStill,
+        };
+
+        public void SetSimState(SimState s)
+        {
+            cc.enabled = false;
+            transform.position = s.pos;
+            cc.enabled = true;
+            planarVelocity = s.planar;
+            verticalVelocity = s.vertical;
+            decelTimer = s.decel;
+            ChillTimer = s.chill;
+            wasAuto = s.wasAuto;
+            wasStill = s.wasStill;
+        }
+
+        /// <summary>Snapshot playback for another player on a client: no physics, just where the host says.</summary>
+        public void SetInterpolated(Vector3 pos, float yaw, float pitch, bool casting)
+        {
+            transform.position = pos;
+            Yaw = yaw;
+            Pitch = Mathf.Clamp(pitch, -85f, 85f);
+            ApplyLook();
+            NetCasting = casting;
+        }
+
+        // ---------------- identity (co-op) ----------------
+
+        /// <summary>The lobby id of this player (-1 offline).</summary>
+        public int NetId = -1;
+        public string DisplayName = "";
+        public int ColorIndex;
+        /// <summary>This player's colour: their sprite's robe and their spell glow.</summary>
+        public Color Color => PlayerColors.Get(ColorIndex);
+
+        /// <summary>A client's view of its HP comes from the host (only the host applies damage).</summary>
+        public void SetNetHealth(float hp)
+        {
+            if (Mathf.Approximately(hp, HP)) return;
+            if (hp < HP - 0.01f) HurtFlash = 1f;
+            bool wasAlive = !IsDead;
+            HP = Mathf.Max(0f, hp);
+            if (wasAlive && IsDead && GameState.Instance) GameState.Instance.OnPlayerDied(this);
         }
 
         // ---------------- Momentum casting style ----------------
@@ -200,9 +329,8 @@ namespace Spellcaster
         bool camBaseSet;
 
         /// <summary>Movement keys held right now are ignored until pressed again (or the slow-down ends).</summary>
-        void BeginDecel()
+        void MaskHeldKeys()
         {
-            decelTimer = MomentumConfig.RampOut;
             for (int i = 0; i < 4; i++) masked[i] = Bindings.Held(MoveActions[i]);
         }
 
@@ -210,9 +338,10 @@ namespace Spellcaster
         public void StopNow()
         {
             AutoForward = false;
-            wasAuto = false;
+            wasAuto = gatherWasAuto = false;
             planarVelocity = Vector3.zero;
-            BeginDecel();
+            decelTimer = MomentumConfig.RampOut;
+            MaskHeldKeys();
         }
 
         /// <summary>Test hook: how many of the four movement keys are being ignored after Momentum casting.</summary>
@@ -295,6 +424,7 @@ namespace Spellcaster
         public void TakeDamage(float amount)
         {
             if (IsDead || amount <= 0f) return;
+            if (Net.NetSession.IsClientOnly) return; // in multiplayer the host decides damage; HP comes from it
             if (Run) amount *= Run.Stats.DamageTaken;
             HurtFlash = 1f;
             Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f));

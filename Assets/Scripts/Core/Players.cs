@@ -54,6 +54,13 @@ namespace Spellcaster
             return best;
         }
 
+        /// <summary>The player with this lobby id (multiplayer), or null.</summary>
+        public static Player ByNetId(int id)
+        {
+            foreach (var p in All) if (p && p.NetId == id) return p;
+            return null;
+        }
+
         public static float FlatSqr(Vector3 a, Vector3 b)
         {
             float x = a.x - b.x, z = a.z - b.z;

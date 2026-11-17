@@ -84,7 +84,12 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
 - **Different versions can't play together**; full lobbies and runs in progress refuse joins.
 - **Direct IP (debug):** with Options > Dev mode on, copies of the game connect by address
   (127.0.0.1:7777 on one PC) without Steam.
-- Starting the run puts everyone on the same seeded floor. Seeing each other in the world comes next.
+- Starting the run puts everyone in the start room of the same seeded floor. You see the other players as
+  wizards in their own colour (8 directions, so you can tell which way they face), with their name and a
+  small health bar; they raise their staff and glow while casting. Your own movement is instant (the
+  host checks it and corrects it if needed); the others move smoothly. Only the host applies damage.
+  Enemies and fights are still host-only for now (replicating them is the next phase), so a joining
+  player's world has no enemies yet.
 - In a multiplayer session the pause menu doesn't stop the game, and only the host saves.
 
 ## Controls

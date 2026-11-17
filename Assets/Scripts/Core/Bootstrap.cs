@@ -21,7 +21,7 @@ namespace Spellcaster
         static void Build()
         {
             QualitySettings.vSyncCount = 1;
-            Application.targetFrameRate = -1;
+            Application.targetFrameRate = Application.isBatchMode ? 60 : -1; // a windowless copy (tests) needn't spin flat out
             Time.maximumDeltaTime = 0.1f; // a long hitch (alt-tab, loading) is never one giant simulation step
             Materials.SetFog(FogColor, 5f, 30f);
 
@@ -38,6 +38,7 @@ namespace Spellcaster
             present.depth = -100;
 
             Net.NetSession.Ensure(); // Steam and the online session: built once, kept across reloads
+            Physics.IgnoreLayerCollision(Layers.Player, Layers.Player); // players walk through each other (no shoving over the network)
             var player = Player.Create(new Vector3(0f, 0.1f, -3f));
             Sfx.Init(player.Cam.gameObject);
 

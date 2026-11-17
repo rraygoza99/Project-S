@@ -52,7 +52,7 @@ namespace Spellcaster.Net
         public CSteamID SteamLobby { get; private set; } = CSteamID.Nil;
 
         /// <summary>What starting the run does on each player (tests replace it).</summary>
-        public static Action<int> StartRunHandler;
+        public static Action<StartRunMsg> StartRunHandler;
         /// <summary>How many players (host included) reported their run started (host only).</summary>
         public int StartAcks { get; private set; }
 
@@ -110,6 +110,34 @@ namespace Spellcaster.Net
             bool on = InSession;
             if (on != sessionWas) GameState.Multiplayer = on;
             sessionWas = on;
+            NetPlayers.Tick();
+            if (reportMode && NetPlayers.Running && NetworkClient.isConnected && (reportTimer -= Time.unscaledDeltaTime) <= 0f)
+            {
+                reportTimer = 0.5f;
+                var me = Player.Instance;
+                Player other = null;
+                foreach (var p in Players.All) if (p && !p.IsLocal) { other = p; break; }
+                if (me) NetworkClient.Send(new DebugReportMsg
+                {
+                    pos = me.transform.position, hp = me.HP, players = Players.All.Count,
+                    corrections = NetPlayers.Corrections, lastError = NetPlayers.LastError, states = NetPlayers.StatesReceived,
+                    otherPos = other ? other.transform.position : Vector3.zero,
+                });
+            }
+        }
+
+        /// <summary>Test only: the latest report from each client (host).</summary>
+        public readonly Dictionary<int, DebugReportMsg> Reports = new Dictionary<int, DebugReportMsg>();
+        bool reportMode, walkTest;
+        float reportTimer;
+
+        /// <summary>Test only (-netwalk): a moment after the run starts, walk forward for two seconds.</summary>
+        IEnumerator WalkTest()
+        {
+            yield return new WaitForSecondsRealtime(1f);
+            if (Player.Instance) Player.Instance.ForcedWish = Vector2.up;
+            yield return new WaitForSecondsRealtime(2f);
+            if (Player.Instance) Player.Instance.ForcedWish = null;
         }
 
         // ---------------- host ----------------
@@ -204,6 +232,7 @@ namespace Spellcaster.Net
             MyId = -1;
             InRun = false;
             Status = null;
+            NetPlayers.EndRun();
         }
 
         // ---------------- lobby actions ----------------
@@ -228,7 +257,10 @@ namespace Spellcaster.Net
             StartAcks = 0;
             if (SteamService.Ready && SteamLobby != CSteamID.Nil) SteamMatchmaking.SetLobbyJoinable(SteamLobby, false);
             BroadcastRoster();
-            NetworkServer.SendToAll(new StartRunMsg { seed = RunRandom.NewSeed() });
+            int seed = RunRandom.NewSeed();
+            var players = Roster.ToArray();
+            foreach (var conn in NetworkServer.connections.Values)
+                conn.Send(new StartRunMsg { seed = seed, players = players, yourId = conn.connectionId });
             return true;
         }
 
@@ -245,6 +277,8 @@ namespace Spellcaster.Net
             NetworkServer.ReplaceHandler<HelloMsg>(OnHello, false);
             NetworkServer.ReplaceHandler<ReadyMsg>(OnReady);
             NetworkServer.ReplaceHandler<RunStartedMsg>(OnRunStarted);
+            NetworkServer.ReplaceHandler<InputBatchMsg>(NetPlayers.OnInputs);
+            NetworkServer.ReplaceHandler<DebugReportMsg>((c, m) => { if (AutoTest.Active) Reports[c.connectionId] = m; });
         }
 
         /// <summary>Why a player can't join, or null. (Also the test hook.)</summary>
@@ -287,6 +321,7 @@ namespace Spellcaster.Net
         public override void OnServerDisconnect(NetworkConnectionToClient conn)
         {
             int removed = Roster.RemoveAll(r => r.id == conn.connectionId);
+            if (NetPlayers.Running) NetPlayers.RemovePlayer(conn.connectionId);
             base.OnServerDisconnect(conn);
             if (removed > 0) BroadcastRoster();
         }
@@ -319,6 +354,7 @@ namespace Spellcaster.Net
             NetworkClient.ReplaceHandler<RosterMsg>(OnRoster, false);
             NetworkClient.ReplaceHandler<RejectMsg>(OnReject, false);
             NetworkClient.ReplaceHandler<StartRunMsg>(OnStartRunMsg, false);
+            NetworkClient.ReplaceHandler<PlayerStatesMsg>(NetPlayers.OnStates, false);
         }
 
         public override void OnClientConnect()
@@ -339,6 +375,10 @@ namespace Spellcaster.Net
             InRun = msg.inRun;
             MyId = msg.yourId;
             if (autoReady && !MyReady) SetReady(true);
+            // Someone left during the run: their character goes (the host already removed it on its side).
+            if (NetPlayers.Running && !NetworkServer.active)
+                foreach (var p in Players.All.ToArray())
+                    if (p && !p.IsLocal && p.NetId >= 0 && !Roster.Any(r => r.id == p.NetId)) NetPlayers.RemovePlayer(p.NetId);
         }
 
         void OnReject(RejectMsg msg)
@@ -350,14 +390,15 @@ namespace Spellcaster.Net
         void OnStartRunMsg(StartRunMsg msg)
         {
             InRun = true;
-            (StartRunHandler ?? DefaultStartRun)(msg.seed);
+            (StartRunHandler ?? DefaultStartRun)(msg);
             NetworkClient.Send(new RunStartedMsg { seed = msg.seed });
             if (quitAfterStart) StartCoroutine(QuitSoon());
+            if (walkTest) StartCoroutine(WalkTest());
         }
 
-        static void DefaultStartRun(int seed)
+        static void DefaultStartRun(StartRunMsg msg)
         {
-            if (MainMenu.Instance) MainMenu.Instance.BeginNetworkRun(seed);
+            if (MainMenu.Instance) MainMenu.Instance.BeginNetworkRun(msg);
         }
 
         public override void OnClientDisconnect()
@@ -377,6 +418,7 @@ namespace Spellcaster.Net
             Roster.Clear();
             MyId = -1;
             Status = null;
+            NetPlayers.EndRun();
             bool inGame = GameState.Instance && GameState.Instance.InRun;
             InRun = false;
             if (!wasLeaving && inGame) GameState.Instance.ToMenu(); // the session is over: back to the menu with the reason
@@ -527,6 +569,8 @@ namespace Spellcaster.Net
                 else if (a == "-netjoin" && next != null) JoinDirect(next);
                 else if (a == "-netready") autoReady = true;
                 else if (a == "-netquitafterstart") quitAfterStart = true;
+                else if (a == "-netreport") reportMode = true;
+                else if (a == "-netwalk") walkTest = true;
             }
         }
 

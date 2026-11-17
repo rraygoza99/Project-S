@@ -349,7 +349,8 @@ namespace Spellcaster
         public static void PlaceAllPlayers(Vector3 at)
         {
             int i = 0;
-            foreach (var p in Players.All.ToArray())
+            // In co-op every PC places players in lobby-slot order, so everyone agrees on the spots.
+            foreach (var p in Players.All.OrderBy(q => q && q.NetId >= 0 ? q.ColorIndex : q && q.IsLocal ? -1 : 99).ToArray())
             {
                 if (!p) continue;
                 float side = i == 0 ? 0f : ((i + 1) / 2) * (i % 2 == 1 ? 1.5f : -1.5f);

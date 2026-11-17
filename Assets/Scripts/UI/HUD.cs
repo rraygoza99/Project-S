@@ -428,6 +428,7 @@ namespace Spellcaster
 
         static void DrawWorldLabels(float W, float H, float u, Player player)
         {
+            DrawPlayerTags(W, H, u, player);
             var st = new GUIStyle(Label) { alignment = TextAnchor.MiddleCenter };
             foreach (var p in Pickup.All)
             {
@@ -437,6 +438,28 @@ namespace Spellcaster
                 bool afford = Run.Instance && Run.Instance.Gold >= p.Price;
                 st.normal.textColor = afford ? new Color(1f, 0.85f, 0.3f) : new Color(0.8f, 0.45f, 0.4f);
                 Shadowed(new Rect(s.x - 5 * u, s.y - u, 10 * u, 2 * u), $"{p.Price}g", st);
+            }
+        }
+
+        /// <summary>Co-op: each other player's name in their colour and a small health bar above their head.</summary>
+        static void DrawPlayerTags(float W, float H, float u, Player me)
+        {
+            var st = new GUIStyle(Small) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            foreach (var p in Players.All)
+            {
+                if (!p || p.IsLocal) continue;
+                var avatar = p.GetComponent<PlayerAvatar>();
+                Vector3 at = (avatar ? avatar.ShownPosition : p.transform.position) + Vector3.up * 2.25f;
+                float dist = Vector3.Distance(at, me.Cam.transform.position);
+                if (dist > 45f || !ToScreen(me, at, W, H, out var s)) continue;
+                float scale = Mathf.Clamp(8f / Mathf.Max(dist, 1f), 0.6f, 1.2f);
+                st.normal.textColor = Color.Lerp(p.Color, Color.white, 0.35f);
+                string name = string.IsNullOrEmpty(p.DisplayName) ? "Player" : p.DisplayName;
+                Shadowed(new Rect(s.x - 12f * u, s.y - 2.6f * u * scale, 24f * u, 2f * u), p.IsDead ? name + " (down)" : name, st);
+                var bar = new Rect(s.x - 3f * u * scale, s.y - 0.4f * u, 6f * u * scale, Mathf.Max(3f, 0.45f * u));
+                Fill(bar, new Color(0f, 0f, 0f, 0.6f));
+                float hp = p.MaxHP > 0f ? Mathf.Clamp01(p.HP / p.MaxHP) : 0f;
+                Fill(new Rect(bar.x, bar.y, bar.width * hp, bar.height), hp > 0.35f ? new Color(0.35f, 0.9f, 0.4f) : new Color(1f, 0.35f, 0.25f));
             }
         }
 

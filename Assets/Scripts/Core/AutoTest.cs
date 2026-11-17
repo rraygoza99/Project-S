@@ -58,7 +58,7 @@ namespace Spellcaster
                     mpVMis != null && mpVMis.Contains("Version") && mpVFull != null && mpVFull.Contains("full") && mpVRun != null && mpVRun.Contains("progress") && mpVOk == null);
 
                 int mpSeed = 0;
-                Net.NetSession.StartRunHandler = s => mpSeed = s; // don't start this copy's run: the test goes on in single-player
+                Net.NetSession.StartRunHandler = m => mpSeed = m.seed; // don't start this copy's run: the test goes on in single-player
                 bool mpHosted = mpNs.HostDirect(Net.NetConfig.DebugPort, 4);
                 for (int mpF = 0; mpF < 30 && mpNs.Roster.Count < 1; mpF++) yield return null;
                 Check($"hosting (debug direct-IP): the host is in its own lobby ({mpNs.Roster.Count} player, {mpNs.Roster.FirstOrDefault().name}), multiplayer mode on",
@@ -2230,6 +2230,87 @@ namespace Spellcaster
                 yield return Shot("23b_pause_seed");
                 gs.ClearFocusPause();
                 yield return null;
+            }
+
+            // ---- co-op in the world: a second copy of the game walks around with us (debug direct IP) ----
+            {
+                gs.ForcePlayingForTest();
+                var ws = Net.NetSession.Instance;
+                var wsStart = default(Net.StartRunMsg);
+                Net.NetSession.StartRunHandler = m =>
+                {
+                    // This copy is mid-test (not on the menu): set up the run the way BeginNetworkRun does.
+                    wsStart = m;
+                    Net.NetPlayers.SetupRun(m.players, m.yourId);
+                    RunRandom.RunSeed = m.seed;
+                    d.BuildFloor(1);
+                };
+                player.God = true;
+                ws.HostDirect(Net.NetConfig.DebugPort, 4);
+                string wsExe = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Spellcaster.exe");
+                System.Diagnostics.Process wsClient = null;
+                try
+                {
+                    wsClient = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -logFile \"{Path.Combine(outDir, "net_client2.log")}\"") { UseShellExecute = false });
+                }
+                catch (Exception wsEx) { Debug.LogWarning("[AutoTest] couldn't start a second copy: " + wsEx.Message); }
+                float wsT = 0f;
+                while (wsT < 45f && !(ws.Roster.Count == 2 && ws.AllReady)) { wsT += Time.unscaledDeltaTime; yield return null; }
+                bool wsRun = ws.StartRun();
+                wsT = 0f;
+                while (wsT < 10f && ws.StartAcks < 2) { wsT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(0.5f);
+                var wsOther = Players.All.FirstOrDefault(p => p && !p.IsLocal);
+                int wsClientId = wsOther ? wsOther.NetId : -1;
+                Check($"co-op run: everyone spawns in the start room, the other player has a name, colour and sprite ({(wsOther ? wsOther.DisplayName : "none")}, colour {(wsOther ? wsOther.ColorIndex : -1)})",
+                    wsRun && Players.All.Count == 2 && wsOther && wsOther.Mode == Player.Control.Simulated && wsOther.GetComponent<PlayerAvatar>()
+                    && wsOther.ColorIndex == 1 && !string.IsNullOrEmpty(wsOther.DisplayName) && d.Current == d.Rooms[Vector2Int.zero]
+                    && d.Current.Contains(wsOther.transform.position, 0f));
+                Vector3 wsFrom = wsOther ? wsOther.transform.position : Vector3.zero;
+                if (wsOther) player.LookAt(wsOther.ChestPosition);
+                yield return null;
+                yield return Shot("25_coop_other_player");
+
+                // The client walks forward on its own PC; the host replays its inputs.
+                wsT = 0f;
+                while (wsT < 8f && wsOther && Vector3.Distance(wsOther.transform.position, wsFrom) < 3f) { wsT += Time.unscaledDeltaTime; yield return null; }
+                Vector3 wsMoved = wsOther ? wsOther.transform.position - wsFrom : Vector3.zero;
+                if (wsOther) player.LookAt(wsOther.ChestPosition);
+                yield return Shot("25b_coop_walking");
+                Check($"the other player's movement reaches the host ({wsMoved.magnitude:0.0} m, heading {wsMoved.normalized.x:0.00}, {wsMoved.normalized.z:0.00})",
+                    wsMoved.magnitude >= 3f && wsMoved.z > 2.5f);
+                yield return new WaitForSecondsRealtime(2.5f); // it stops walking; let a report arrive
+                ws.Reports.TryGetValue(wsClientId, out var wsRep);
+                float wsGap = wsOther ? Vector3.Distance(wsRep.pos, wsOther.transform.position) : 99f;
+                Check($"the client's own (predicted) position agrees with the host's ({wsGap:0.00} m apart, {wsRep.corrections} corrections, last error {wsRep.lastError:0.000} m, {wsRep.states} state updates)",
+                    wsRep.states > 0 && wsGap < 0.3f);
+
+                // The host moves: the client sees it (interpolated).
+                player.Teleport(player.transform.position + new Vector3(2f, 0f, 1f), 0f);
+                yield return new WaitForSecondsRealtime(1.5f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                float wsSeen = Vector3.Distance(new Vector3(wsRep.otherPos.x, 0f, wsRep.otherPos.z), new Vector3(player.transform.position.x, 0f, player.transform.position.z));
+                Check($"the client sees the host where the host is ({wsSeen:0.00} m off, {wsRep.players} players on the client)",
+                    wsRep.players == 2 && wsSeen < 0.5f);
+
+                // Health: only the host applies damage; the client's HP follows.
+                if (wsOther) wsOther.TakeDamage(20f);
+                yield return new WaitForSecondsRealtime(1.5f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"damage is the host's call and the client's health follows ({(wsOther ? wsOther.HP : 0):0} on the host, {wsRep.hp:0} on the client)",
+                    wsOther && wsOther.HP < 100f && Mathf.Approximately(wsRep.hp, wsOther.HP));
+
+                // The player leaves: their character goes.
+                if (Mirror.NetworkServer.connections.TryGetValue(wsClientId, out var wsConn)) wsConn.Disconnect();
+                yield return new WaitForSecondsRealtime(0.5f);
+                Check("a player who leaves mid-run is removed from the world", Players.All.Count == 1 && Players.ByNetId(wsClientId) == null);
+                if (wsClient != null && !wsClient.HasExited) { try { wsClient.Kill(); } catch { } }
+                ws.Leave();
+                Net.NetSession.StartRunHandler = null;
+                yield return null;
+                yield return null;
+                Check("ending the session leaves a normal single-player world", Players.All.Count == 1 && player.NetId == -1 && !GameState.Multiplayer && !ws.InSession);
             }
 
             // ---- death ----

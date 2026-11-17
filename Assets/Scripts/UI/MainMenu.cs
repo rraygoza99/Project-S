@@ -150,12 +150,15 @@ namespace Spellcaster
             return list;
         }
 
-        /// <summary>The host started the run: everyone begins the same seeded floor.</summary>
-        public void BeginNetworkRun(int seed)
+        /// <summary>The host started the run: everyone gets the other players, then the same seeded floor.</summary>
+        public void BeginNetworkRun(StartRunMsg msg)
         {
             if (!GameState.Instance || GameState.Instance.Phase != Phase.Title) return;
             LeaveMenu();
-            GameState.Instance.BeginSeeded(seed, null);
+            NetPlayers.SetupRun(msg.players ?? new RosterEntry[0], msg.yourId);
+            GameState.Instance.BeginSeeded(msg.seed, null);
+            // Enemies and fights are the host's (replicated in Phase 3): a client's own world stays empty of them.
+            if (NetSession.IsClientOnly && Dungeon.Instance) Dungeon.Instance.HoldEncounters = true;
         }
 
         /// <summary>Joining or leaving a session moves the menu to the lobby or back to the multiplayer page.</summary>

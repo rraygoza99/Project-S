@@ -216,7 +216,9 @@ namespace Spellcaster
             var hands = WizardHands.Instance;
             if (!hands) return;
             hands.Casting = Channeling || Readied != null;
-            Color glow = Readied != null ? Readied.Color : (Channeling ? ChannelGlow : IdleGlow);
+            Color channelGlow = ChannelGlow;
+            if (GameState.Multiplayer && Player.Instance) { channelGlow = Player.Instance.Color; channelGlow.a = 0.5f; } // your colour in co-op
+            Color glow = Readied != null ? Readied.Color : (Channeling ? channelGlow : IdleGlow);
             if (Readied != null && GlowTint != null) { var tint = GlowTint(); if (tint.HasValue) glow = tint.Value; }
             if (Readied != null) glow.a = 0.75f + 0.25f * ReadyFlash;
             if (FizzleFlash > 0f) glow = Color.Lerp(glow, new Color(1f, 0.2f, 0.1f, 0.9f), FizzleFlash);
