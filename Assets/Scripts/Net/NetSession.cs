@@ -117,6 +117,7 @@ namespace Spellcaster.Net
             sessionWas = on;
             NetPlayers.Tick();
             NetEnemies.Tick();
+            NetLoot.Tick();
             if (reportMode && NetPlayers.Running && NetworkClient.isConnected && (reportTimer -= Time.unscaledDeltaTime) <= 0f)
             {
                 reportTimer = 0.5f;
@@ -136,13 +137,40 @@ namespace Spellcaster.Net
                     hand = Grimoire.GrimoireRun.Instance && Grimoire.GrimoireRun.Instance.Deck != null
                         ? string.Join(",", Grimoire.GrimoireRun.Instance.Deck.Hand.Select(c => c.Def.Id)) : "",
                     decks = NetGrimoire.DecksReceived,
+                    gold = Run.Instance ? Run.Instance.Gold : 0, items = Run.Instance ? Run.Instance.Items.Count : 0,
+                    consumables = Run.Instance ? Run.Instance.Consumables.Count(c => c != null) : 0,
+                    spells = SpellBook.Known.Count, floor = Dungeon.Instance ? Dungeon.Instance.Floor : 0,
+                    maxHp = me.MaxHP, pickups = NetLoot.ProxyCount,
                 });
             }
         }
 
         /// <summary>Test only: the latest report from each client (host).</summary>
         public readonly Dictionary<int, DebugReportMsg> Reports = new Dictionary<int, DebugReportMsg>();
-        bool reportMode, walkTest, combatTest;
+        bool reportMode, walkTest, combatTest, lootTest;
+
+        /// <summary>
+        /// Test only (-nettestloot): take any item in reach, use a consumable once one arrives, and fuse the
+        /// first two spells once a second one is learned.
+        /// </summary>
+        IEnumerator LootTest()
+        {
+            bool used = false, fused = false;
+            var tried = new HashSet<int>();
+            while (NetPlayers.Running)
+            {
+                var me = Player.Instance;
+                var run = Run.Instance;
+                if (me && run)
+                {
+                    var p = Pickup.NearestInteractable(me.transform.position);
+                    if (p && p.NetId != 0 && tried.Add(p.NetId)) NetLoot.RequestTake(p, force: true);
+                    if (!used && run.Consumables[0] != null) { used = true; run.UseConsumable(0); }
+                    if (!fused && SpellBook.Known.Count == 2) { fused = true; NetLoot.SendFuse(0, 1); }
+                }
+                yield return new WaitForSecondsRealtime(0.2f);
+            }
+        }
 
         /// <summary>
         /// Test only (-nettestcombat): once the host's enemy shows up here, look at it and cast Fireball,
@@ -296,7 +324,7 @@ namespace Spellcaster.Net
             BroadcastRoster();
             int seed = RunRandom.NewSeed();
             var players = Roster.ToArray();
-            var spells = SpellBook.Known.Where(s => SpellBook.CreateBase(s.Id) != null).Select(s => s.Id).ToArray();
+            var spells = SpellBook.StartingIds.Where(id => SpellBook.CreateBase(id) != null).ToArray(); // everyone starts like a new run
             foreach (var conn in NetworkServer.connections.Values)
                 conn.Send(new StartRunMsg { seed = seed, players = players, yourId = conn.connectionId, spells = spells, grimoire = Settings.GrimoireEnabled });
             return true;
@@ -319,6 +347,9 @@ namespace Spellcaster.Net
             NetworkServer.ReplaceHandler<CastIntentMsg>(NetCombat.OnCastIntent);
             NetworkServer.ReplaceHandler<CycleMsg>(NetGrimoire.OnCycle);
             NetworkServer.ReplaceHandler<RewardPickMsg>(NetGrimoire.OnPick);
+            NetworkServer.ReplaceHandler<PickupTakeMsg>(NetLoot.OnTake);
+            NetworkServer.ReplaceHandler<UseItemMsg>(NetLoot.OnUseItem);
+            NetworkServer.ReplaceHandler<ForgeMsg>(NetLoot.OnForge);
             NetworkServer.ReplaceHandler<DebugReportMsg>((c, m) => { if (AutoTest.Active) Reports[c.connectionId] = m; });
         }
 
@@ -404,6 +435,13 @@ namespace Spellcaster.Net
             NetworkClient.ReplaceHandler<PropBrokenMsg>(NetCombat.OnPropBroken, false);
             NetworkClient.ReplaceHandler<DeckStateMsg>(NetGrimoire.OnDeckState, false);
             NetworkClient.ReplaceHandler<RewardOfferMsg>(NetGrimoire.OnOffer, false);
+            NetworkClient.ReplaceHandler<PickupSpawnMsg>(NetLoot.OnSpawn, false);
+            NetworkClient.ReplaceHandler<PickupGoneMsg>(NetLoot.OnGone, false);
+            NetworkClient.ReplaceHandler<DenyMsg>(NetLoot.OnDeny, false);
+            NetworkClient.ReplaceHandler<RunStateMsg>(NetLoot.OnRunState, false);
+            NetworkClient.ReplaceHandler<SpellBookMsg>(NetLoot.OnBook, false);
+            NetworkClient.ReplaceHandler<FloorMsg>(NetLoot.OnFloor, false);
+            NetworkClient.ReplaceHandler<CooldownResetMsg>(NetLoot.OnCooldownReset, false);
         }
 
         public override void OnClientConnect()
@@ -444,6 +482,7 @@ namespace Spellcaster.Net
             if (quitAfterStart) StartCoroutine(QuitSoon());
             if (walkTest) StartCoroutine(WalkTest());
             if (combatTest) StartCoroutine(CombatTest());
+            if (lootTest) StartCoroutine(LootTest());
         }
 
         static void DefaultStartRun(StartRunMsg msg)
@@ -622,6 +661,7 @@ namespace Spellcaster.Net
                 else if (a == "-netreport") reportMode = true;
                 else if (a == "-netwalk") walkTest = true;
                 else if (a == "-nettestcombat") { combatTest = true; NetGrimoire.autoTake = true; }
+                else if (a == "-nettestloot") lootTest = true;
             }
         }
 

@@ -145,7 +145,13 @@ namespace Spellcaster
             new ItemDef { Id = "haste", Name = "Haste Elixir", Desc = "10s: faster movement, half cooldowns", Kind = ItemKind.Consumable, Shape = "potion", Color = C(1f, 0.85f, 0.2f), Price = 12,
                 Use = r => { r.HasteTimer = Run.HasteDuration; Sfx.Play("potion", 0.7f, 1.3f); return true; } },
             new ItemDef { Id = "renewal", Name = "Scroll of Renewal", Desc = "Reset all spell cooldowns", Kind = ItemKind.Consumable, Shape = "scroll", Color = C(0.5f, 1f, 0.6f), Price = 10,
-                Use = r => { SpellSystem.Instance.ResetCooldowns(); Sfx.Play("ready", 0.7f); return true; } },
+                Use = r =>
+                {
+                    if (r.Owner && !r.Owner.IsLocal) Net.NetCombat.ResetCooldowns(r.Owner); // another player's (multiplayer host)
+                    else SpellSystem.Instance.ResetCooldowns();
+                    Sfx.Play("ready", 0.7f);
+                    return true;
+                } },
             // unlockable
             new ItemDef { Id = "smoke_bomb", Name = "Smoke Bomb", Desc = "Stun every nearby enemy for 3s", Kind = ItemKind.Consumable, Shape = "bomb", Color = C(0.7f, 0.7f, 0.75f), Price = 10, StartsLocked = true,
                 Use = r =>

@@ -31,6 +31,8 @@ namespace Spellcaster
         public float SlowTimer;
         float frozenHeartCooldown;
 
+        /// <summary>Counts toasts (multiplayer: a client shows the ones the host made for it).</summary>
+        public int ToastId { get; private set; }
         public string ToastTitle { get; private set; }
         public string ToastText { get; private set; }
         public Color ToastColor { get; private set; }
@@ -120,8 +122,9 @@ namespace Spellcaster
                     if (Owner && Owner.HP >= Owner.MaxHP) { reason = "Already at full health"; return false; }
                     break;
                 case ItemKind.Rune:
-                    if (SpellBook.Knows(item.SpellId)) { reason = "You already know that spell"; return false; }
-                    if (SpellBook.Known.Count >= SpellBook.MaxSpells) { reason = "Spell book is full"; return false; }
+                    bool remote = !IsLocal && Net.NetPlayers.Running; // another player's book (on the host)
+                    if (remote ? Net.NetCombat.Knows(Owner, item.SpellId) : SpellBook.Knows(item.SpellId)) { reason = "You already know that spell"; return false; }
+                    if ((remote ? Net.NetCombat.BookCount(Owner) : SpellBook.Known.Count) >= SpellBook.MaxSpells) { reason = "Spell book is full"; return false; }
                     break;
             }
             return true;
@@ -161,12 +164,31 @@ namespace Spellcaster
         public void AddGold(int amount)
         {
             Gold += amount;
-            if (amount > 0) { GoldEarned += amount; Progress.Add("gold", amount); }
+            if (amount > 0) { GoldEarned += amount; if (IsLocal) Progress.Add("gold", amount); }
+        }
+
+        /// <summary>Multiplayer client: your run as the host keeps it (gold, items, consumables, stats).</summary>
+        public void ApplyNet(Net.RunNet n)
+        {
+            Gold = n.gold;
+            GoldEarned = n.goldEarned;
+            HasteTimer = n.haste;
+            Items.Clear();
+            foreach (var id in n.items) { var it = Spellcaster.Items.Resolve(id); if (it != null) Items.Add(it); }
+            for (int i = 0; i < Slots; i++) Consumables[i] = i < n.consumables.Count ? Spellcaster.Items.Resolve(n.consumables[i]) : null;
+            if (n.stats != null) JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(n.stats), Stats);
+            if (Owner) Owner.ClampHP();
+            if (n.toastId != Net.NetLoot.LastRunToast && !string.IsNullOrEmpty(n.toastTitle))
+            {
+                Net.NetLoot.LastRunToast = n.toastId;
+                Toast(n.toastTitle, n.toastText, n.toastColor);
+            }
         }
 
         /// <summary>Puts a forgotten spell (its rune was picked back up) back in the book.</summary>
         public void RelearnSpell(SpellDefinition s)
         {
+            if (!IsLocal && Net.NetPlayers.Running) { if (Net.NetCombat.Learn(Owner, s)) Toast($"Relearned {s.Name}", $"Rune {Arrows.Glyphs(s.Sequence)}   {s.Describe()}", s.Color); return; }
             if (SpellBook.Knows(s.Id)) return;
             SpellBook.Known.Add(s);
             Sfx.Play("forge", 0.6f, 1.3f);
@@ -176,6 +198,13 @@ namespace Spellcaster
         /// <summary>Adds a base spell to the spell book (from a rune). Returns false if already known.</summary>
         public bool GrantSpell(string spellId)
         {
+            if (!IsLocal && Net.NetPlayers.Running)
+            {
+                var b = SpellBook.CreateBase(spellId);
+                if (b == null || !Net.NetCombat.Learn(Owner, b)) return false;
+                Toast($"Learned {b.Name}", $"Rune {Arrows.Glyphs(b.Sequence)}   {b.Describe()}", b.Color);
+                return true;
+            }
             if (SpellBook.Knows(spellId)) return false;
             var s = SpellBook.CreateBase(spellId);
             if (s == null) return false;
@@ -190,18 +219,20 @@ namespace Spellcaster
         {
             var item = slot >= 0 && slot < Slots ? Consumables[slot] : null;
             if (item == null || Owner == null || Owner.IsDead) return false;
+            if (IsLocal && Net.NetSession.IsClientOnly && Net.NetPlayers.Running) { Net.NetLoot.SendUse(slot); return true; } // the host uses it
             if (!item.Use(this))
             {
                 Sfx.Play("fizzle", 0.4f, 1.3f);
                 return false;
             }
             Consumables[slot] = null;
-            Progress.Add("items_used");
+            if (IsLocal) Progress.Add("items_used");
             return true;
         }
 
         public void Toast(string title, string text, Color color, float seconds = 3f)
         {
+            ToastId++;
             ToastTitle = title;
             ToastText = text;
             ToastColor = color;

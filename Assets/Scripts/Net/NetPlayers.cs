@@ -39,6 +39,7 @@ namespace Spellcaster.Net
             NetCombat.SetupRun(m.players ?? new RosterEntry[0], m.spells);
             NetEnemies.SetupRun();
             NetGrimoire.SetupRun(m);
+            NetLoot.SetupRun();
         }
 
         public static void SetupRun(RosterEntry[] roster, int myId)
@@ -91,6 +92,7 @@ namespace Spellcaster.Net
             NetCombat.EndRun();
             NetEnemies.EndRun();
             NetGrimoire.EndRun();
+            NetLoot.EndRun();
         }
 
         static void ResetState()

@@ -84,6 +84,7 @@ namespace Spellcaster.Net
                 case FxLightning: LightningFx.Bolt(m.a, m.b, m.color, m.f0); break;
                 case FxPoison: PoisonCloud.Create(m.a, m.f0, m.f1, 0f, m.color); break;
                 case FxLava: LavaPool.CreateTemporary(m.a, m.f0, m.f1); break;
+                case FxBanner: if (GameState.Instance) GameState.Instance.Show(m.s, m.f0); break;
                 case FxSound:
                 {
                     string name = m.s ?? "", fallback = null;
@@ -117,7 +118,8 @@ namespace Spellcaster.Net
         /// <summary>One player's spells as the host keeps them: what they know and when each is ready.</summary>
         class Caster
         {
-            public readonly Dictionary<string, SpellDefinition> known = new Dictionary<string, SpellDefinition>();
+            public readonly List<SpellDefinition> book = new List<SpellDefinition>();
+            public SpellDefinition Find(string id) { foreach (var s in book) if (s.Id == id) return s; return null; }
             public readonly Dictionary<string, float> readyAt = new Dictionary<string, float>();
             public float boltReadyAt;
         }
@@ -139,7 +141,7 @@ namespace Spellcaster.Net
                 foreach (var r in roster)
                 {
                     var c = new Caster();
-                    foreach (var id in spells) { var s = SpellBook.CreateBase(id); if (s != null) c.known[id] = s; }
+                    foreach (var id in spells) { var s = SpellBook.CreateBase(id); if (s != null) c.book.Add(s); }
                     casters[r.id] = c;
                 }
             else
@@ -185,7 +187,8 @@ namespace Spellcaster.Net
                 RemoteCasts++;
                 return;
             }
-            if (!c.known.TryGetValue(m.spellId, out var spell)) { Rejected++; return; }
+            var spell = c.Find(m.spellId);
+            if (spell == null) { Rejected++; return; }
             if (c.readyAt.TryGetValue(m.spellId, out float ready) && now < ready - CooldownTolerance) { Rejected++; return; }
             var req = NetGrimoire.Play(p, spell); // this player's Next card shapes the cast
             if (req != null && req.Fizzle) { Sfx.Play("fizzle", 0.6f, 0.8f); RemoteCasts++; return; } // lost, no cooldown spent
@@ -197,6 +200,69 @@ namespace Spellcaster.Net
             else NetGrimoire.LaunchCopies(p, spell, stats.Power, req);
             RemoteCasts++;
         }
+
+        // ---------------- each player's spell book (host) ----------------
+
+        static Caster CasterOf(Player p) => p && casters.TryGetValue(p.NetId, out var c) ? c : null;
+        public static bool Knows(Player p, string id) => CasterOf(p)?.Find(id) != null;
+        public static int BookCount(Player p) => CasterOf(p)?.book.Count ?? 0;
+
+        /// <summary>Adds a spell to a player's book (a rune). False if known or full.</summary>
+        public static bool Learn(Player p, SpellDefinition s)
+        {
+            var c = CasterOf(p);
+            if (c == null || s == null || c.Find(s.Id) != null || c.book.Count >= SpellBook.MaxSpells) return false;
+            c.book.Add(s);
+            SendBook(p);
+            return true;
+        }
+
+        /// <summary>The Forge for another player: fuse two of their spells. Returns the new spell or null.</summary>
+        public static SpellDefinition Fuse(Player p, int a, int b)
+        {
+            var c = CasterOf(p);
+            if (c == null || a < 0 || b < 0 || a >= c.book.Count || b >= c.book.Count || a == b) return null;
+            if (!SpellForge.TryCombine(c.book[a], c.book[b], c.book, out var made, out _) || made == null) { SendBook(p); return null; }
+            c.book.Add(made);
+            Sfx.Play("forge", 0.6f);
+            SendBook(p);
+            return made;
+        }
+
+        /// <summary>The Forge for another player: forget one of their spells. Returns it (its rune drops) or null.</summary>
+        public static SpellDefinition Forget(Player p, int index)
+        {
+            var c = CasterOf(p);
+            if (c == null || index < 0 || index >= c.book.Count || c.book.Count <= SpellForgeUI.MinSpells) return null;
+            var s = c.book[index];
+            c.book.RemoveAt(index);
+            c.readyAt.Remove(s.Id);
+            SendBook(p);
+            return s;
+        }
+
+        public static void SendBook(Player p)
+        {
+            var c = CasterOf(p);
+            if (c == null || !NetworkServer.connections.TryGetValue(p.NetId, out var conn)) return;
+            var list = new List<string>();
+            foreach (var s in c.book) list.Add(SpellCodec.ToJson(s));
+            conn.Send(new SpellBookMsg { spells = list.ToArray() });
+        }
+
+        /// <summary>Scroll of Renewal for another player.</summary>
+        public static void ResetCooldowns(Player p)
+        {
+            var c = CasterOf(p);
+            if (c == null) return;
+            c.readyAt.Clear();
+            c.boltReadyAt = 0f;
+            if (NetworkServer.connections.TryGetValue(p.NetId, out var conn)) conn.Send(new CooldownResetMsg());
+        }
+
+        public const byte FxBanner = 11;
+        public static void Banner(string text, float seconds) =>
+            SendFx(new FxMsg { kind = FxBanner, s = text, f0 = seconds }, true);
 
         // ---------------- rooms and props ----------------
 

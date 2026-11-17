@@ -155,7 +155,8 @@ namespace Spellcaster.Net
     {
         public Vector3 pos, otherPos, enemyPos;
         public float hp, lastError, enemyHp;
-        public int players, corrections, states, enemies, fx, projectiles, gatesLocked, deck, decks;
+        public int players, corrections, states, enemies, fx, projectiles, gatesLocked, deck, decks, gold, items, consumables, spells, floor, pickups;
+        public float maxHp;
         public string hand;
     }
 

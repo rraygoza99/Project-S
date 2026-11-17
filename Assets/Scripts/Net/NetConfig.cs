@@ -26,6 +26,25 @@ namespace Spellcaster.Net
         public const string LobbyGameKey = "spellcaster_game";
         public const string LobbyGameValue = "spellcaster";
 
+        /// <summary>Seconds between the first player stepping into a fight room and the doors closing (the others are pulled in).</summary>
+        public const float GatherSeconds = 3f;
+
+        /// <summary>
+        /// Difficulty by player count (index = players): enemy HP multiplier and how many enemies per wave
+        /// (x the single-player wave). Bosses only get the HP. Tune here.
+        /// </summary>
+        public static readonly (float hp, float count)[] Scaling =
+        {
+            (1f, 1f),      // (unused)
+            (1f, 1f),      // 1 player
+            (1.4f, 1.35f), // 2
+            (1.75f, 1.7f), // 3
+            (2.1f, 2.0f),  // 4
+            (2.4f, 2.3f),  // 5
+            (2.7f, 2.6f),  // 6
+        };
+        public static (float hp, float count) ScaleFor(int players) => Scaling[Mathf.Clamp(players, 1, Scaling.Length - 1)];
+
         /// <summary>Players must run the same version to play together.</summary>
         public static string Version => Application.version;
 

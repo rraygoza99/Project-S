@@ -84,11 +84,6 @@ namespace Spellcaster
 
         public void Open()
         {
-            if (Net.NetSession.IsClientOnly)
-            {
-                if (SpellSystem.Instance) SpellSystem.Instance.Flash("The Forge comes to co-op later");
-                return;
-            }
             IsOpen = true;
             picks.Clear();
             forgetArmed = -1;
@@ -158,6 +153,17 @@ namespace Spellcaster
                 return null;
             }
             var made = preview;
+            if (Net.NetSession.IsClientOnly && Net.NetPlayers.Running)
+            {
+                // The host forges it into your book (it keeps everyone's) and sends the book back.
+                Net.NetLoot.SendFuse(picks[0], picks[1]);
+                Progress.Add("forged");
+                Sfx.Play("forge", 0.8f);
+                Say($"Forging {made.Name}...");
+                picks.Clear();
+                Refresh();
+                return made;
+            }
             SpellBook.Known.Add(made);
             Progress.Add("forged");
             Sfx.Play("forge", 0.8f);
@@ -188,6 +194,15 @@ namespace Spellcaster
                 return null;
             }
             forgetArmed = -1;
+            if (Net.NetSession.IsClientOnly && Net.NetPlayers.Running)
+            {
+                Net.NetLoot.SendForget(index); // the host drops its rune at your feet
+                Sfx.Play("portal", 0.5f, 1.4f);
+                Say($"Forgot {s.Name}. Its rune lies at your feet if you change your mind.");
+                picks.Clear();
+                Refresh();
+                return s;
+            }
             SpellBook.Known.RemoveAt(index);
             if (SpellSystem.Instance) SpellSystem.Instance.OnForgotten(s);
             var player = Player.Instance;

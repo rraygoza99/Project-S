@@ -6,6 +6,7 @@ namespace Spellcaster
     /// <summary>
     /// An item lying in the world. Coins and hearts are collected by walking over them (coins fly to
     /// you); everything else is taken or bought with E. Shop items carry a price.
+    /// In multiplayer every pickup is instanced: each player takes their own copy (see Net.NetLoot).
     /// </summary>
     public class Pickup : MonoBehaviour
     {
@@ -28,6 +29,49 @@ namespace Spellcaster
         public const float CoinMagnetRadius = 7f;
         /// <summary>Flying to you because the room was cleared (tests).</summary>
         public bool Vacuuming => vacuum;
+        public float Age => age;
+
+        // ---------------- multiplayer (instanced loot) ----------------
+
+        /// <summary>Network id (0 offline).</summary>
+        public int NetId;
+        /// <summary>Only this player may take it (a forgotten rune), or -1 for everyone.</summary>
+        public int OnlyFor = -1;
+        /// <summary>A client's copy of a host pickup: taking it asks the host.</summary>
+        public bool Proxy { get; private set; }
+        readonly HashSet<int> takenBy = new HashSet<int>();
+
+        public bool For(Player p) => p && (OnlyFor < 0 || OnlyFor == p.NetId) && !takenBy.Contains(p.NetId);
+        /// <summary>This PC's player already took their copy (it stays for the others).</summary>
+        public bool TakenByLocal => Player.Instance && takenBy.Contains(Player.Instance.NetId);
+
+        public bool TakenByAll
+        {
+            get
+            {
+                foreach (var p in Players.All)
+                    if (p && p.NetId >= 0 && (OnlyFor < 0 || OnlyFor == p.NetId) && !takenBy.Contains(p.NetId)) return false;
+                return true;
+            }
+        }
+
+        public void MarkTaken(Player p)
+        {
+            takenBy.Add(p.NetId);
+            if (p.IsLocal)
+            {
+                // Gone for you; the others still see theirs.
+                Fx.Flash(visual.position, Item.Color, 1.2f, 0.3f, 1.5f);
+                foreach (var r in GetComponentsInChildren<Renderer>()) r.enabled = false;
+            }
+        }
+
+        public void MakeProxy(int id, Vector3 pos, Vector3 popVelocity)
+        {
+            NetId = id;
+            Proxy = true;
+            if (popVelocity.sqrMagnitude > 0f) { velocity = popVelocity; grounded = false; }
+        }
 
         static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         static readonly int MainTexStId = Shader.PropertyToID("_MainTex_ST");
@@ -37,6 +81,8 @@ namespace Spellcaster
         /// <summary>Spawns a pickup. With pop, it bounces out in a random direction (enemy drops).</summary>
         public static Pickup Spawn(ItemDef item, Vector3 position, int price = 0, bool pop = false, float height = 0.55f)
         {
+            // A multiplayer client only shows the host's pickups (its own floor stock comes from the host).
+            if (Net.NetSession.IsClientOnly && Net.NetPlayers.Running && !Net.NetLoot.SpawningProxy) return null;
             var go = new GameObject("Pickup " + item.Name);
             if (Dungeon.Instance && Dungeon.Instance.LevelRoot) go.transform.SetParent(Dungeon.Instance.LevelRoot, true);
             go.transform.position = new Vector3(position.x, height, position.z);
@@ -72,6 +118,18 @@ namespace Spellcaster
             }
             p.ApplyIcon();
             All.Add(p);
+            Net.NetLoot.OnSpawned(p, p.velocity, pop);
+            return p;
+        }
+
+        /// <summary>A pickup only one player can take (multiplayer: a forgotten rune at their feet).</summary>
+        public static Pickup SpawnFor(ItemDef item, Vector3 position, int playerNetId)
+        {
+            var p = Spawn(item, position);
+            if (!p) return null;
+            p.OnlyFor = playerNetId;
+            if (Player.Instance && Player.Instance.NetId != playerNetId)
+                foreach (var r in p.GetComponentsInChildren<Renderer>()) r.enabled = false; // not yours: not shown here
             return p;
         }
 
@@ -126,8 +184,13 @@ namespace Spellcaster
                 transform.position = p;
             }
 
-            var player = Players.Nearest(transform.position);
-            if (!player || player.IsDead || !IsAuto || age < 0.4f) return;
+            if (!IsAuto || age < 0.4f) return;
+            // Multiplayer host: each player gets their own copy when in reach (the object stays put).
+            if (Net.NetLoot.Instanced && !Proxy) { Net.NetLoot.HostAuto(this); return; }
+
+            // Offline, or a client's copy flying to its own player (the host decides who gets it).
+            var player = Proxy ? Player.Instance : Players.Nearest(transform.position);
+            if (!player || player.IsDead) return;
             Vector3 to = player.transform.position - transform.position;
             to.y = 0f;
             float dist = to.magnitude;
@@ -145,6 +208,11 @@ namespace Spellcaster
                 transform.position += to.normalized * Mathf.Min(dist, speed * dt);
                 grounded = true;
             }
+            if (Proxy)
+            {
+                if (dist < 1.1f) Net.NetLoot.RequestTake(this); // the host also hands it over by itself
+                return;
+            }
             if (dist < 1.1f && player.Run && player.Run.CanAcquire(Item, out _)) TryCollect(player.Run, quiet: true);
         }
 
@@ -156,27 +224,32 @@ namespace Spellcaster
         public bool TryCollect(Run run, bool quiet = false)
         {
             if (!this || !run) return false;
-            if (Net.NetSession.IsClientOnly) return false; // loot is the host's (shared loot is the next phase)
-            if (Price > run.Gold)
-            {
-                Deny(run, "Not enough gold", quiet);
-                return false;
-            }
-            if (!run.CanAcquire(Item, out var reason))
+            if (Proxy) { Net.NetLoot.RequestTake(this, force: !quiet); return false; } // the host decides
+            if (Net.NetLoot.Instanced) return Net.NetLoot.Take(this, run.Owner, quiet);
+            if (!CollectInto(run, out var reason))
             {
                 Deny(run, reason, quiet);
                 return false;
             }
-            if (Price > 0)
-            {
-                run.Gold -= Price;
-                Progress.Add("items_bought");
-                Sfx.Play("buy", 0.7f);
-            }
-            run.Acquire(Item);
             Fx.Flash(visual.position, Item.Color, 1.2f, 0.3f, 1.5f);
             All.Remove(this);
             Destroy(gameObject);
+            return true;
+        }
+
+        /// <summary>Pays and applies the item to this run (the pickup itself stays). False with a reason if it can't.</summary>
+        public bool CollectInto(Run run, out string reason)
+        {
+            reason = null;
+            if (Price > run.Gold) { reason = "Not enough gold"; return false; }
+            if (!run.CanAcquire(Item, out reason)) return false;
+            if (Price > 0)
+            {
+                run.Gold -= Price;
+                if (run.Owner && run.Owner.IsLocal) Progress.Add("items_bought");
+                Sfx.Play("buy", 0.7f);
+            }
+            run.Acquire(Item);
             return true;
         }
 
@@ -192,9 +265,11 @@ namespace Spellcaster
         {
             Pickup best = null;
             float bestD = InteractRange * InteractRange;
+            var me = Player.Instance;
             foreach (var p in All)
             {
                 if (!p || p.IsAuto) continue;
+                if (me && !p.Proxy && p.NetId != 0 && !p.For(me)) continue; // yours is taken (or not yours)
                 Vector3 d = p.transform.position - pos;
                 d.y = 0f;
                 if (d.sqrMagnitude < bestD) { bestD = d.sqrMagnitude; best = p; }

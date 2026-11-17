@@ -253,6 +253,7 @@ namespace Spellcaster
 
         public void Show(string text, float seconds)
         {
+            if (Net.NetCombat.HostMirroring) Net.NetCombat.Banner(text, seconds);
             Banner = text;
             BannerTimer = seconds;
         }

@@ -2254,7 +2254,7 @@ namespace Spellcaster
                 try
                 {
                     wsClient = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
-                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -nettestcombat -logFile \"{Path.Combine(outDir, "net_client2.log")}\"") { UseShellExecute = false });
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -nettestcombat -nettestloot -logFile \"{Path.Combine(outDir, "net_client2.log")}\"") { UseShellExecute = false });
                 }
                 catch (Exception wsEx) { Debug.LogWarning("[AutoTest] couldn't start a second copy: " + wsEx.Message); }
                 float wsT = 0f;
@@ -2358,6 +2358,74 @@ namespace Spellcaster
                 ws.Reports.TryGetValue(wsClientId, out wsRep);
                 Check($"a room reward reaches the other player, who picks a card; the host adds it to their deck ({gbCount} -> {(gbRemote != null ? gbRemote.Count : 0)}, client shows {wsRep.deck})",
                     gbRemote != null && gbRemote.Count == gbCount + 1 && wsRep.deck == gbRemote.Count);
+
+                // ---- loot and progress (Phase 4): instanced loot, each player's run, Forge, rooms, floors ----
+                player.Teleport(wsOther.transform.position + new Vector3(2f, 0f, 0f), player.Yaw);
+                yield return new WaitForSecondsRealtime(0.3f);
+                int ltHostGold = player.Run.Gold, ltCliGold = wsOther.Run.Gold;
+                Pickup.Spawn(Items.Coin, (player.transform.position + wsOther.transform.position) * 0.5f);
+                yield return new WaitForSecondsRealtime(1.5f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"a coin is instanced: both players get their own (you {ltHostGold} -> {player.Run.Gold}, other {ltCliGold} -> {wsOther.Run.Gold}, their screen shows {wsRep.gold})",
+                    player.Run.Gold == ltHostGold + 1 + player.Run.Stats.CoinBonus && wsOther.Run.Gold == ltCliGold + 1 + wsOther.Run.Stats.CoinBonus && wsRep.gold == wsOther.Run.Gold);
+
+                var ltHeart = Items.Get("ruby_heart");
+                var ltItem = Pickup.Spawn(ltHeart, wsOther.transform.position + wsOther.transform.forward * 1.2f);
+                float ltT = 0f;
+                while (ltT < 5f && !wsOther.Run.Has("ruby_heart")) { ltT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(0.6f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                bool ltStillMine = ltItem && !ltItem.TakenByLocal && ltItem.For(player);
+                Check($"an item is instanced: the other player takes theirs (max HP {wsOther.MaxHP:0}, their screen {wsRep.maxHp:0}, {wsRep.items} items) and yours is still there",
+                    wsOther.Run.Has("ruby_heart") && Mathf.Approximately(wsRep.maxHp, wsOther.MaxHP) && wsRep.items >= 1 && ltStillMine);
+                bool ltMine = ltItem && ltItem.TryCollect(player.Run);
+                yield return null;
+                Check("you take your copy too, and then it's gone for everyone", ltMine && player.Run.Has("ruby_heart") && !ltItem);
+
+                wsOther.TakeDamage(30f);
+                float ltHurt = wsOther.HP;
+                wsOther.Run.Acquire(Items.Get("potion"));
+                ltT = 0f;
+                while (ltT < 4f && wsOther.HP <= ltHurt) { ltT += Time.unscaledDeltaTime; yield return null; }
+                Check($"the other player uses a consumable; the host applies it ({ltHurt:0} -> {wsOther.HP:0} HP, slot empty: {wsOther.Run.Consumables[0] == null})",
+                    wsOther.HP > ltHurt && wsOther.Run.Consumables[0] == null);
+
+                bool ltLearned = Net.NetCombat.Learn(wsOther, SpellBook.CreateBase("lightning"));
+                ltT = 0f;
+                while (ltT < 5f && Net.NetCombat.BookCount(wsOther) < 3) { ltT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(0.6f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"each player has their own spell book and Forge: they learn Lightning, fuse it with Fireball on their screen, and the host forges it into their book ({Net.NetCombat.BookCount(wsOther)} spells, their screen {wsRep.spells}; yours {SpellBook.Known.Count})",
+                    ltLearned && Net.NetCombat.BookCount(wsOther) == 3 && wsRep.spells == 3);
+
+                // A fight room: the other player walks in, you're outside; after the countdown you're pulled in.
+                var ltRoom = d.AllRooms.FirstOrDefault(r => r.Type == RoomType.Combat && !r.Cleared && r.HasEnemies);
+                if (ltRoom != null)
+                {
+                    d.HoldEncounters = false;
+                    wsOther.Teleport(ltRoom.Center + new Vector3(0f, 0.1f, 0f), 0f);
+                    yield return new WaitForSecondsRealtime(0.4f);
+                    bool ltGathering = d.GatherRoom == ltRoom && !d.InCombat && !ltRoom.Contains(player.transform.position, 0f);
+                    yield return new WaitForSecondsRealtime(Net.NetConfig.GatherSeconds + 0.6f);
+                    ws.Reports.TryGetValue(wsClientId, out wsRep);
+                    var ltScale = Net.NetConfig.ScaleFor(2);
+                    Check($"stepping into a fight room starts a {Net.NetConfig.GatherSeconds:0}s countdown, then everyone is pulled in and the doors close (scaled for 2: HP x{d.LastScale.hp}, enemies x{d.LastScale.count}; doors locked on their screen: {wsRep.gatesLocked})",
+                        ltGathering && d.InCombat && ltRoom.Contains(player.transform.position, 0f) && d.LastScale == ltScale && wsRep.gatesLocked > 0);
+                    yield return new WaitForSecondsRealtime(1.5f);
+                    gs.ClearEnemies();
+                    d.ClearCurrent();
+                    gs.ClearEnemies();
+                    yield return new WaitForSecondsRealtime(0.5f);
+                }
+                else Check("a fight room for the co-op room test", false);
+
+                // Through the portal: everyone goes to the next floor together.
+                int ltFloor = d.Floor;
+                d.EnterPortalForTest();
+                yield return new WaitForSecondsRealtime(2f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"the floor changes for everyone at once (floor {ltFloor} -> {d.Floor}, their screen: floor {wsRep.floor}; both in the start room)",
+                    d.Floor == ltFloor + 1 && wsRep.floor == d.Floor && d.Rooms[Vector2Int.zero].Contains(wsOther.transform.position, 0f));
 
                 // The player leaves: their character goes.
                 if (Mirror.NetworkServer.connections.TryGetValue(wsClientId, out var wsConn)) wsConn.Disconnect();

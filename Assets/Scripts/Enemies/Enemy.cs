@@ -41,7 +41,7 @@ namespace Spellcaster
         public Element LastElement { get; private set; }
         public bool LastHitByBolt { get; private set; }
         /// <summary>Global enemy speed (Time Scroll slows every enemy to half).</summary>
-        public static float TimeFactor => Run.Instance && Run.Instance.SlowTimer > 0f ? 0.5f : 1f;
+        public static float TimeFactor => Players.All.Exists(p => p && p.Run && p.Run.SlowTimer > 0f) ? 0.5f : 1f; // any player's Time Scroll
         public Vector3 Center => transform.position + Vector3.up * (Type.Hover + Type.Height * 0.5f);
 
         const float FadeDuration = 0.35f;

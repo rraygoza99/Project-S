@@ -359,16 +359,64 @@ namespace Spellcaster
             }
         }
 
+        // ---------------- co-op room flow (host) ----------------
+
+        /// <summary>A fight room a player stepped into: the doors close when the countdown ends (multiplayer).</summary>
+        public Room GatherRoom { get; private set; }
+        float gatherTimer;
+        Vector3 gatherFrom;
+        /// <summary>The HP and count multipliers of the last fight (player-count scaling).</summary>
+        public (float hp, float count) LastScale { get; private set; } = (1f, 1f);
+        bool CoopHost => Net.NetPlayers.Running && !Net.NetSession.IsClientOnly && Players.All.Count > 1;
+
+        /// <summary>
+        /// The first living player to step into a fight room starts a short countdown; then everyone still
+        /// outside is pulled in next to them, the doors close and the fight starts. Nobody is shut out.
+        /// </summary>
+        void UpdateGathering()
+        {
+            if (GatherRoom == null)
+            {
+                foreach (var p in Players.All)
+                {
+                    if (!p || p.IsDead) continue;
+                    var pos = p.transform.position;
+                    if (!Rooms.TryGetValue(Room.CellAt(pos), out var r) || !r.HasEnemies || r.Cleared || HoldEncounters || !r.Contains(pos, 1.2f)) continue;
+                    GatherRoom = r;
+                    gatherTimer = Net.NetConfig.GatherSeconds;
+                    gatherFrom = pos;
+                    Current = r;
+                    r.Visited = true;
+                    GameState.Instance?.Show("Fight! Gather up", Net.NetConfig.GatherSeconds);
+                    return;
+                }
+                return;
+            }
+            gatherTimer -= Time.deltaTime;
+            if (gatherTimer > 0f) return;
+            var room = GatherRoom;
+            GatherRoom = null;
+            foreach (var p in Players.All.ToArray())
+            {
+                if (!p || p.IsDead || room.Contains(p.transform.position, 0.5f)) continue;
+                p.Teleport(FindFreeSpot(room, gatherFrom, 0.8f) + Vector3.up * 0.1f, p.Yaw);
+            }
+            Enter(room);
+        }
+
         void Update()
         {
             var gs = GameState.Instance;
-            var player = Players.Leader; // co-op room rules are Phase 4; for now rooms follow one player
+            var player = Players.Leader;
             AnimateGates();
             if (!gs || gs.Phase != Phase.Playing || !player || LevelRoot == null) return;
 
             var pos = player.transform.position;
             var cell = Room.CellAt(pos);
-            if (Rooms.TryGetValue(cell, out var room) && room != Current && room.Contains(pos, 1.2f)) Enter(room);
+            bool coop = CoopHost;
+            if (coop && !InCombat) UpdateGathering();
+            if (Rooms.TryGetValue(cell, out var room) && room != Current && room.Contains(pos, 1.2f) && GatherRoom == null
+                && (!coop || !room.HasEnemies || room.Cleared || HoldEncounters)) Enter(room);
 
             if (InCombat)
             {
@@ -376,18 +424,20 @@ namespace Spellcaster
                 while (pending.Count > 0 && spawnTimer <= 0f)
                 {
                     var (type, at) = pending.Dequeue();
-                    var e = EnemySpawner.Instance.SpawnAt(type, at, hpMult, dmgMult);
+                    var e = EnemySpawner.Instance.SpawnAt(type, at, hpMult * LastScale.hp, dmgMult);
                     if (type.IsBoss) Boss = e;
                     spawnTimer += type.IsBoss ? 0.6f : 0.12f;
                 }
                 if (pending.Count == 0 && Enemy.All.Count == 0) ClearCurrent();
             }
 
-            if (PortalOpen && Current != null && Current.Type == RoomType.Boss)
+            // Everyone alive must stand on the portal (a client never enters it by itself: the host moves everyone).
+            if (PortalOpen && Current != null && Current.Type == RoomType.Boss && !Net.NetSession.IsClientOnly)
             {
-                Vector3 d = pos - PortalPosition;
-                d.y = 0f;
-                if (d.sqrMagnitude < 1.4f * 1.4f) EnterPortal();
+                bool all = true;
+                foreach (var p in Players.All)
+                    if (p && !p.IsDead && Players.FlatSqr(p.transform.position, PortalPosition) >= 1.4f * 1.4f) { all = false; break; }
+                if (all) EnterPortal();
             }
         }
 
@@ -410,6 +460,8 @@ namespace Spellcaster
             pending.Clear();
             spawnTimer = 0.5f;
             var player = Players.Leader.transform.position;
+            // More players, more and tougher enemies (Net/NetConfig.cs Scaling).
+            LastScale = Net.NetPlayers.Running ? Net.NetConfig.ScaleFor(Players.All.Count) : (1f, 1f);
             if (room.Type == RoomType.Boss)
             {
                 var boss = EnemyType.BossFor(Floor);
@@ -420,7 +472,10 @@ namespace Spellcaster
             }
             // The wave is seeded per room: the same run always meets the same enemies here.
             // (Where they appear depends on where you stand, so that is rolled separately.)
-            foreach (var type in PreviewWave(room))
+            var wave = PreviewWave(room);
+            int extra = Mathf.RoundToInt(wave.Count * (LastScale.count - 1f));
+            for (int i = 0; i < extra && wave.Count > 0; i++) wave.Add(wave[i % wave.Count]);
+            foreach (var type in wave)
                 pending.Enqueue((type, RandomSpawnPoint(room, player, type.Kamikaze ? 10f : 7f)));
         }
 
@@ -502,6 +557,7 @@ namespace Spellcaster
         {
             PortalOpen = false;
             Sfx.Play("portal", 0.9f);
+            Net.NetLoot.FloorChanging(Floor >= FinalFloor ? Floor : Floor + 1, Floor >= FinalFloor);
             if (Floor >= FinalFloor) GameState.Instance.Win();
             else BuildFloor(Floor + 1);
         }
@@ -521,6 +577,9 @@ namespace Spellcaster
         }
 
         public Room RoomById(string id) => AllRooms.FirstOrDefault(r => r.Id == id);
+
+        /// <summary>Test hook: as if everyone stepped through the portal.</summary>
+        public void EnterPortalForTest() => EnterPortal();
 
         /// <summary>Multiplayer client: the host's boss (its health bar).</summary>
         public void SetBossForNet(Enemy e) => Boss = e;

@@ -98,7 +98,14 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
 - **Grimoire online:** the host's Options setting decides for everyone. Each player has their own deck,
   held by the host: your casts play your Next card, Q cycles yours, each player picks their own room
   reward (the game doesn't pause), and an elite's curse falls on the whole party.
-- Not yet online: loot and shops (and so the Scroll of Erasure), the Forge, and moving between floors.
+- **Loot is instanced:** every coin, heart, item and shop item has one copy per player, so nobody takes
+  anyone's loot. Your gold, items, consumables and spells live on the host and show on your screen.
+- **The Forge works for each player** on their own spell book (between fights).
+- **Fight rooms:** the first player to step into one starts a 3-second countdown ("Fight! Gather up");
+  then everyone still outside is pulled in next to them and the doors close. The floor portal needs
+  every living player on it, and the whole party moves to the next floor together.
+- **More players, harder fights:** enemy HP and wave size scale with the player count (bosses: HP only).
+  The table is `Scaling` in `Net/NetConfig.cs` (2 players: HP x1.4, enemies x1.35 ... 6: x2.7, x2.6).
 - In a multiplayer session the pause menu doesn't stop the game, and only the host saves.
 
 ## Controls
