@@ -308,6 +308,8 @@ namespace Spellcaster
             BuildNetPages();
             // Back from a session that ended (host left, kicked): show why on the multiplayer page.
             if (NetSession.Instance && NetSession.Instance.LastError != null) Current = Page.Multiplayer;
+            // Back from a co-op game over with the group: straight to the lobby.
+            if (NetSession.Instance && NetSession.Instance.InSession) Current = Page.Lobby;
             seedItems = new List<Item>
             {
                 new Item { Label = "Seed", Field = true, Value = () => SeedText.Length > 0 ? SeedText + (Mathf.Repeat(Time.unscaledTime, 1f) < 0.5f ? "_" : " ") : "type a number or a word" },
@@ -497,11 +499,12 @@ namespace Spellcaster
         }
 
         /// <summary>Starts a run that opens with the tutorial.</summary>
-        public void StartTutorial() => ConfirmNewRun(() =>
+        /// <summary>The tutorial never replaces a saved run: it isn't saved, and Continue still has yours.</summary>
+        public void StartTutorial()
         {
             LeaveMenu();
             GameState.Instance.StartTutorial();
-        });
+        }
 
         /// <summary>Practice runes with every spell, no cooldowns and training dummies.</summary>
         public void StartPractice()

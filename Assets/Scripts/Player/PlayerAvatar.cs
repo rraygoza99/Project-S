@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Spellcaster
@@ -65,13 +66,34 @@ namespace Spellcaster
             if (root) Destroy(root.gameObject);
         }
 
+        // Host: the client's copy jumps forward a batch at a time; remember where it was when, and draw it a moment behind.
+        readonly List<(double t, Vector3 pos)> trail = new List<(double, Vector3)>();
+        const double TrailDelay = 0.1;
+
+        Vector3 SimulatedPosition()
+        {
+            double now = Time.unscaledTimeAsDouble;
+            Vector3 cur = transform.position;
+            if (trail.Count == 0 || (trail[trail.Count - 1].pos - cur).sqrMagnitude > 1e-6f) trail.Add((now, cur));
+            if (trail.Count > 60) trail.RemoveRange(0, trail.Count - 60);
+            double t = now - TrailDelay;
+            int b = trail.FindIndex(s => s.t >= t);
+            if (b <= 0) return trail[b < 0 ? trail.Count - 1 : 0].pos;
+            var s0 = trail[b - 1]; var s1 = trail[b];
+            float k = s1.t > s0.t ? Mathf.Clamp01((float)((t - s0.t) / (s1.t - s0.t))) : 1f;
+            if (b > 2) trail.RemoveRange(0, b - 2);
+            return Vector3.Lerp(s0.pos, s1.pos, k);
+        }
+
         void LateUpdate()
         {
             if (!player || !root) return;
             float dt = Mathf.Max(Time.deltaTime, 1e-4f);
-            // Follow smoothly; snap on teleports.
-            Vector3 target = transform.position;
-            shown = (target - shown).sqrMagnitude > 9f ? target : Vector3.Lerp(shown, target, 1f - Mathf.Exp(-18f * dt));
+            // A client's copy on the host: played back smoothly from its recent positions.
+            // On a client, other players already move smoothly (snapshot blending): follow them exactly.
+            Vector3 target = player.Mode == Player.Control.Simulated ? SimulatedPosition() : transform.position;
+            if ((target - shown).sqrMagnitude > 9f) trail.Clear(); // teleport
+            shown = target;
             root.position = shown;
             Vector3 moved = shown - lastShown;
             moved.y = 0f;

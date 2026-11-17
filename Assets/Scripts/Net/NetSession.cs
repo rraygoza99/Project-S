@@ -381,6 +381,27 @@ namespace Spellcaster.Net
             return seed != 0;
         }
 
+        /// <summary>
+        /// Host, after a game over: everyone goes back to the lobby together (same group, ready up again,
+        /// start a new run). Clients wait for the host on the death screen.
+        /// </summary>
+        public void BackToLobby()
+        {
+            if (!IsHost) return;
+            InRun = false;
+            for (int i = 0; i < Roster.Count; i++) { var r = Roster[i]; r.ready = r.host; Roster[i] = r; }
+            if (SteamService.Ready && SteamLobby != CSteamID.Nil) SteamMatchmaking.SetLobbyJoinable(SteamLobby, true);
+            NetworkServer.SendToAll(new BackToLobbyMsg());
+            BroadcastRoster();
+        }
+
+        void OnBackToLobby(BackToLobbyMsg m)
+        {
+            InRun = false;
+            NetPlayers.EndRun();
+            if (GameState.Instance) GameState.Instance.ToLobby();
+        }
+
         /// <summary>Host: opens the Steam overlay to invite friends to the lobby.</summary>
         public void OpenInviteOverlay()
         {
@@ -495,6 +516,7 @@ namespace Spellcaster.Net
             NetworkClient.ReplaceHandler<RosterMsg>(OnRoster, false);
             NetworkClient.ReplaceHandler<RejectMsg>(OnReject, false);
             NetworkClient.ReplaceHandler<StartRunMsg>(OnStartRunMsg, false);
+            NetworkClient.ReplaceHandler<BackToLobbyMsg>(OnBackToLobby, false);
             NetworkClient.ReplaceHandler<PlayerStatesMsg>(NetPlayers.OnStates, false);
             NetworkClient.ReplaceHandler<FxMsg>(NetCombat.OnFx, false);
             NetworkClient.ReplaceHandler<EnemySpawnMsg>(NetEnemies.OnSpawn, false);

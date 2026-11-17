@@ -17,7 +17,7 @@ namespace Spellcaster.Net
         /// <summary>Client: the proxies.</summary>
         static readonly Dictionary<int, Enemy> proxies = new Dictionary<int, Enemy>();
         static readonly Dictionary<int, List<Snap>> buffers = new Dictionary<int, List<Snap>>();
-        struct Snap { public float t; public Vector3 pos; }
+        struct Snap { public double t; public Vector3 pos; }
         static float stateTimer;
         static bool hooked;
 
@@ -102,7 +102,7 @@ namespace Spellcaster.Net
                         anim = (byte)v.anim, frame = (byte)v.frame, tint = v.tint, flash = v.flash, dead = !e.IsAlive, elite = e.IsElite,
                     });
                 }
-                if (entries.Count > 0) NetworkServer.SendToAll(new EnemyStatesMsg { enemies = entries.ToArray() }, Channels.Unreliable);
+                if (entries.Count > 0) NetworkServer.SendToAll(new EnemyStatesMsg { time = NetworkTime.time, enemies = entries.ToArray() }, Channels.Unreliable);
             }
             else Interpolate();
         }
@@ -123,12 +123,13 @@ namespace Spellcaster.Net
         public static void OnStates(EnemyStatesMsg m)
         {
             if (!NetPlayers.Running || NetworkServer.active || m.enemies == null) return;
-            float now = Time.unscaledTime;
+            double now = m.time;
             foreach (var s in m.enemies)
             {
                 if (!proxies.TryGetValue(s.id, out var e) || !e) continue;
                 e.ApplyNetState(s);
                 if (!buffers.TryGetValue(s.id, out var list)) buffers[s.id] = list = new List<Snap>();
+                if (list.Count > 0 && list[list.Count - 1].t >= now) continue; // late or repeated packet
                 list.Add(new Snap { t = now, pos = s.pos });
                 if (list.Count > 30) list.RemoveRange(0, list.Count - 30);
             }
@@ -143,7 +144,7 @@ namespace Spellcaster.Net
 
         static void Interpolate()
         {
-            float t = Time.unscaledTime - NetPlayers.InterpDelay;
+            double t = NetworkTime.time - NetPlayers.InterpDelay;
             foreach (var kv in buffers)
             {
                 if (!proxies.TryGetValue(kv.Key, out var e) || !e) continue;
@@ -153,7 +154,7 @@ namespace Spellcaster.Net
                 Snap s0, s1;
                 if (b <= 0) s0 = s1 = list[b < 0 ? list.Count - 1 : 0];
                 else { s0 = list[b - 1]; s1 = list[b]; }
-                float k = s1.t > s0.t ? Mathf.Clamp01((t - s0.t) / (s1.t - s0.t)) : 1f;
+                float k = s1.t > s0.t ? Mathf.Clamp01((float)((t - s0.t) / (s1.t - s0.t))) : 1f;
                 e.transform.position = Vector3.Lerp(s0.pos, s1.pos, k);
                 if (b > 1) list.RemoveRange(0, b - 1);
             }

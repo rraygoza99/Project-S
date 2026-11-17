@@ -17,8 +17,11 @@ namespace Spellcaster.Net
     {
         /// <summary>How far a prediction may be off before it is corrected (metres).</summary>
         public const float CorrectionThreshold = 0.12f;
-        /// <summary>Other players are shown this far in the past (seconds), to always have two snapshots to blend.</summary>
-        public const float InterpDelay = 0.1f;
+        /// <summary>
+        /// Other players are shown this far in the past (seconds, on the host's clock), so there are always two
+        /// snapshots to blend even when packets arrive unevenly. A short gap is bridged by extrapolating.
+        /// </summary>
+        public const float InterpDelay = 0.15f, MaxExtrapolate = 0.12f;
         /// <summary>At most this many inputs per message (an unreliable packet must stay small).</summary>
         const int MaxBatch = 40;
 
@@ -188,7 +191,7 @@ namespace Spellcaster.Net
             if (NetworkServer.active || !Running || msg.players == null) return;
             StatesReceived++;
             NetStats.Loss(-1).Saw(msg.seq);
-            float now = Time.unscaledTime;
+            double now = msg.time;
             foreach (var e in msg.players)
             {
                 var p = Players.ByNetId(e.id);
@@ -199,7 +202,11 @@ namespace Spellcaster.Net
                 else
                 {
                     if (!buffers.TryGetValue(e.id, out var list)) buffers[e.id] = list = new List<Snap>();
-                    list.Add(new Snap { t = now, pos = e.pos, yaw = e.yaw, pitch = e.pitch, casting = e.casting });
+                    // Snapshots can arrive out of order (unreliable): keep them sorted by the host's time.
+                    int at = list.Count;
+                    while (at > 0 && list[at - 1].t > now) at--;
+                    if (at > 0 && list[at - 1].t == now) continue;
+                    list.Insert(at, new Snap { t = now, pos = e.pos, yaw = e.yaw, pitch = e.pitch, casting = e.casting });
                     if (list.Count > 40) list.RemoveRange(0, list.Count - 40);
                 }
             }
@@ -231,24 +238,49 @@ namespace Spellcaster.Net
 
         // ---------------- client: other players ----------------
 
-        struct Snap { public float t; public Vector3 pos; public float yaw, pitch; public bool casting; }
+        struct Snap { public double t; public Vector3 pos; public float yaw, pitch; public bool casting; }
         static readonly Dictionary<int, List<Snap>> buffers = new Dictionary<int, List<Snap>>();
 
         static void Interpolate()
         {
-            float t = Time.unscaledTime - InterpDelay;
+            double t = NetworkTime.time - InterpDelay; // the host's clock, a little in the past
             foreach (var kv in buffers)
             {
                 var p = Players.ByNetId(kv.Key);
                 var list = kv.Value;
                 if (!p || p.IsLocal || list.Count == 0) continue;
-                int b = list.FindIndex(s => s.t >= t);
-                Snap s0, s1;
-                if (b <= 0) { s0 = s1 = list[b < 0 ? list.Count - 1 : 0]; }
-                else { s0 = list[b - 1]; s1 = list[b]; }
-                float k = s1.t > s0.t ? Mathf.Clamp01((t - s0.t) / (s1.t - s0.t)) : 1f;
-                p.SetInterpolated(Vector3.Lerp(s0.pos, s1.pos, k), Mathf.LerpAngle(s0.yaw, s1.yaw, k), Mathf.Lerp(s0.pitch, s1.pitch, k), s1.casting);
+                Sample(list, t, out var pos, out float yaw, out float pitch, out bool casting);
+                p.SetInterpolated(pos, yaw, pitch, casting);
+            }
+        }
+
+        /// <summary>Blends the two snapshots around time t; past the newest one, keeps going a little in the same direction.</summary>
+        static void Sample(List<Snap> list, double t, out Vector3 pos, out float yaw, out float pitch, out bool casting)
+        {
+            int b = list.FindIndex(s => s.t >= t);
+            if (b > 0)
+            {
+                var s0 = list[b - 1]; var s1 = list[b];
+                float k = s1.t > s0.t ? Mathf.Clamp01((float)((t - s0.t) / (s1.t - s0.t))) : 1f;
+                pos = Vector3.Lerp(s0.pos, s1.pos, k);
+                yaw = Mathf.LerpAngle(s0.yaw, s1.yaw, k);
+                pitch = Mathf.Lerp(s0.pitch, s1.pitch, k);
+                casting = s1.casting;
                 if (b > 1) list.RemoveRange(0, b - 1);
+                return;
+            }
+            var last = list[list.Count - 1];
+            pos = last.pos; yaw = last.yaw; pitch = last.pitch; casting = last.casting;
+            if (b < 0 && list.Count >= 2)
+            {
+                // Late packet: extrapolate briefly from the last movement instead of freezing.
+                var prev = list[list.Count - 2];
+                double span = last.t - prev.t;
+                if (span > 1e-4)
+                {
+                    float ahead = (float)System.Math.Min(t - last.t, MaxExtrapolate);
+                    pos = last.pos + (last.pos - prev.pos) / (float)span * ahead;
+                }
             }
         }
 
@@ -305,7 +337,7 @@ namespace Spellcaster.Net
                     downed = p.Downed, bledOut = p.BledOut, bleed = p.BleedTimer, revive = p.ReviveProgress,
                 });
             }
-            if (entries.Count > 0) NetworkServer.SendToAll(new PlayerStatesMsg { seq = ++stateSeq, players = entries.ToArray() }, Channels.Unreliable);
+            if (entries.Count > 0) NetworkServer.SendToAll(new PlayerStatesMsg { seq = ++stateSeq, time = NetworkTime.time, players = entries.ToArray() }, Channels.Unreliable);
         }
     }
 }

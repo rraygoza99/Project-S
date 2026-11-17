@@ -187,7 +187,11 @@ namespace Spellcaster
                 Shadowed(new Rect(W * 0.1f, H * 0.555f, W * 0.8f, 4 * u),
                     "New unlocks: " + string.Join(", ", Progress.NewThisRun.Select(a => a.RewardName)), ns);
             }
-            Shadowed(new Rect(0, H * 0.64f, W, 4 * u), "R: new run      Esc: main menu", Centered);
+            var nsEnd = Net.NetSession.Instance;
+            string keys = nsEnd && nsEnd.InSession
+                ? (nsEnd.IsHost ? "R: new run with the group      Esc: leave" : "Waiting for the host to start a new run      Esc: leave")
+                : "R: new run      Esc: main menu";
+            Shadowed(new Rect(0, H * 0.64f, W, 4 * u), keys, Centered);
             DrawSeedLine(W, H * 0.71f, u);
         }
 

@@ -144,7 +144,7 @@ namespace Spellcaster
             var d = Dungeon.Instance;
             if (d && d.Current != null) d.SetGates(d.Current, false);
             if (SpellSystem.Instance) SpellSystem.Instance.ResetCooldowns();
-            GameState.Instance.Show("Good luck!", 2f);
+            GameState.Instance.Show(GameState.SaveProtected ? "Good luck! (this run isn't saved: your saved run is still on Continue)" : "Good luck!", 2.5f);
             Sfx.Play("door", 0.7f);
         }
 

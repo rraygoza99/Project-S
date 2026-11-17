@@ -33,6 +33,11 @@ namespace Spellcaster
         public static bool PracticeMode { get; private set; }
         /// <summary>The run opens with the tutorial in the start room.</summary>
         public static bool TutorialMode { get; private set; }
+        /// <summary>
+        /// A tutorial started while a run was saved: this run never saves (and never deletes the save), even
+        /// after the tutorial part ends, so the saved run is still there on Continue.
+        /// </summary>
+        public static bool SaveProtected { get; private set; }
 
         static bool skipTitle;
         /// <summary>True after a restart: go straight into the run.</summary>
@@ -102,7 +107,14 @@ namespace Spellcaster
                 case Phase.Dead:
                 case Phase.Victory:
                     if (Input.GetKeyDown(KeyCode.C)) RunRandom.CopySeed();
-                    if (Input.GetKeyDown(KeyCode.R)) Restart();
+                    var ns = Net.NetSession.Instance;
+                    if (ns && ns.InSession)
+                    {
+                        // Co-op: the host takes the whole group back to the lobby; the others wait (or leave).
+                        if (Input.GetKeyDown(KeyCode.R) && ns.IsHost) ns.BackToLobby();
+                        else if (Input.GetKeyDown(KeyCode.Escape)) ToMenu();
+                    }
+                    else if (Input.GetKeyDown(KeyCode.R)) Restart();
                     else if (Input.GetKeyDown(KeyCode.Escape)) ToMenu();
                     break;
             }
@@ -151,6 +163,7 @@ namespace Spellcaster
         public void StartTutorial()
         {
             TutorialMode = true;
+            SaveProtected = SaveSystem.HasValidSave;
             Begin();
         }
 
@@ -217,7 +230,7 @@ namespace Spellcaster
             if (Phase != Phase.Playing || Players.AnyAlive) return;
             Phase = Phase.Dead;
             Net.NetDowned.RunOver(); // co-op: everyone is down at once, the run ends for all
-            if (!PracticeMode && !TutorialMode) SaveSystem.Delete(); // roguelike: the run is over
+            if (!PracticeMode && !TutorialMode && !SaveProtected) SaveSystem.Delete(); // roguelike: the run is over
             Progress.Add("deaths");
             Progress.Flush();
             ReleaseCursor();
@@ -237,7 +250,7 @@ namespace Spellcaster
         {
             if (Phase != Phase.Playing) return;
             Phase = Phase.Victory;
-            if (!PracticeMode && !TutorialMode) SaveSystem.Delete();
+            if (!PracticeMode && !TutorialMode && !SaveProtected) SaveSystem.Delete();
             Progress.Add("wins");
             Progress.Flush();
             Sfx.Play("ready", 0.8f, 0.8f);
@@ -255,6 +268,7 @@ namespace Spellcaster
         public void ToMenu()
         {
             LeaveSession();
+            SaveProtected = false;
             skipTitle = false;
             PracticeMode = false;
             TutorialMode = false;
@@ -265,9 +279,21 @@ namespace Spellcaster
         public void Restart()
         {
             LeaveSession();
+            SaveProtected = false;
             skipTitle = true;
             PracticeMode = false;
             TutorialMode = false;
+            Time.timeScale = 1f;
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
+
+        /// <summary>Co-op: back to the main menu's lobby page, staying in the session (a new run with the same group).</summary>
+        public void ToLobby()
+        {
+            skipTitle = false;
+            PracticeMode = false;
+            TutorialMode = false;
+            SaveProtected = false;
             Time.timeScale = 1f;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }

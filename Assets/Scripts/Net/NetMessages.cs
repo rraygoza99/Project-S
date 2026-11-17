@@ -40,6 +40,9 @@ namespace Spellcaster.Net
         public int yourId;
     }
 
+    /// <summary>Host to clients: the run is over; everyone goes back to the lobby together.</summary>
+    public struct BackToLobbyMsg : NetworkMessage { }
+
     /// <summary>Client to host: ready or not.</summary>
     public struct ReadyMsg : NetworkMessage
     {
@@ -100,6 +103,7 @@ namespace Spellcaster.Net
     /// <summary>Host to clients, 30 times a second (unreliable): every enemy.</summary>
     public struct EnemyStatesMsg : NetworkMessage
     {
+        public double time;         // the host's clock when sent
         public EnemyStateEntry[] enemies;
     }
 
@@ -179,6 +183,7 @@ namespace Spellcaster.Net
     public struct PlayerStatesMsg : NetworkMessage
     {
         public uint seq;            // counts state messages (clients measure packet loss from gaps)
+        public double time;         // the host's clock when sent (clients blend on it, not on arrival time)
         public PlayerStateEntry[] players;
     }
 
