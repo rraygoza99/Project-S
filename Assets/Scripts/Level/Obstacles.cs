@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Spellcaster
 {
-    public enum PropKind { Barrel, Crate }
+    public enum PropKind { Barrel, Crate, Crystal }
 
     /// <summary>
     /// Breakable obstacle. Explosive barrels blow up (hurting enemies, you and other barrels);
@@ -63,6 +63,18 @@ namespace Spellcaster
                     PixelArt.Planks("tex_barrel", C(170, 40, 30), C(70, 60, 60), 3), Color.white, 1.3f);
                 worldPos.y = 0.65f;
             }
+            else if (kind == PropKind.Crystal)
+            {
+                // Floor 2: a frost crystal. Shatters into a freezing burst.
+                go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.transform.localScale = new Vector3(0.7f, 1.9f, 0.7f);
+                go.transform.rotation = Quaternion.Euler(Random.Range(-8f, 8f), Random.Range(0f, 90f), Random.Range(-8f, 8f));
+                go.GetComponent<Renderer>().sharedMaterial = Materials.World("crystal",
+                    ThemeTextures.Ice("tex_crystal", C(150, 220, 255), 11), new Color(1.25f, 1.35f, 1.5f), 1f);
+                worldPos.y = 0.95f;
+                var halo = Fx.CreateQuad(go.transform, new Color(0.55f, 0.85f, 1f, 0.45f), 1.4f);
+                halo.transform.localScale = new Vector3(2.4f, 0.9f, 1f);
+            }
             else
             {
                 go = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -81,7 +93,7 @@ namespace Spellcaster
             r.receiveShadows = false;
             var p = go.AddComponent<Prop>();
             p.Kind = kind;
-            p.HP = kind == PropKind.Barrel ? 10f : 18f;
+            p.HP = kind == PropKind.Barrel ? 10f : kind == PropKind.Crystal ? 8f : 18f;
             p.rend = r;
             All.Add(p);
             return p;
@@ -111,6 +123,32 @@ namespace Spellcaster
             else Sfx.Play("crate", 0.4f, Random.Range(1.1f, 1.3f));
         }
 
+        public const float CrystalBurstRadius = 3.6f;
+
+        /// <summary>A shattered frost crystal freezes enemies around it and chills you if you're close.</summary>
+        static void FrostBurst(Vector3 pos)
+        {
+            var c = new Color(0.6f, 0.9f, 1f);
+            Fx.Ring(Fx.Ground(pos), c, CrystalBurstRadius, 0.45f);
+            Fx.AreaMarker(pos, c, CrystalBurstRadius, 0.6f);
+            Fx.Flash(pos + Vector3.up, c, 3f, 0.4f, 1.4f);
+            DevMode.Ring(Fx.Ground(pos), CrystalBurstRadius, DevMode.SpellArea);
+            Sfx.Play("shatter", 0.8f, 0.9f);
+            foreach (var e in Enemy.All.ToArray())
+            {
+                Vector3 d = e.transform.position - pos;
+                d.y = 0f;
+                if (e.IsAlive && d.sqrMagnitude <= CrystalBurstRadius * CrystalBurstRadius) { e.TakeDamage(10f, Element.Frost); e.Freeze(3f); }
+            }
+            var p = Player.Instance;
+            if (p && !p.IsDead)
+            {
+                Vector3 d = p.transform.position - pos;
+                d.y = 0f;
+                if (d.sqrMagnitude <= CrystalBurstRadius * CrystalBurstRadius) p.ChillTimer = Mathf.Max(p.ChillTimer, 2f);
+            }
+        }
+
         void Break()
         {
             broken = true;
@@ -120,6 +158,10 @@ namespace Spellcaster
             if (Kind == PropKind.Barrel)
             {
                 Combat.Explode(Center, BarrelBlastRadius, 50f, 20f, Combat.BombColor, this);
+            }
+            else if (Kind == PropKind.Crystal)
+            {
+                FrostBurst(pos);
             }
             else
             {

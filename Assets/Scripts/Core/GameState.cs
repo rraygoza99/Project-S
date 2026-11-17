@@ -195,7 +195,7 @@ namespace Spellcaster
         /// <summary>Test hook: kill every enemy in the current fight.</summary>
         public void ClearEnemies()
         {
-            foreach (var e in Enemy.All.ToArray()) e.TakeDamage(99999f);
+            foreach (var e in Enemy.All.ToArray()) e.Kill();
         }
     }
 }

@@ -7,7 +7,7 @@ namespace Spellcaster
     /// All character art. Enemy sheets come from Assets/ThirdParty/Resources/Monsters (Pixel Monsters Vol.2,
     /// copied by tools/import-assets.ps1) when present, otherwise from the built-in ASCII pixel art.
     /// </summary>
-    public static class Sprites
+    public static partial class Sprites
     {
         static Texture2D LoadSheet(string name)
         {

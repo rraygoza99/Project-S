@@ -111,11 +111,22 @@ namespace Spellcaster
             if (Channeling) wish *= ChannelSpeedFactor;
 
             float speed = Run.Instance ? Run.Instance.MoveSpeed : MoveSpeed;
+            ChillTimer = Mathf.Max(0f, ChillTimer - dt);
+            if (ChillTimer > 0f) speed *= ChillSpeedFactor; // a frost crystal burst next to you
             Vector3 target = transform.TransformDirection(wish) * speed;
-            planarVelocity = Vector3.MoveTowards(planarVelocity, target, Acceleration * dt);
+            // Ice patches (floor 2): you keep sliding and steer slowly.
+            Grip = IcePatch.GripAt(transform.position);
+            planarVelocity = Vector3.MoveTowards(planarVelocity, target, Acceleration * Grip * dt);
             verticalVelocity = cc.isGrounded ? -2f : verticalVelocity - 20f * dt;
             cc.Move((planarVelocity + Vector3.up * verticalVelocity) * dt);
         }
+
+        /// <summary>Seconds you move slower after a frost burst (floor 2 frost crystals).</summary>
+        public float ChillTimer;
+        public const float ChillSpeedFactor = 0.55f;
+        /// <summary>Grip under your feet this frame (1 = normal, lower on ice).</summary>
+        public float Grip { get; private set; } = 1f;
+        public Vector3 PlanarVelocity => planarVelocity;
 
         void HandleCursor()
         {

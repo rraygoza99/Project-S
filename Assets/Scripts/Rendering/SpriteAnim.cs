@@ -43,8 +43,11 @@ namespace Spellcaster
     public class SpriteSet
     {
         public SpriteAnim Walk, Attack, Hit, Dead;
-        /// <summary>Optional: Run (fast movement, e.g. a charge) and Special (a wind-up pose).</summary>
-        public SpriteAnim Run, Special;
+        /// <summary>Optional: Run (fast movement, e.g. a charge), Special (a wind-up pose) and Idle (standing still).</summary>
+        public SpriteAnim Run, Special, Idle;
+        /// <summary>Optional named animations for bosses ("roll", "takeoff"...).</summary>
+        public readonly System.Collections.Generic.Dictionary<string, SpriteAnim> Extra = new System.Collections.Generic.Dictionary<string, SpriteAnim>();
+        public SpriteAnim Get(string name) => Extra.TryGetValue(name, out var a) && a != null ? a : null;
         public float PixelsPerUnit = 16f;
         /// <summary>Distance in sheet pixels from the bottom of a cell to the character's feet.</summary>
         public float FeetPx;

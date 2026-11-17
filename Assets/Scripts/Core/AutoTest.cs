@@ -539,16 +539,28 @@ namespace Spellcaster
                 Check($"shadelings drop no loot ({Pickup.All.Count - ntPickups} new pickups)", Pickup.All.Count == ntPickups && Enemy.All.Count == 0);
                 ClearPickups();
 
-                // Encounter tables: skulls and beetles start on floor 2; floor 3 has everything.
+                // Encounter tables: each floor has its own mix.
                 var ntF1 = new HashSet<EnemyType>();
+                var ntF2 = new HashSet<EnemyType>();
                 var ntF3 = new HashSet<EnemyType>();
                 for (int i = 0; i < 3000; i++)
                 {
                     ntF1.Add(EnemyType.PickForEncounter(1, 4, () => UnityEngine.Random.value, 0));
+                    ntF2.Add(EnemyType.PickForEncounter(2, 4, () => UnityEngine.Random.value, 0));
                     ntF3.Add(EnemyType.PickForEncounter(3, 4, () => UnityEngine.Random.value, 0));
                 }
-                Check($"floor 1 rooms mix {string.Join(", ", ntF1.Select(x => x.Name))}; floor 3 adds {string.Join(", ", ntF3.Except(ntF1).Select(x => x.Name))}",
-                    ntF1.Count == 4 && !ntF1.Contains(EnemyType.Skull) && !ntF1.Contains(EnemyType.Beetle) && ntF3.Count == 6);
+                Check($"floor 1 rooms: {string.Join(", ", ntF1.Select(x => x.Name))}; floor 2: {string.Join(", ", ntF2.Select(x => x.Name))}; floor 3: {string.Join(", ", ntF3.Select(x => x.Name))}",
+                    ntF1.Count == 4 && !ntF1.Contains(EnemyType.Skull) && ntF2.Contains(EnemyType.Slug) && ntF2.Contains(EnemyType.Frog) && !ntF2.Contains(EnemyType.Skull)
+                    && ntF3.Contains(EnemyType.Crawler) && ntF3.Contains(EnemyType.Mimic) && !ntF3.Contains(EnemyType.Cultist));
+                int ntMimics = 0;
+                var ntCount = new Dictionary<EnemyType, int>();
+                for (int i = 0; i < 40; i++)
+                {
+                    var ntPick = EnemyType.PickForEncounter(3, 4, () => UnityEngine.Random.value, x => ntCount.TryGetValue(x, out int ntC) ? ntC : 0);
+                    ntCount[ntPick] = (ntCount.TryGetValue(ntPick, out int ntH) ? ntH : 0) + 1;
+                    if (ntPick == EnemyType.Mimic) ntMimics++;
+                }
+                Check($"at most one mimic per room ({ntMimics} in 40 picks)", ntMimics <= 1);
 
                 // Dev mode: hitbox wireframes over enemies, projectiles and spell areas.
                 bool dvWasOn = Settings.DevMode;
@@ -1336,14 +1348,205 @@ namespace Spellcaster
             player.SetLook(0f, 0f);
             yield return Shot("21_floor2");
 
+            // ---- floor 2: Frozen Caverns (own look, hazards, enemies and boss) ----
+            {
+                d.HoldEncounters = true;
+                var fcRoom = d.AllRooms.Where(r => r.Type == RoomType.Combat).OrderByDescending(r => r.CellCount).First();
+                int fcIce = IcePatch.All.Count, fcCrystals = Prop.All.Count(x => x && x.Kind == PropKind.Crystal);
+                int fcPods = FindObjectsByType<CeilingPod>(FindObjectsSortMode.None).Length;
+                int fcSpikes = FindObjectsByType<SpikeTrap>(FindObjectsSortMode.None).Length;
+                Check($"floor 2 has its own hazards: {fcIce} ice patches, {fcCrystals} frost crystals, {fcPods} ceiling pods, {fcSpikes} spike traps",
+                    fcIce > 0 && fcCrystals > 0 && fcPods > 0 && fcSpikes == 0);
+                EnterRoom(player, fcRoom);
+                yield return new WaitForSeconds(0.3f);
+                player.SetLook(0f, -5f);
+                yield return Shot("21b_floor2_room");
+
+                // Ice: the player's grip drops on a patch.
+                var fcPatch = IcePatch.All.FirstOrDefault(x => x && x.Contains(x.transform.position));
+                if (fcPatch)
+                {
+                    player.Teleport(new Vector3(fcPatch.transform.position.x, 0.1f, fcPatch.transform.position.z), 0f);
+                    yield return null;
+                    yield return null;
+                    Check($"standing on ice you slide (grip {player.Grip:0.00})", Mathf.Approximately(player.Grip, IcePatch.Grip));
+                }
+                EnterRoom(player, fcRoom);
+                yield return null;
+                yield return null;
+                Check("off the ice, grip is back to normal", Mathf.Approximately(player.Grip, 1f));
+
+                // Frost crystal: shooting it freezes the enemy beside it and chills you if you're close.
+                var fcCrystal = Prop.Create(PropKind.Crystal, fcRoom.Root, AheadPoint(player, 2.5f, 0f));
+                var fcImp = EnemySpawner.Instance.SpawnAt(EnemyType.Imp, fcCrystal.transform.position + player.transform.right * 1.5f);
+                yield return null;
+                player.ChillTimer = 0f;
+                fcCrystal.TakeDamage(100f);
+                yield return null;
+                Check($"a shattered frost crystal freezes nearby enemies and chills you ({player.ChillTimer:0.0} s)", fcImp && fcImp.IsFrozen && player.ChillTimer > 1f);
+                gs.ClearEnemies();
+                player.ChillTimer = 0f;
+
+                // Ceiling pod: its tentacle strikes when you walk under it.
+                var fcPod = CeilingPod.Create(fcRoom.Root, player.transform.position + player.transform.forward * 0.5f);
+                float fcT = 0f;
+                while (fcT < 2f && fcPod.Strikes == 0) { fcT += Time.deltaTime; yield return null; }
+                Check($"a ceiling pod strikes when you stand under it ({fcT:0.0} s)", fcPod.Strikes > 0);
+                player.SetLook(0f, 40f);
+                yield return Shot("21c_ceiling_pod");
+                Destroy(fcPod.gameObject);
+                player.SetLook(0f, 0f);
+
+                // Floor 2 enemies.
+                var fcTypes = new[] { EnemyType.Slug, EnemyType.Moth, EnemyType.Frog };
+                var fcEnemies = new List<Enemy>();
+                for (int i = 0; i < fcTypes.Length; i++)
+                {
+                    var fcE = SpawnAhead(player, fcTypes[i], 6f, (i - 1f) * 2.6f);
+                    fcE.Freeze(4f);
+                    fcEnemies.Add(fcE);
+                }
+                yield return new WaitForSeconds(0.3f);
+                yield return Shot("21d_floor2_enemies");
+                Check($"floor 2 enemies use the art pack: {string.Join(", ", fcTypes.Select(t => t.Name))}",
+                    fcTypes.All(t => t.Sprites.Dead != null) && fcEnemies.All(e => e && e.IsAlive));
+                gs.ClearEnemies();
+                yield return new WaitForSeconds(0.5f);
+                d.HoldEncounters = false;
+
+                // The Burrower: dives (can't be hurt underground) and comes up under you.
+                var fcBossRoom = d.FirstOfType(RoomType.Boss);
+                EnterRoom(player, fcBossRoom);
+                yield return new WaitForSeconds(2.5f);
+                var fcBoss = d.Boss;
+                var fcBrain = fcBoss ? fcBoss.Brain as BurrowerBrain : null;
+                Check($"floor 2 boss is {(fcBoss ? fcBoss.Type.Name : "none")}", fcBoss && fcBoss.Type == EnemyType.Burrower && fcBrain != null);
+                if (fcBrain != null)
+                {
+                    player.LookAt(fcBoss.Center);
+                    yield return Shot("21e_burrower");
+                    fcBrain.Force = "dive";
+                    fcT = 0f;
+                    while (fcT < 4f && !fcBrain.Burrowed) { fcT += Time.deltaTime; yield return null; }
+                    float fcHp = fcBoss.HP;
+                    float fcDealt = fcBoss.TakeDamage(50f);
+                    Check("the Burrower dives underground, where it can't be hurt", fcBrain.Burrowed && fcDealt == 0f && Mathf.Approximately(fcBoss.HP, fcHp) && !fcBoss.Hitbox.enabled);
+                    fcT = 0f;
+                    while (fcT < 5f && fcBrain.Burrowed) { fcT += Time.deltaTime; yield return null; }
+                    Vector3 fcGap = fcBoss.transform.position - player.transform.position;
+                    fcGap.y = 0f;
+                    Check($"it surfaces near you ({fcGap.magnitude:0.0} m away) and can be hit again", !fcBrain.Burrowed && fcGap.magnitude < 4f && fcBoss.Hitbox.enabled && fcBrain.Dives >= 1);
+                    yield return Shot("21f_burrower_surfaced");
+                }
+                if (fcBoss) fcBoss.Kill();
+                yield return new WaitForSeconds(1.2f);
+                gs.ClearEnemies();
+                yield return new WaitForSeconds(0.5f);
+            }
+
             // ---- final floor: victory ----
             d.BuildFloor(Dungeon.FinalFloor);
             yield return new WaitForSeconds(0.5f);
+
+            // ---- floor 3: The Forge ----
+            {
+                d.HoldEncounters = true;
+                int ffLava = LavaPool.All.Count(x => x && !x.Temporary);
+                int ffJets = FindObjectsByType<FireJet>(FindObjectsSortMode.None).Length;
+                int ffSpikes = FindObjectsByType<SpikeTrap>(FindObjectsSortMode.None).Length;
+                Check($"floor 3 has its own hazards: {ffLava} lava pools, {ffJets} fire jets, {ffSpikes} spike traps, {IcePatch.All.Count} ice",
+                    ffLava > 0 && ffJets > 0 && ffSpikes == 0 && IcePatch.All.Count == 0);
+                var ffRoom = d.AllRooms.Where(r => r.Type == RoomType.Combat).OrderByDescending(r => r.CellCount).First();
+                EnterRoom(player, ffRoom);
+                yield return new WaitForSeconds(0.3f);
+                player.SetLook(0f, -5f);
+                yield return Shot("22a_floor3_room");
+
+                // Lava burns walking enemies (and you); fire jets erupt on a cycle.
+                var ffPool = LavaPool.All.First(x => x && !x.Temporary);
+                var ffImp = EnemySpawner.Instance.SpawnAt(EnemyType.Imp, ffPool.transform.position);
+                ffImp.Freeze(5f);
+                var ffJet = FindObjectsByType<FireJet>(FindObjectsSortMode.None).First();
+                var ffImp2 = EnemySpawner.Instance.SpawnAt(EnemyType.Imp, ffJet.transform.position);
+                ffImp2.Freeze(6f);
+                player.God = false;
+                player.Heal(player.MaxHP);
+                player.Teleport(new Vector3(ffPool.transform.position.x + 0.3f, 0.1f, ffPool.transform.position.z), 0f);
+                float ffHp = player.HP;
+                yield return new WaitForSeconds(1.2f);
+                float ffBurn = ffHp - player.HP;
+                player.God = true;
+                player.Heal(player.MaxHP);
+                Check($"lava burns you ({ffBurn:0} HP in 1.2 s) and walking enemies", ffBurn > 0f && (!ffImp || ffImp.HP < ffImp.MaxHP));
+                float ffT = 0f;
+                while (ffT < FireJet.Cycle + 0.5f && ffImp2 && ffImp2.IsAlive && Mathf.Approximately(ffImp2.HP, ffImp2.MaxHP)) { ffT += Time.deltaTime; yield return null; }
+                Check($"fire jets erupt and burn what stands on them ({ffT:0.0} s)", !ffImp2 || ffImp2.HP < ffImp2.MaxHP);
+                gs.ClearEnemies();
+                EnterRoom(player, ffRoom);
+                yield return new WaitForSeconds(0.4f);
+
+                // Floor 3 enemies; the mimic sleeps as a chest until you come close.
+                var ffTypes = new[] { EnemyType.Crawler, EnemyType.Robot, EnemyType.Mimic };
+                var ffEnemies = new List<Enemy>();
+                for (int i = 0; i < ffTypes.Length; i++) ffEnemies.Add(SpawnAhead(player, ffTypes[i], 6f, (i - 1f) * 2.8f));
+                foreach (var e in ffEnemies.Take(2)) e.Freeze(4f);
+                yield return new WaitForSeconds(0.4f);
+                yield return Shot("22b_floor3_enemies");
+                var ffMimic = ffEnemies[2];
+                var ffMb = ffMimic ? ffMimic.Brain as MimicBrain : null;
+                bool ffDormant = ffMb != null && ffMb.Dormant;
+                Check($"floor 3 enemies use the art pack: {string.Join(", ", ffTypes.Select(t => t.Name))}; the mimic waits as a chest",
+                    ffTypes.All(t => t.Sprites.Dead != null) && ffDormant);
+                if (ffMimic)
+                {
+                    player.Teleport(ffMimic.transform.position - player.transform.forward * 2f + Vector3.up * 0.1f, player.transform.eulerAngles.y);
+                    ffT = 0f;
+                    while (ffT < 1.5f && ffMb.Dormant) { ffT += Time.deltaTime; yield return null; }
+                    Check($"the mimic wakes when you come close ({ffMb.Phase})", !ffMb.Dormant);
+                    yield return new WaitForSeconds(0.4f);
+                    player.LookAt(ffMimic.Center);
+                    yield return Shot("22c_mimic");
+                }
+                gs.ClearEnemies();
+                yield return new WaitForSeconds(0.5f);
+                d.HoldEncounters = false;
+            }
+
             var finalBoss = d.FirstOfType(RoomType.Boss);
             EnterRoom(player, finalBoss);
             yield return new WaitForSeconds(2.5f);
             Check("floor 3 boss is tougher", d.Boss && d.Boss.MaxHP > EnemyType.Boss.MaxHP * 1.5f);
-            if (d.Boss) d.Boss.TakeDamage(99999f);
+            {
+                var bmBoss = d.Boss;
+                var bmBrain = bmBoss ? bmBoss.Brain as BehemothBrain : null;
+                Check($"floor 3 boss is {(bmBoss ? bmBoss.Type.Name : "none")}", bmBoss && bmBoss.Type == EnemyType.Behemoth && bmBrain != null);
+                if (bmBrain != null)
+                {
+                    player.LookAt(bmBoss.Center);
+                    yield return Shot("22d_behemoth");
+                    bmBrain.Force = "leap";
+                    float bmT = 0f;
+                    while (bmT < 5f && !bmBrain.Airborne) { bmT += Time.deltaTime; yield return null; }
+                    bool bmAir = bmBrain.Airborne && bmBoss.Invulnerable && !bmBoss.Hitbox.enabled;
+                    player.LookAt(bmBoss.Center + Vector3.up * 5f);
+                    yield return Shot("22e_behemoth_leap");
+                    while (bmT < 8f && bmBrain.Airborne) { bmT += Time.deltaTime; yield return null; }
+                    Check("the Behemoth leaps (can't be hurt in the air) and lands with a shockwave", bmAir && !bmBrain.Airborne && bmBrain.Leaps >= 1 && !bmBoss.Invulnerable);
+                    int bmShots = bmBoss.ShotsFired;
+                    bmBrain.Force = "spikes";
+                    bmT = 0f;
+                    while (bmT < 10f && bmBrain.SpikeVolleys == 0) { bmT += Time.deltaTime; yield return null; }
+                    Check($"it fires a ring of spikes ({bmBoss.ShotsFired - bmShots} shots, volleys {bmBrain.SpikeVolleys}, phase {bmBrain.Phase}, frozen {bmBoss.IsFrozen}, stunned {bmBoss.IsStunned})", bmBrain.SpikeVolleys >= 1 && bmBoss.ShotsFired - bmShots >= 14);
+                    bmBrain.Force = "roll";
+                    bmT = 0f;
+                    while (bmT < 8f && bmBrain.Rolls == 0) { bmT += Time.deltaTime; yield return null; }
+                    yield return new WaitForSeconds(0.4f);
+                    int bmTrail = LavaPool.All.Count(x => x && x.Temporary);
+                    yield return Shot("22f_behemoth_roll");
+                    Check($"it rolls at you, leaving burning ground ({bmTrail} patches)", bmBrain.Rolls >= 1 && bmTrail > 0);
+                }
+            }
+            if (d.Boss) d.Boss.Kill();
             yield return new WaitForSeconds(1.2f);
             player.Teleport(d.PortalPosition + Vector3.up * 0.1f, 0f);
             yield return new WaitForSecondsRealtime(0.5f); // the victory screen pauses game time

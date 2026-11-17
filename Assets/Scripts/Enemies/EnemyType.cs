@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Spellcaster
 {
     /// <summary>Data for an enemy archetype.</summary>
-    public class EnemyType
+    public partial class EnemyType
     {
         public string Name;
         public string SoundPrefix;          // MonsterSounds/<prefix>_hit|_death|_attack, falls back to synth
@@ -70,7 +70,7 @@ namespace Spellcaster
         /// <summary>Fast flying skull that rushes you and explodes. Kill it at range: it also blows up when it dies.</summary>
         public static readonly EnemyType Skull = new EnemyType
         {
-            Name = "Flame Skull", SoundPrefix = "imp", SpriteFactory = Spellcaster.Sprites.Skull, MinFloor = 2,
+            Name = "Flame Skull", SoundPrefix = "imp", SpriteFactory = Spellcaster.Sprites.Skull, MinFloor = 3,
             MaxHP = 22f, Speed = 6.2f, Height = 0.9f, Radius = 0.4f, Hover = 1.0f, Flying = true,
             AttackRange = 1.9f, Windup = 0.3f, Recover = 0f, AttackCooldown = 0.5f, Damage = 0f,
             Kamikaze = true, ExplodeRadius = 3.2f, ExplodeDamage = 18f,
@@ -79,7 +79,7 @@ namespace Spellcaster
         /// <summary>Slow armoured beetle that braces and charges across the room; ramming a wall dazes it.</summary>
         public static readonly EnemyType Beetle = new EnemyType
         {
-            Name = "Horned Beetle", SoundPrefix = "imp", SpriteFactory = Spellcaster.Sprites.Beetle, MinFloor = 2,
+            Name = "Horned Beetle", SoundPrefix = "imp", SpriteFactory = Spellcaster.Sprites.Beetle, MinFloor = 3,
             MaxHP = 140f, Speed = 2.3f, Height = 1.8f, Radius = 0.65f,
             AttackRange = 2.1f, Windup = 0.45f, Recover = 0.5f, AttackCooldown = 1.4f, Damage = 12f,
             ChargeSpeed = 15f, ChargeTime = 1.0f, ChargeMin = 4.5f, ChargeMax = 16f, ChargeDamage = 20f, ChargeCooldown = 4.5f,
@@ -126,31 +126,8 @@ namespace Spellcaster
         /// <summary>Every regular enemy (not the boss or shadelings), for menus and tests.</summary>
         public static readonly EnemyType[] Regulars = { Imp, Cultist, Hornet, Shade, Skull, Beetle };
 
-        /// <summary>
-        /// Picks an enemy for a room encounter. Floor 1 has imps, cultists, hornets and shades; skulls and
-        /// beetles join from floor 2. Ranged and newer enemies get more common deeper in.
-        /// </summary>
-        public static EnemyType PickForEncounter(int floor, int depth, System.Func<float> rand, int beetles)
-        {
-            float d = Mathf.Min(depth, 5);
-            var pool = new (EnemyType type, float w)[]
-            {
-                (Imp, 1f),
-                (Cultist, 0.25f + 0.1f * floor + 0.04f * d),
-                (Hornet, 0.12f + 0.08f * floor + 0.02f * d),
-                (Shade, depth >= 2 ? 0.1f + 0.08f * floor : 0f),
-                (Skull, floor >= Skull.MinFloor ? 0.22f + 0.08f * (floor - 2) : 0f),
-                (Beetle, floor >= Beetle.MinFloor && beetles < 2 ? 0.14f + 0.06f * (floor - 2) : 0f),
-            };
-            float total = 0f;
-            foreach (var p in pool) total += p.w;
-            float r = rand() * total;
-            foreach (var p in pool)
-            {
-                r -= p.w;
-                if (r < 0f && p.w > 0f) return p.type;
-            }
-            return Imp;
-        }
+        /// <summary>Picks an enemy for a room encounter from the floor's roster (see Roster); at most 2 beetles.</summary>
+        public static EnemyType PickForEncounter(int floor, int depth, System.Func<float> rand, int beetles) =>
+            PickForEncounter(floor, depth, rand, t => t == Beetle ? beetles : 0);
     }
 }

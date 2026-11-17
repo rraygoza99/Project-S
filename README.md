@@ -38,7 +38,7 @@ own these packs, download them in Unity's Package Manager (My Assets > Download)
 
 | Pack | Used for |
 |---|---|
-| Pixel Monsters Vol.2 (Ismartal) | Imp = "monster 8", ranged enemy and boss = "monster 16" (floating eye), Flame Skull = 18, Horned Beetle = 4, Hornet = 11, Shade = 13 |
+| Pixel Monsters Vol.2 (Ismartal) | Imp = "monster 8", ranged enemy and boss = "monster 16" (floating eye), Flame Skull = 18, Horned Beetle = 4, Hornet = 11, Shade = 13; floor 2: Frost Slug = 1, Gloom Moth = 2, Cave Frog = 12, ceiling pod = 6, The Burrower = 20; floor 3: Cinder Crawler = 14, Forge Sentry = 17, Mimic = 19, The Behemoth = 7 |
 | SpellBook Megapack (Rexard) | Spell icons |
 | Monster Sounds Pack (Cafofo) | Enemy hit / death / attack sounds |
 | Lightning Bolt Effect (Digital Ruby) | Lightning bolts (used via reflection; built-in fallback) |
@@ -100,16 +100,30 @@ cleared rooms, so you can't wait out Heal between fights).
 
 ## The run
 
-- **Floors.** Three floors of 10, 12 and 14 rooms on a grid (Isaac style), each with its own colours
-  and tougher enemies. Every floor has a **treasure room** (free relic or item), a **shop** (spend
-  gold), a **rune shrine** (a new spell) and a **boss room** at the far end.
+- **Floors.** Three floors of 10, 12 and 14 rooms on a grid (Isaac style). Every floor has a
+  **treasure room** (free relic or item), a **shop** (spend gold), a **rune shrine** (a new spell)
+  and a **boss room** at the far end. Each floor is its own place:
+
+  | Floor | Look | Hazards | Enemies | Boss |
+  |---|---|---|---|---|
+  | 1. The Crypt | Brick halls, pillars and cover walls, torches, drifting dust | Spike traps, explosive barrels, crates | Imps, cultists, hornets, shades | The Watcher |
+  | 2. Frozen Caverns | Rock and ice: boulders, crystal groves, ice walls, stalagmites, stalactites, falling snow, thick blue fog | Ice patches (you slide), frost crystals, ceiling pods | Frost slugs, gloom moths, cave frogs, shades | The Burrower |
+  | 3. The Forge | Iron plates and basalt: anvils, grates, a furnace, lava pits, braziers, rising embers | Lava pools, fire jets, explosive barrels | Cinder crawlers, forge sentries, flame skulls, horned beetles, imps, mimics | The Behemoth |
 - **Rooms.** Walking into an uncleared room drops iron gates over its doors and summons the fight.
   Clear it to open the doors; cleared rooms sometimes leave a reward.
 - **Room sizes.** Most rooms are one grid cell (26 x 26 m). Some combat rooms are big: long halls
   (2x1 or 1x2) and 2x2 arenas, with a cover layout in each cell and more enemies (1.6x / 2.1x).
   The start room, its neighbours and the special rooms are always one cell.
-- **Boss.** The Watcher fires fans of bolts and summons imps. Killing it opens a portal to the next
-  floor (and drops an item and a heart). The portal on floor 3 wins the run.
+- **Bosses.** Killing a floor's boss opens a portal to the next floor (and drops an item and a
+  heart). The portal on floor 3 wins the run.
+  - **The Watcher** (floor 1) fires fans of bolts and summons imps.
+  - **The Burrower** (floor 2) spits fans of frost, then dives underground (it can't be hurt there)
+    and bursts out under you: get off the purple warning ring. It calls slugs and moths, and below
+    half HP it moves and spits faster.
+  - **The Behemoth** (floor 3) walks at you, then either curls up and **rolls** across the arena
+    (leaving burning ground; if it crashes into a wall it is tired for a few seconds: punish it),
+    fires a **ring of spikes**, or **leaps** (can't be hurt in the air) and slams down on the orange
+    warning ring. At half HP it roars and gets faster, and its slams call flame skulls.
 - **Map.** The minimap shows visited rooms and their neighbours; T, $, R and B mark the special rooms.
 - **Death** ends the run. Nothing carries over between runs.
 
@@ -151,7 +165,12 @@ New Forge synergies: Fire + Poison = **Combustion** (hits burst into flame), Ear
 | Pillars and cover walls | Six room layouts block movement and shots |
 | Explosive barrel | Breaks in one bolt; blasts enemies, you and other barrels (4.2 m; aim at one to see the ring) |
 | Crate | Breakable; may drop gold, a heart or an item |
-| Spike trap | Rises every few seconds after a short warning; hurts you and walking (not flying) enemies; stops once the room is cleared |
+| Spike trap (floor 1) | Rises every few seconds after a short warning; hurts you and walking (not flying) enemies; stops once the room is cleared |
+| Ice patch (floor 2) | You slide: you keep your speed and turn slowly. Enemies don't slip |
+| Frost crystal (floor 2) | Breakable; shatters into a freezing burst (3.6 m) that freezes enemies and slows you if you're close |
+| Ceiling pod (floor 2) | Hangs from the ceiling; shakes, then drops its tentacle on whoever stands under it (12 damage) |
+| Lava pool (floor 3) | Burns you (16 HP/s) and walking enemies; flyers are safe |
+| Fire jet (floor 3) | A vent glows as a warning, then shoots a column of fire (14 damage); stops once the room is cleared |
 
 ### Enemies
 
@@ -161,11 +180,17 @@ New Forge synergies: Fire + Poison = **Combustion** (hits burst into flame), Ear
 | Cultist | floor 1 | Keeps its distance and shoots; walks around cover to find you |
 | Hornet | floor 1 | Darting flyer that fires bursts of 3 stingers |
 | Shade | floor 1 (deeper rooms) | Splits into 2 fast shadelings when it dies (they drop nothing) |
-| Flame Skull | floor 2 | Rushes you and explodes (18 damage, 3 m); also explodes when killed, hurting nearby enemies, so kill it at range |
-| Horned Beetle | floor 2 | Tough; braces, then charges in a straight line (20 damage). Dodge it into a wall and it's dazed |
-| The Watcher | boss | Fans of bolts, summons imps |
+| Frost Slug | floor 2 | Slow and tough; hits hard up close |
+| Gloom Moth | floor 2 | Flying; spits pairs of frost bolts from a distance |
+| Cave Frog | floor 2 | Crouches, then leaps at you; bites up close |
+| Flame Skull | floor 3 | Rushes you and explodes (18 damage, 3 m); also explodes when killed, hurting nearby enemies, so kill it at range |
+| Horned Beetle | floor 3 | Tough; braces, then charges in a straight line (20 damage). Dodge it into a wall and it's dazed |
+| Cinder Crawler | floor 3 | Throws fans of burning spikes |
+| Forge Sentry | floor 3 | Little robot that fires bursts of 3 shots |
+| Mimic | floor 3 (at most one per room) | Looks like a treasure chest until you get close or hit it; then it chases and bites hard |
 
-Ranged and newer enemies get more common on deeper floors and further from the start.
+Each floor has its own mix (`Enemies/EnemyTypesFloors.cs`); ranged enemies get more common further
+from the start.
 
 ### Loot
 

@@ -17,13 +17,25 @@ namespace Spellcaster
             switch (room.Type)
             {
                 case RoomType.Combat:
+                {
                     // Big rooms get a layout in each of their cells (one each, so a hall mixes cover styles).
-                    room.Layout = rng.Next(Count);
+                    // Floors 2 and 3 have their own structures and hazards (FloorThemes).
+                    int layouts = floor >= 2 ? FloorThemes.Layouts : Count;
+                    room.Layout = rng.Next(layouts);
                     int k = 0;
                     foreach (var cell in room.Cells)
-                        Structures(room, pal, k++ == 0 ? room.Layout : rng.Next(Count), Room.CellCenter(cell));
+                    {
+                        int layout = k++ == 0 ? room.Layout : rng.Next(layouts);
+                        if (floor >= 2) FloorThemes.Structures(room, pal, rng, floor, layout, Room.CellCenter(cell));
+                        else Structures(room, pal, layout, Room.CellCenter(cell));
+                    }
                     int n = room.CellCount;
-                    Sprinkle(room, rng, barrels: rng.Next(0, 3 + floor) * n, crates: rng.Next(0, 4) * n, spikes: rng.Next(0, floor + 2) * n);
+                    if (floor >= 2) FloorThemes.Hazards(room, rng, floor);
+                    else Sprinkle(room, rng, barrels: rng.Next(0, 3 + floor) * n, crates: rng.Next(0, 4) * n, spikes: rng.Next(0, floor + 2) * n);
+                    break;
+                }
+                case RoomType.Boss when floor >= 2:
+                    FloorThemes.Boss(room, pal, rng, floor);
                     break;
                 case RoomType.Boss:
                     foreach (var p in new[] { new Vector2(-7, -7), new Vector2(7, -7), new Vector2(-7, 7), new Vector2(7, 7) })
@@ -34,6 +46,7 @@ namespace Spellcaster
                     Sprinkle(room, rng, barrels: 0, crates: 2, spikes: 0);
                     break;
             }
+            if (floor >= 2) FloorThemes.Decor(room, pal, rng, floor);
         }
 
         static void Structures(Room room, Dungeon.Palette pal, int layout, Vector3 o)
@@ -73,7 +86,7 @@ namespace Spellcaster
             }
         }
 
-        static void Sprinkle(Room room, System.Random rng, int barrels, int crates, int spikes)
+        internal static void Sprinkle(Room room, System.Random rng, int barrels, int crates, int spikes)
         {
             for (int i = 0; i < spikes; i++)
                 if (TryPlace(room, rng, 1.9f, 1.5f, out var p)) SpikeTrap.Create(room.Root, p, (float)rng.NextDouble());
@@ -92,7 +105,7 @@ namespace Spellcaster
                 if (TryPlace(room, rng, 0.9f, 2f, out var p)) Prop.Create(PropKind.Crate, room.Root, p);
         }
 
-        static bool InBounds(Room room, Vector3 p)
+        internal static bool InBounds(Room room, Vector3 p)
         {
             if (!room.Contains(p, Dungeon.Half - Inner)) return false;
             // keep the lanes through the middle of each cell clear (doors and the openings between a big room's cells)
@@ -103,7 +116,7 @@ namespace Spellcaster
             return !doorLaneX && !doorLaneZ;
         }
 
-        static bool TryPlace(Room room, System.Random rng, float radius, float centerClear, out Vector3 pos)
+        internal static bool TryPlace(Room room, System.Random rng, float radius, float centerClear, out Vector3 pos)
         {
             for (int t = 0; t < 30; t++)
             {

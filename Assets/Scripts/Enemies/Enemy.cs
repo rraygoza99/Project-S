@@ -26,6 +26,13 @@ namespace Spellcaster
         public bool IsPoisoned => poisonTimer > 0f;
         public bool IsStunned => stunTimer > 0f;
         public bool IsSlowed => slowTimer > 0f;
+        /// <summary>Optional controller for bosses and the mimic (movement, attacks, animation).</summary>
+        public EnemyBrain Brain { get; private set; }
+        /// <summary>Set by a brain: the animation to show, its clock, opacity and extra height (a leap).</summary>
+        public SpriteAnim BrainAnim;
+        public float BrainAnimTime, BrainAlpha = 1f, VisualLift;
+        /// <summary>Takes no damage (a burrowed worm, a boss in the air).</summary>
+        public bool Invulnerable;
         /// <summary>Elite variant (Grimoire experiment): tougher and tinted.</summary>
         public bool IsElite { get; private set; }
         public static readonly Color EliteTint = new Color(1f, 0.6f, 0.45f);
@@ -68,6 +75,8 @@ namespace Spellcaster
         /// <summary>True while a ranged enemy is moving around cover to find the player.</summary>
         public bool IsFlanking => flanking;
         public int AttacksDone => attacksDone;
+        /// <summary>What the last move bumped into (a charging boss hitting a wall).</summary>
+        public CollisionFlags LastFlags => lastFlags;
 
         // Special behaviours (see EnemyType)
         const float ChargeBrace = 0.75f;
@@ -135,6 +144,7 @@ namespace Spellcaster
             e.strafeSign = Random.value < 0.5f ? -1f : 1f;
             e.animTime = Random.value * 2f;
             e.bobPhase = Random.value * 6f;
+            if (type.BrainFactory != null) { e.Brain = type.BrainFactory(); e.Brain.Init(e); }
             e.ApplyVisual(type.Sprites.Walk, 0, 1f);
             All.Add(e);
             Spawned?.Invoke(e);
@@ -206,7 +216,13 @@ namespace Spellcaster
                 float dist = toPlayer.magnitude;
                 Vector3 dir = dist > 1e-3f ? toPlayer / dist : transform.forward;
 
-                if (state == State.Attack)
+                if (Brain != null)
+                {
+                    move = Brain.Tick(player, dir, dist, dt);
+                    BrainAnimTime += dt;
+                    if (state == State.Dead) return;
+                }
+                else if (state == State.Attack)
                 {
                     stateTimer += dt;
                     if (!attackFired && stateTimer >= Type.Windup)
@@ -248,13 +264,18 @@ namespace Spellcaster
 
             knockback = Vector3.MoveTowards(knockback, Vector3.zero, 18f * dt);
             verticalVelocity = cc.isGrounded ? -1f : verticalVelocity - 20f * dt;
-            Vector3 velocity = move * Type.Speed + knockback;
+            Vector3 velocity = (Brain != null ? move : move * Type.Speed) + knockback;
             lastMove = velocity;
             lastFlags = cc.Move((velocity + Vector3.up * verticalVelocity) * dt);
 
             // Pick the animation frame.
             bool held = frozenTimer > 0f || stunTimer > 0f;
-            if (state == State.Charge && !held)
+            if (Brain != null && BrainAnim != null)
+            {
+                if (hitAnimTimer > 0f && set.Hit != null && Brain.ShowsHits) ApplyVisual(set.Hit, set.Hit.FrameAt(set.Hit.Duration - hitAnimTimer), BrainAlpha);
+                else ApplyVisual(BrainAnim, BrainAnim.FrameAt(BrainAnimTime), BrainAlpha);
+            }
+            else if (state == State.Charge && !held)
             {
                 if (IsDashing) { var run = set.Run ?? set.Walk; ApplyVisual(run, run.FrameAt(animTime * (set.Run != null ? 1f : 3f)), 1f); }
                 else { var brace = set.Special ?? set.Walk; ApplyVisual(brace, brace.FrameAt(stateTimer), 1f); }
@@ -290,7 +311,7 @@ namespace Spellcaster
         /// <summary>Stops the enemy in place (like a freeze, but not ice: Shatter and Permafrost ignore it).</summary>
         public void Stun(float seconds)
         {
-            if (!IsAlive) return;
+            if (!IsAlive || Invulnerable) return;
             stunTimer = Mathf.Max(stunTimer, seconds);
             if (state == State.Attack || state == State.Charge) state = State.Walk;
         }
@@ -580,7 +601,7 @@ namespace Spellcaster
         /// <summary>Returns the damage actually dealt.</summary>
         public float TakeDamage(float amount, Element element = Element.Arcane, bool silent = false, bool bolt = false)
         {
-            if (!IsAlive || amount <= 0f) return 0f;
+            if (!IsAlive || amount <= 0f || Invulnerable) return 0f;
             LastElement = element;
             LastHitByBolt = bolt;
             float dealt = Mathf.Min(HP, amount);
@@ -601,9 +622,33 @@ namespace Spellcaster
             return dealt;
         }
 
+        /// <summary>Kills it whatever its state (tests, debug).</summary>
+        public void Kill()
+        {
+            Invulnerable = false;
+            TakeDamage(HP + 1f, Element.Arcane, silent: true);
+        }
+
+        /// <summary>Turns the shot / blast hitbox on or off (a worm underground, a boss in the air).</summary>
+        public void SetHitbox(bool on) { if (hitbox) hitbox.enabled = on && IsAlive; }
+
+        /// <summary>Fires one enemy projectile (brains use this for their own patterns).</summary>
+        public void Shoot(Vector3 origin, Vector3 dir, float speed, Color color, float size, float damage)
+        {
+            ShotsFired++;
+            Projectile.Spawn(origin, dir.normalized * speed, color, size, 0.18f + size * 0.1f,
+                Layers.WorldMask | Layers.PlayerMask | Layers.PropMask, (point, col) =>
+                {
+                    var p = col.GetComponent<Player>();
+                    if (p) p.TakeDamage(damage);
+                    else if (col.GetComponentInParent<Prop>() is Prop prop) prop.TakeDamage(damage);
+                    Fx.Flash(point, color, 0.8f, 0.25f, 1.5f);
+                }, life: 6f);
+        }
+
         public void Freeze(float seconds)
         {
-            if (!IsAlive) return;
+            if (!IsAlive || Invulnerable) return;
             frozenTimer = Mathf.Max(frozenTimer, seconds);
             if (state == State.Attack || state == State.Charge) state = State.Walk;
         }
@@ -686,6 +731,7 @@ namespace Spellcaster
             float ppu = set.PixelsPerUnit;
             float w = anim.CellPx.x / ppu, h = anim.CellPx.y / ppu * squash;
             float hover = Type.Hover > 0f && state != State.Dead ? Type.Hover + Mathf.Sin(Time.time * 2.5f + bobPhase) * 0.08f : Type.Hover * 0.3f;
+            if (state != State.Dead) hover += VisualLift;
             visual.localScale = new Vector3(w, h, 1f);
             visual.localPosition = new Vector3(0f, h * 0.5f - set.FeetPx / ppu * squash + hover, 0f);
 

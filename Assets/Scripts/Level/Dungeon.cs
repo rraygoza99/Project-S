@@ -49,42 +49,25 @@ namespace Spellcaster
         {
             public Material Wall, Pillar, Floor, Ceiling, Gate, Pedestal;
             public Color Fog, Sigil;
+            public float FogStart = 5f, FogEnd = 30f;
+            /// <summary>Wall lights: torches, ice glow, braziers.</summary>
+            public Color Torch = new Color(1f, 0.55f, 0.2f, 0.8f);
         }
 
         static Color32 C(byte r, byte g, byte b) => new Color32(r, g, b, 255);
 
+        /// <summary>Floor 1 keeps the original crypt; floors 2 and 3 come from FloorThemes.</summary>
         static Palette MakePalette(int floor)
         {
-            switch (floor)
+            if (floor >= 2) return FloorThemes.Palette(floor);
+            return new Palette
             {
-                case 1:
-                    return new Palette
-                    {
-                        Wall = Materials.World("wall1", PixelArt.Bricks("tex_wall1", C(122, 92, 76), C(46, 36, 34), 11), Color.white, 2f),
-                        Pillar = Materials.World("pillar1", PixelArt.Bricks("tex_pillar1", C(92, 98, 112), C(34, 34, 42), 23), Color.white, 2f),
-                        Floor = Materials.World("floor1", PixelArt.Tiles("tex_floor1", C(84, 78, 70), C(34, 30, 28), 5), Color.white, 2f),
-                        Ceiling = Materials.World("ceil1", PixelArt.Tiles("tex_ceil1", C(52, 44, 58), C(20, 16, 24), 7), Color.white, 3f),
-                        Fog = new Color(0.06f, 0.035f, 0.08f), Sigil = new Color(0.55f, 0.15f, 0.7f, 0.6f),
-                    };
-                case 2:
-                    return new Palette
-                    {
-                        Wall = Materials.World("wall2", PixelArt.Bricks("tex_wall2", C(70, 96, 104), C(24, 34, 40), 13), Color.white, 2f),
-                        Pillar = Materials.World("pillar2", PixelArt.Bricks("tex_pillar2", C(110, 120, 128), C(36, 40, 48), 29), Color.white, 2f),
-                        Floor = Materials.World("floor2", PixelArt.Tiles("tex_floor2", C(60, 74, 80), C(22, 28, 32), 6), Color.white, 2f),
-                        Ceiling = Materials.World("ceil2", PixelArt.Tiles("tex_ceil2", C(36, 46, 56), C(14, 18, 24), 8), Color.white, 3f),
-                        Fog = new Color(0.025f, 0.05f, 0.07f), Sigil = new Color(0.2f, 0.55f, 0.9f, 0.6f),
-                    };
-                default:
-                    return new Palette
-                    {
-                        Wall = Materials.World("wall3", PixelArt.Bricks("tex_wall3", C(120, 52, 40), C(40, 14, 12), 17), Color.white, 2f),
-                        Pillar = Materials.World("pillar3", PixelArt.Bricks("tex_pillar3", C(70, 60, 60), C(26, 18, 18), 31), Color.white, 2f),
-                        Floor = Materials.World("floor3", PixelArt.Tiles("tex_floor3", C(80, 50, 44), C(30, 14, 12), 9), Color.white, 2f),
-                        Ceiling = Materials.World("ceil3", PixelArt.Tiles("tex_ceil3", C(50, 24, 22), C(18, 8, 8), 10), Color.white, 3f),
-                        Fog = new Color(0.08f, 0.025f, 0.02f), Sigil = new Color(0.9f, 0.3f, 0.1f, 0.6f),
-                    };
-            }
+                Wall = Materials.World("wall1", PixelArt.Bricks("tex_wall1", C(122, 92, 76), C(46, 36, 34), 11), Color.white, 2f),
+                Pillar = Materials.World("pillar1", PixelArt.Bricks("tex_pillar1", C(92, 98, 112), C(34, 34, 42), 23), Color.white, 2f),
+                Floor = Materials.World("floor1", PixelArt.Tiles("tex_floor1", C(84, 78, 70), C(34, 30, 28), 5), Color.white, 2f),
+                Ceiling = Materials.World("ceil1", PixelArt.Tiles("tex_ceil1", C(52, 44, 58), C(20, 16, 24), 7), Color.white, 3f),
+                Fog = new Color(0.06f, 0.035f, 0.08f), Sigil = new Color(0.55f, 0.15f, 0.7f, 0.6f),
+            };
         }
 
         void Awake()
@@ -121,7 +104,10 @@ namespace Spellcaster
             pal = MakePalette(floor);
             pal.Gate = Materials.World("gate", PixelArt.Bars("tex_gate", C(120, 116, 128)), Color.white, 1.6f);
             pal.Pedestal = pal.Pillar;
-            Materials.SetFog(pal.Fog, 5f, 30f);
+            Materials.SetFog(pal.Fog, pal.FogStart, pal.FogEnd);
+            var ambient = GetComponent<Ambient>();
+            if (!ambient) ambient = gameObject.AddComponent<Ambient>();
+            ambient.SetFloor(floor);
             if (Player.Instance) Player.Instance.Cam.backgroundColor = pal.Fog;
 
             LevelRoot = new GameObject("Floor " + floor).transform;
@@ -159,7 +145,7 @@ namespace Spellcaster
             var start = Rooms[Vector2Int.zero];
             if (Player.Instance) Player.Instance.Teleport(start.Center + new Vector3(0f, 0.1f, -3f), 0f);
             Enter(start);
-            if (GameState.Instance) GameState.Instance.Show(floor == 1 ? "Floor 1" : $"Floor {floor}", 2.5f);
+            if (GameState.Instance) GameState.Instance.Show($"Floor {floor}: {FloorThemes.Name(floor)}", 2.5f);
         }
 
         void BuildRoom(Room room)
@@ -186,7 +172,7 @@ namespace Spellcaster
                     // wall torches for atmosphere
                     foreach (float s in new[] { -1f, 1f })
                     {
-                        var q = Fx.CreateQuad(root, new Color(1f, 0.55f, 0.2f, 0.8f), 0.9f);
+                        var q = Fx.CreateQuad(root, pal.Torch, Floor >= 3 ? 1.2f : 0.9f);
                         q.transform.position = cc + d3 * (Half - 0.15f) + along * s * 7f + Vector3.up * 3.2f;
                     }
 
@@ -323,19 +309,20 @@ namespace Spellcaster
             var player = Player.Instance.transform.position;
             if (room.Type == RoomType.Boss)
             {
-                pending.Enqueue((EnemyType.Boss, room.Center + new Vector3(0, 0.05f, 0)));
-                GameState.Instance.Show(EnemyType.Boss.Name, 2.5f);
+                var boss = EnemyType.BossFor(Floor);
+                pending.Enqueue((boss, room.Center + new Vector3(0, 0.05f, 0)));
+                GameState.Instance.Show(boss.Name, 2.5f);
                 Sfx.Play("boss", 0.9f);
                 return;
             }
             int count = 3 + 2 * Floor + Random.Range(0, 3) + Mathf.Min(room.Depth, 4) / 2;
             // Big rooms hold bigger fights.
             if (room.IsBig) count = Mathf.Min(Mathf.RoundToInt(count * (room.CellCount >= 4 ? 2.1f : 1.6f)), 22);
-            int beetles = 0;
+            var picked = new Dictionary<EnemyType, int>();
             for (int i = 0; i < count; i++)
             {
-                var type = EnemyType.PickForEncounter(Floor, room.Depth, () => Random.value, beetles);
-                if (type == EnemyType.Beetle) beetles++;
+                var type = EnemyType.PickForEncounter(Floor, room.Depth, () => Random.value, t => picked.TryGetValue(t, out int n) ? n : 0);
+                picked[type] = (picked.TryGetValue(type, out int had) ? had : 0) + 1;
                 pending.Enqueue((type, RandomSpawnPoint(room, player, type.Kamikaze ? 10f : 7f)));
             }
         }

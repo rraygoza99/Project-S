@@ -20,7 +20,7 @@ included in the built game (release zip), which the Asset Store license allows.
 
 | Pack | Publisher | Used for | Files in `Assets/ThirdParty/` | Code that loads it |
 |---|---|---|---|---|
-| Pixel Monsters Vol.2 | Ismartal | Enemy sprite sheets: Imp, Watcher (ranged enemy and boss), Flame Skull, Horned Beetle, Hornet, Shade | `Resources/Monsters/*.png` | `Rendering/Sprites.cs` |
+| Pixel Monsters Vol.2 | Ismartal | Enemy sprite sheets: Imp, Watcher (ranged enemy and boss), Flame Skull, Horned Beetle, Hornet, Shade; floor 2 slug, moth, frog, ceiling pod and The Burrower; floor 3 crawler, sentry, mimic and The Behemoth | `Resources/Monsters/*.png` | `Rendering/Sprites.cs`, `Rendering/SpritesFloors.cs` |
 | SpellBook Megapack | Rexard | Spell icons: fireball, lightning, frost, heal, burn, shatter. The other spells use procedural rune icons. | `Resources/SpellIcons/*.png` | `Spells/SpellDefinition.cs` |
 | Monster Sounds Pack | Cafofo | Enemy hit, death and attack sounds (imp and watcher sets) | `Resources/MonsterSounds/*.wav` | `Audio/Sfx.cs`, `Enemies/EnemyType.cs` |
 | Lightning Bolt Effect | Digital Ruby | Lightning bolt visuals | `LightningBolt/LightningBoltScript.cs`, `Resources/Lightning/bolt.png` | `Combat/LightningFx.cs`, through reflection so the game still compiles without it |
