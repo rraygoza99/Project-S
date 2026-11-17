@@ -45,8 +45,9 @@ namespace Spellcaster.Grimoire
             get
             {
                 var gs = GameState.Instance;
-                // Multiplayer: off until each player has their own deck (next step).
-                return Settings.GrimoireEnabled && gs && gs.InRun && !GameState.PracticeMode && !GameState.TutorialMode && !GameState.Multiplayer;
+                // Multiplayer: the host's setting decides for everyone (each player has their own deck, held by the host).
+                bool on = Net.NetPlayers.Running ? Net.NetGrimoire.Enabled : Settings.GrimoireEnabled && !GameState.Multiplayer;
+                return on && gs && gs.InRun && !GameState.PracticeMode && !GameState.TutorialMode;
             }
         }
 
@@ -125,7 +126,7 @@ namespace Spellcaster.Grimoire
         {
             bool active = Active;
             Hook(active);
-            if (active && Deck == null) StartDeck(C.StartingDeck);
+            if (active && Deck == null && !Net.NetGrimoire.ClientMirror) StartDeck(C.StartingDeck); // a client's deck comes from the host
 
             var gs = GameState.Instance;
             if (!Settings.DevMode || !gs || !gs.InRun) DebugOpen = false;
@@ -137,11 +138,22 @@ namespace Spellcaster.Grimoire
                 if (Rewards.IsOpen) Rewards.Close();
                 return;
             }
-            GrimoireShop.StockShops();
+            if (!Net.NetSession.IsClientOnly) GrimoireShop.StockShops(); // shops are the host's
             Rewards.Update(this);
 
             var player = Player.Instance;
             if (!AutoTest.Active && player && player.InputEnabled && gs.AcceptsGameplayInput && Input.GetKeyDown(C.CycleKey)) Cycle();
+        }
+
+        /// <summary>Multiplayer client: the host's copy of this player's deck.</summary>
+        public void ApplyNetDeck(string[] draw, string[] hand, string[] discard)
+        {
+            if (Deck == null)
+            {
+                Deck = new Deck();
+                Deck.Changed += OnDeckChanged;
+            }
+            Deck.Restore(draw, hand, discard);
         }
 
         /// <summary>Starts the deck over with these cards (run start, debug presets).</summary>
@@ -195,6 +207,14 @@ namespace Spellcaster.Grimoire
                 if (Deck != null && Deck.Next != null && SpellSystem.Instance) SpellSystem.Instance.Flash(why);
                 Sfx.Play("fizzle", 0.4f, 1.3f);
                 return false;
+            }
+            if (Net.NetGrimoire.ClientMirror)
+            {
+                // The host cycles this player's deck and sends it back.
+                Net.NetGrimoire.SendCycle();
+                if (SpellSystem.Instance) SpellSystem.Instance.CastLock = C.CycleLockout;
+                Sfx.Play("tick", 0.6f, 0.75f);
+                return true;
             }
             var c = Deck.CycleNext();
             if (SpellSystem.Instance) SpellSystem.Instance.CastLock = C.CycleLockout;

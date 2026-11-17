@@ -95,8 +95,10 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
 - **Casting works for everyone, in both styles.** You draw or type the rune on your own PC (no lag);
   only "cast Fireball looking this way" goes to the host, which checks you know the spell and that it's
   off cooldown. Friendly fire is off. Online, players pass through enemies (and each other).
-- Not yet online: the Grimoire (each player's own deck is the next step), loot and shops, the Forge,
-  and moving between floors.
+- **Grimoire online:** the host's Options setting decides for everyone. Each player has their own deck,
+  held by the host: your casts play your Next card, Q cycles yours, each player picks their own room
+  reward (the game doesn't pause), and an elite's curse falls on the whole party.
+- Not yet online: loot and shops (and so the Scroll of Erasure), the Forge, and moving between floors.
 - In a multiplayer session the pause menu doesn't stop the game, and only the host saves.
 
 ## Controls

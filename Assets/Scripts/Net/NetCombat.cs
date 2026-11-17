@@ -172,21 +172,29 @@ namespace Spellcaster.Net
             if (!p || p.IsLocal || p.IsDead || !casters.TryGetValue(conn.connectionId, out var c)) return;
             float now = Time.time;
             var stats = p.Run ? p.Run.Stats : new PlayerStats();
+            if (NetGrimoire.Locked(p.NetId)) { Rejected++; return; } // just cycled a card
             p.SetLook(m.yaw, m.pitch);
             if (string.IsNullOrEmpty(m.spellId))
             {
                 if (now < c.boltReadyAt - CooldownTolerance) { Rejected++; return; }
-                c.boltReadyAt = now + stats.BoltInterval;
-                SpellSystem.FireBoltsFrom(p, stats);
+                var breq = NetGrimoire.Play(p, null); // the bolt only uses a Blank card
+                if (breq != null && breq.Fizzle) { c.boltReadyAt = now + stats.BoltInterval; return; }
+                c.boltReadyAt = now + (breq == null ? stats.BoltInterval : breq.ResetCooldown ? 0f : stats.BoltInterval * breq.CooldownMult);
+                SpellSystem.FireBoltsFrom(p, stats, breq);
+                if (breq != null && breq.EchoDelay > 0f) NetGrimoire.StartEcho(p, null, 1f, breq);
                 RemoteCasts++;
                 return;
             }
             if (!c.known.TryGetValue(m.spellId, out var spell)) { Rejected++; return; }
             if (c.readyAt.TryGetValue(m.spellId, out float ready) && now < ready - CooldownTolerance) { Rejected++; return; }
+            var req = NetGrimoire.Play(p, spell); // this player's Next card shapes the cast
+            if (req != null && req.Fizzle) { Sfx.Play("fizzle", 0.6f, 0.8f); RemoteCasts++; return; } // lost, no cooldown spent
             float cd = spell.Cooldown * (p.Run ? p.Run.CooldownMult : 1f);
+            if (req != null) cd = req.ResetCooldown ? 0f : cd * req.CooldownMult;
             c.readyAt[m.spellId] = now + cd;
             Sfx.Play("cast", 0.6f);
-            new SpellCast(spell, p) { Power = stats.Power }.Launch();
+            if (req == null) new SpellCast(spell, p) { Power = stats.Power }.Launch();
+            else NetGrimoire.LaunchCopies(p, spell, stats.Power, req);
             RemoteCasts++;
         }
 

@@ -53,6 +53,23 @@ namespace Spellcaster.Grimoire
             g.AddLog("Reward: " + string.Join(", ", Choices.Select(c => c.Name)));
         }
 
+        /// <summary>Multiplayer client: the host offers these cards (the pick goes back to the host).</summary>
+        public void OpenOffer(GrimoireRun g, List<CardDef> choices)
+        {
+            owner = g;
+            Choices.Clear();
+            Choices.AddRange(choices);
+            IsOpen = true;
+            Removing = false;
+            IsFree = false;
+            RemovedThisPanel = false;
+            Message = null;
+            ChoiceRects.Clear();
+            RemoveRects.Clear();
+            if (SpellSystem.Instance) SpellSystem.Instance.SetChanneling(false);
+            Sfx.Play("item", 0.6f, 1.1f);
+        }
+
         /// <summary>Removal only, free (Scroll of Erasure). False if the deck is already as small as it can be.</summary>
         public bool OpenFreeRemoval(GrimoireRun g, System.Action onRemoved, System.Action onCancelled)
         {
@@ -137,7 +154,8 @@ namespace Spellcaster.Grimoire
         {
             if (i < 0 || i >= Choices.Count || owner == null) return;
             var def = Choices[i];
-            owner.Deck.AddToDiscard(def);
+            if (Net.NetGrimoire.ClientMirror) Net.NetGrimoire.SendPick(i, null, false);
+            else owner.Deck.AddToDiscard(def);
             owner.AddLog("Took " + def.Name);
             Sfx.Play("pickup", 0.7f, 1.1f);
             Close();
@@ -146,6 +164,7 @@ namespace Spellcaster.Grimoire
         public void Skip()
         {
             owner?.AddLog("Skipped the reward");
+            if (Net.NetGrimoire.ClientMirror) Net.NetGrimoire.SendPick(-1, null, true);
             Sfx.Play("tick", 0.5f, 0.9f);
             Close();
         }
@@ -184,6 +203,16 @@ namespace Spellcaster.Grimoire
             var groups = owner.Deck.Grouped();
             if (i < 0 || i >= groups.Count) return false;
             var def = groups[i].def;
+            if (Net.NetGrimoire.ClientMirror)
+            {
+                // The host removes it (and takes the gold); the deck comes back from it.
+                Net.NetGrimoire.SendPick(-1, def.Id, false);
+                RemovedThisPanel = true;
+                Removing = false;
+                Sfx.Play("buy", 0.7f);
+                Say($"Removing {def.Name}...");
+                return true;
+            }
             if (!owner.Deck.Remove(def)) return false;
             RemovedThisPanel = true;
             Removing = false;

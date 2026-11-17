@@ -398,6 +398,10 @@ namespace Spellcaster
             {
                 // Multiplayer client: the rune was drawn here; the host checks and casts it.
                 float ccd = EffectiveCooldown(s);
+                var nextCard = Net.NetGrimoire.ClientMirror && Grimoire.GrimoireRun.Instance && Grimoire.GrimoireRun.Instance.Deck != null
+                    ? Grimoire.GrimoireRun.Instance.Deck.Next : null; // the host plays it; predict its cooldown here
+                if (nextCard != null && (nextCard.Def.Id == "quicken" || nextCard.Def.Id == "fumble")) ccd = 0f;
+                else if (nextCard != null && nextCard.Def.Id == "overload") ccd *= Grimoire.GrimoireConfig.OverloadCooldownMult;
                 if (ccd > 0f) cooldownLeft[s] = ccd; else cooldownLeft.Remove(s);
                 cooldownLengths[s] = ccd;
                 castCount++;

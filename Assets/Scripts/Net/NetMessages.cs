@@ -52,6 +52,8 @@ namespace Spellcaster.Net
         public int yourId;
         /// <summary>The spells every player starts with (ids); the host keeps each player's own copy.</summary>
         public string[] spells;
+        /// <summary>The Grimoire is on for this run (the host's setting).</summary>
+        public bool grimoire;
     }
 
     // ---------------- combat (Phase 3) ----------------
@@ -85,7 +87,7 @@ namespace Spellcaster.Net
         public float hp, alpha, squash, lift;
         public byte anim, frame;
         public Color32 tint;
-        public bool flash, dead;
+        public bool flash, dead, elite;
     }
 
     /// <summary>Host to clients, 30 times a second (unreliable): every enemy.</summary>
@@ -153,7 +155,8 @@ namespace Spellcaster.Net
     {
         public Vector3 pos, otherPos, enemyPos;
         public float hp, lastError, enemyHp;
-        public int players, corrections, states, enemies, fx, projectiles, gatesLocked;
+        public int players, corrections, states, enemies, fx, projectiles, gatesLocked, deck, decks;
+        public string hand;
     }
 
     /// <summary>Host to everyone, 30 times a second (unreliable): every player's state.</summary>

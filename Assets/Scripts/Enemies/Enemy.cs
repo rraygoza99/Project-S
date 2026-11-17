@@ -185,6 +185,7 @@ namespace Spellcaster
         {
             if (s.hp < HP - 0.01f) hurtFlash = 0.12f;
             HP = s.hp;
+            if (s.elite) IsElite = true;
             if (s.dead && state != State.Dead) { state = State.Dead; All.Remove(this); }
             var set = Type.Sprites;
             var anim = set.ByIndex(s.anim) ?? set.Walk;

@@ -38,6 +38,7 @@ namespace Spellcaster.Net
             SetupRun(m.players ?? new RosterEntry[0], m.yourId);
             NetCombat.SetupRun(m.players ?? new RosterEntry[0], m.spells);
             NetEnemies.SetupRun();
+            NetGrimoire.SetupRun(m);
         }
 
         public static void SetupRun(RosterEntry[] roster, int myId)
@@ -76,6 +77,7 @@ namespace Spellcaster.Net
             buffers.Remove(id);
             lastSeq.Remove(id);
             budget.Remove(id);
+            NetGrimoire.RemovePlayer(id);
         }
 
         /// <summary>The session ended: other players go, this PC's player is single-player again.</summary>
@@ -88,6 +90,7 @@ namespace Spellcaster.Net
             Running = false;
             NetCombat.EndRun();
             NetEnemies.EndRun();
+            NetGrimoire.EndRun();
         }
 
         static void ResetState()

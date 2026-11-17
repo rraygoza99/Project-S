@@ -88,7 +88,7 @@ namespace Spellcaster.Net
                     entries.Add(new EnemyStateEntry
                     {
                         id = kv.Key, pos = e.transform.position, hp = e.HP, alpha = v.alpha, squash = v.squash, lift = v.lift,
-                        anim = (byte)v.anim, frame = (byte)v.frame, tint = v.tint, flash = v.flash, dead = !e.IsAlive,
+                        anim = (byte)v.anim, frame = (byte)v.frame, tint = v.tint, flash = v.flash, dead = !e.IsAlive, elite = e.IsElite,
                     });
                 }
                 if (entries.Count > 0) NetworkServer.SendToAll(new EnemyStatesMsg { enemies = entries.ToArray() }, Channels.Unreliable);

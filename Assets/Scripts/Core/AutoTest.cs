@@ -2246,6 +2246,8 @@ namespace Spellcaster
                     d.BuildFloor(1);
                 };
                 player.God = true;
+                bool gbSetting = Settings.GrimoireEnabled;
+                Settings.SetGrimoireEnabled(true); // the host's setting decides the Grimoire for everyone
                 ws.HostDirect(Net.NetConfig.DebugPort, 4);
                 string wsExe = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Spellcaster.exe");
                 System.Diagnostics.Process wsClient = null;
@@ -2261,6 +2263,7 @@ namespace Spellcaster
                 wsT = 0f;
                 while (wsT < 10f && ws.StartAcks < 2) { wsT += Time.unscaledDeltaTime; yield return null; }
                 yield return new WaitForSecondsRealtime(0.5f);
+                int gbHostCardsBefore = Grimoire.GrimoireRun.Instance ? Grimoire.GrimoireRun.Instance.CardsPlayed : 0;
                 var wsOther = Players.All.FirstOrDefault(p => p && !p.IsLocal);
                 int wsClientId = wsOther ? wsOther.NetId : -1;
                 Check($"co-op run: everyone spawns in the start room, the other player has a name, colour and sprite ({(wsOther ? wsOther.DisplayName : "none")}, colour {(wsOther ? wsOther.ColorIndex : -1)})",
@@ -2338,12 +2341,31 @@ namespace Spellcaster
                 ws.Reports.TryGetValue(wsClientId, out wsRep);
                 Check($"doors and deaths reach the client ({cbLocked} doors locked there; {wsRep.enemies} enemies left after the kill)", cbLocked > 0 && wsRep.enemies == 0);
 
+                // ---- Grimoire (Phase 3b): every player has their own deck, held by the host ----
+                var gbHostDeck = Grimoire.GrimoireRun.Instance ? Grimoire.GrimoireRun.Instance.Deck : null;
+                var gbRemote = Net.NetGrimoire.DeckOf(wsClientId);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                string gbHostHand = gbRemote != null ? string.Join(",", gbRemote.Hand.Select(c => c.Def.Id)) : "";
+                Check($"Grimoire online: the host holds a separate deck for the other player ({(gbRemote != null ? gbRemote.Count : 0)} cards), who sees only their own hand ({wsRep.hand}) and it matches ({gbHostHand})",
+                    Net.NetGrimoire.Enabled && gbRemote != null && gbRemote != gbHostDeck && wsRep.deck == gbRemote.Count && wsRep.hand == gbHostHand && wsRep.decks > 0);
+                Check($"the other player's casts play cards from their own deck ({Net.NetGrimoire.PlayedFor(wsClientId)} played by the host), not the host's",
+                    Net.NetGrimoire.PlayedFor(wsClientId) >= 1 && gbHostCardsBefore == Grimoire.GrimoireRun.Instance.CardsPlayed);
+                int gbCount = gbRemote != null ? gbRemote.Count : 0;
+                Net.NetGrimoire.Offer(wsClientId);
+                float gbT = 0f;
+                while (gbT < 5f && gbRemote != null && gbRemote.Count == gbCount) { gbT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(0.8f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"a room reward reaches the other player, who picks a card; the host adds it to their deck ({gbCount} -> {(gbRemote != null ? gbRemote.Count : 0)}, client shows {wsRep.deck})",
+                    gbRemote != null && gbRemote.Count == gbCount + 1 && wsRep.deck == gbRemote.Count);
+
                 // The player leaves: their character goes.
                 if (Mirror.NetworkServer.connections.TryGetValue(wsClientId, out var wsConn)) wsConn.Disconnect();
                 yield return new WaitForSecondsRealtime(0.5f);
                 Check("a player who leaves mid-run is removed from the world", Players.All.Count == 1 && Players.ByNetId(wsClientId) == null);
                 if (wsClient != null && !wsClient.HasExited) { try { wsClient.Kill(); } catch { } }
                 ws.Leave();
+                Settings.SetGrimoireEnabled(gbSetting);
                 Net.NetSession.StartRunHandler = null;
                 yield return null;
                 yield return null;

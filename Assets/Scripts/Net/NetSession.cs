@@ -132,6 +132,10 @@ namespace Spellcaster.Net
                     enemyPos = Enemy.All.Count > 0 ? Enemy.All[0].transform.position : Vector3.zero,
                     enemyHp = Enemy.All.Count > 0 ? Enemy.All[0].HP : 0f,
                     gatesLocked = Dungeon.Instance && Dungeon.Instance.Current != null ? Dungeon.Instance.Current.Doors.Count(d => d.Locked) : 0,
+                    deck = Grimoire.GrimoireRun.Instance && Grimoire.GrimoireRun.Instance.Deck != null ? Grimoire.GrimoireRun.Instance.Deck.Count : 0,
+                    hand = Grimoire.GrimoireRun.Instance && Grimoire.GrimoireRun.Instance.Deck != null
+                        ? string.Join(",", Grimoire.GrimoireRun.Instance.Deck.Hand.Select(c => c.Def.Id)) : "",
+                    decks = NetGrimoire.DecksReceived,
                 });
             }
         }
@@ -294,7 +298,7 @@ namespace Spellcaster.Net
             var players = Roster.ToArray();
             var spells = SpellBook.Known.Where(s => SpellBook.CreateBase(s.Id) != null).Select(s => s.Id).ToArray();
             foreach (var conn in NetworkServer.connections.Values)
-                conn.Send(new StartRunMsg { seed = seed, players = players, yourId = conn.connectionId, spells = spells });
+                conn.Send(new StartRunMsg { seed = seed, players = players, yourId = conn.connectionId, spells = spells, grimoire = Settings.GrimoireEnabled });
             return true;
         }
 
@@ -313,6 +317,8 @@ namespace Spellcaster.Net
             NetworkServer.ReplaceHandler<RunStartedMsg>(OnRunStarted);
             NetworkServer.ReplaceHandler<InputBatchMsg>(NetPlayers.OnInputs);
             NetworkServer.ReplaceHandler<CastIntentMsg>(NetCombat.OnCastIntent);
+            NetworkServer.ReplaceHandler<CycleMsg>(NetGrimoire.OnCycle);
+            NetworkServer.ReplaceHandler<RewardPickMsg>(NetGrimoire.OnPick);
             NetworkServer.ReplaceHandler<DebugReportMsg>((c, m) => { if (AutoTest.Active) Reports[c.connectionId] = m; });
         }
 
@@ -396,6 +402,8 @@ namespace Spellcaster.Net
             NetworkClient.ReplaceHandler<EnemyGoneMsg>(NetEnemies.OnGone, false);
             NetworkClient.ReplaceHandler<RoomGatesMsg>(NetCombat.OnGates, false);
             NetworkClient.ReplaceHandler<PropBrokenMsg>(NetCombat.OnPropBroken, false);
+            NetworkClient.ReplaceHandler<DeckStateMsg>(NetGrimoire.OnDeckState, false);
+            NetworkClient.ReplaceHandler<RewardOfferMsg>(NetGrimoire.OnOffer, false);
         }
 
         public override void OnClientConnect()
@@ -613,7 +621,7 @@ namespace Spellcaster.Net
                 else if (a == "-netquitafterstart") quitAfterStart = true;
                 else if (a == "-netreport") reportMode = true;
                 else if (a == "-netwalk") walkTest = true;
-                else if (a == "-nettestcombat") combatTest = true;
+                else if (a == "-nettestcombat") { combatTest = true; NetGrimoire.autoTake = true; }
             }
         }
 
