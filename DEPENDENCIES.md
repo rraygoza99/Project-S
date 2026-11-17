@@ -34,7 +34,7 @@ included in the built game (release zip), which the Asset Store license allows.
 
 Mirror's import added `com.unity.nuget.newtonsoft-json` (3.2.2) to the manifest and the `MIRROR...` scripting
 defines. The Steam transport is the game's own (`Net/SteamSocketsTransport.cs`). The build writes
-`steam_appid.txt` (App ID from `Net/NetConfig.cs`, 480 = Spacewar for development) next to the exe.
+`steam_appid.txt` (App ID 3965800, from `Net/NetConfig.cs`) next to the exe.
 
 ## Unity packages (`Packages/manifest.json`)
 

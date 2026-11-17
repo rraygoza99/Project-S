@@ -11,8 +11,8 @@ namespace Spellcaster.Net
     /// </summary>
     public static class NetConfig
     {
-        /// <summary>480 = Spacewar, Valve's shared test app, for development.</summary>
-        public const uint SteamAppId = 480;
+        /// <summary>Spellcaster's own Steam App ID (480 = Valve's shared Spacewar test app).</summary>
+        public const uint SteamAppId = 3965800;
 
         public const int MinPlayers = 2, MaxPlayersLimit = 6, DefaultMaxPlayers = 4;
         /// <summary>Network updates per second (Mirror send rate).</summary>
@@ -22,7 +22,7 @@ namespace Spellcaster.Net
         public const ushort DebugPort = 7777;
         public const string DebugAddress = "127.0.0.1";
 
-        /// <summary>Steam lobby data key that marks our lobbies (App 480 is shared with other games).</summary>
+        /// <summary>Steam lobby data key that marks our lobbies (needed on the shared App 480; harmless on our own).</summary>
         public const string LobbyGameKey = "spellcaster_game";
         public const string LobbyGameValue = "spellcaster";
 

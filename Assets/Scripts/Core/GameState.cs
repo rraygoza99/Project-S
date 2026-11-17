@@ -60,7 +60,8 @@ namespace Spellcaster
 
         void OnDestroy() => Enemy.Killed -= OnKilled;
 
-        void OnApplicationFocus(bool focus) => SetFocus(focus);
+        // The self-test ignores real focus changes (clicking another window mustn't pause it); its focus check calls SetFocus itself.
+        void OnApplicationFocus(bool focus) { if (!AutoTest.Active) SetFocus(focus); }
 
         /// <summary>Alt-tab / focus loss: pause the run (test hook too). The game resumes when you click back in.</summary>
         public void SetFocus(bool focus)

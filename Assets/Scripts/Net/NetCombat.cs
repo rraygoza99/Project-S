@@ -125,6 +125,7 @@ namespace Spellcaster.Net
             public SpellDefinition Find(string id) { foreach (var s in book) if (s.Id == id) return s; return null; }
             public readonly Dictionary<string, float> readyAt = new Dictionary<string, float>();
             public float boltReadyAt;
+            public int casts;
         }
         static readonly Dictionary<int, Caster> casters = new Dictionary<int, Caster>();
         /// <summary>Latency allowance on cooldowns (seconds early a cast may arrive and still count).</summary>
@@ -163,11 +164,11 @@ namespace Spellcaster.Net
         }
 
         /// <summary>Client: ask the host to cast (the rune was drawn here; the result is the host's).</summary>
-        public static void SendCast(SpellDefinition spell)
+        public static void SendCast(SpellDefinition spell, float heldFor = 0f)
         {
             var me = Player.Instance;
             if (!me) return;
-            NetworkClient.Send(new CastIntentMsg { spellId = spell != null ? spell.Id : null, yaw = me.Yaw, pitch = me.Pitch });
+            NetworkClient.Send(new CastIntentMsg { spellId = spell != null ? spell.Id : null, yaw = me.Yaw, pitch = me.Pitch, heldFor = heldFor });
         }
 
         public static void OnCastIntent(NetworkConnectionToClient conn, CastIntentMsg m)
@@ -196,12 +197,27 @@ namespace Spellcaster.Net
             var req = NetGrimoire.Play(p, spell); // this player's Next card shapes the cast
             if (req != null && req.Fizzle) { Sfx.Play("fizzle", 0.6f, 0.8f); RemoteCasts++; return; } // lost, no cooldown spent
             float cd = spell.Cooldown * (p.Run ? p.Run.CooldownMult : 1f);
+            // Their relics, as in single-player: Storm Crown, Overcharge, Echo Stone.
+            c.casts++;
+            if (stats.FreeCastEvery > 0 && c.casts % stats.FreeCastEvery == 0) cd = 0f;
+            float power = stats.Power;
+            if (stats.Overcharge && Mathf.Clamp(m.heldFor, 0f, 60f) >= 1.5f) power *= 1.5f;
             if (req != null) cd = req.ResetCooldown ? 0f : cd * req.CooldownMult;
             c.readyAt[m.spellId] = now + cd;
             Sfx.Play("cast", 0.6f);
-            if (req == null) new SpellCast(spell, p) { Power = stats.Power }.Launch();
-            else NetGrimoire.LaunchCopies(p, spell, stats.Power, req);
+            if (req == null) new SpellCast(spell, p) { Power = power }.Launch();
+            else NetGrimoire.LaunchCopies(p, spell, power, req);
+            if (stats.EchoChance > 0f && Random.value < stats.EchoChance && NetSession.Instance)
+                NetSession.Instance.StartCoroutine(EchoStone(p, spell, stats.Power * 0.7f));
             RemoteCasts++;
+        }
+
+        static System.Collections.IEnumerator EchoStone(Player p, SpellDefinition spell, float power)
+        {
+            yield return new WaitForSeconds(0.3f);
+            if (!p || p.IsDead) yield break;
+            new SpellCast(spell, p) { Power = power }.Launch();
+            Sfx.Play("cast", 0.5f, 1.25f);
         }
 
         // ---------------- each player's spell book (host) ----------------

@@ -161,6 +161,14 @@ namespace Spellcaster
             }
         }
 
+        static void FrostSpread(Enemy e)
+        {
+            Fx.Ring(e.transform.position + Vector3.up * 0.1f, new Color(0.6f, 0.9f, 1f), 4.5f, 0.4f);
+            DevMode.Ring(e.transform.position + Vector3.up * 0.1f, 4.5f, DevMode.SpellArea);
+            foreach (var o in Enemy.All)
+                if (o.IsAlive && (o.transform.position - e.transform.position).sqrMagnitude < 4.5f * 4.5f) o.Freeze(2f);
+        }
+
         public void AddGold(int amount)
         {
             Gold += amount;
@@ -268,18 +276,17 @@ namespace Spellcaster
         {
             if (e.SelfDestructed) return; // a flame skull that blew itself up wasn't your kill
             if (Stats.HealOnKill > 0f && Owner) Owner.Heal(Stats.HealOnKill);
-            if (!IsLocal) return; // achievements, relic effects and loot run once, on this PC's run
+            if (!IsLocal)
+            {
+                // Another player's Permafrost (multiplayer host); achievements and loot run once, on this PC's run.
+                if (Stats.FrostSpread && e.DiedFrozen && !Net.NetSession.IsClientOnly) FrostSpread(e);
+                return;
+            }
             Progress.Add("kills");
             if (e.LastHitByBolt) Progress.Add("bolt_kills");
             if (e.LastElement == Element.Poison) Progress.Add("poison_kills");
             if (e.Type.IsBoss) Progress.Add("bosses");
-            if (Stats.FrostSpread && e.DiedFrozen)
-            {
-                Fx.Ring(e.transform.position + Vector3.up * 0.1f, new Color(0.6f, 0.9f, 1f), 4.5f, 0.4f);
-                DevMode.Ring(e.transform.position + Vector3.up * 0.1f, 4.5f, DevMode.SpellArea);
-                foreach (var o in Enemy.All)
-                    if (o.IsAlive && (o.transform.position - e.transform.position).sqrMagnitude < 4.5f * 4.5f) o.Freeze(2f);
-            }
+            if (Stats.FrostSpread && e.DiedFrozen) FrostSpread(e);
             Loot.OnEnemyKilled(e, this);
         }
     }

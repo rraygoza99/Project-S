@@ -114,6 +114,8 @@ namespace Spellcaster.Net
     {
         public string spellId;   // null or empty = the magic bolt
         public float yaw, pitch;
+        /// <summary>How long the spell was kept ready (Overcharge relic).</summary>
+        public float heldFor;
     }
 
     /// <summary>Host to clients: a room's doors locked or opened, and whether it is cleared.</summary>
@@ -142,6 +144,7 @@ namespace Spellcaster.Net
     /// <summary>Client to host, 30 times a second (unreliable): the inputs the host hasn't confirmed yet.</summary>
     public struct InputBatchMsg : NetworkMessage
     {
+        public uint batch;          // counts batches (the host measures packet loss from gaps)
         public InputFrame[] frames;
     }
 
@@ -169,11 +172,13 @@ namespace Spellcaster.Net
         public string hand;
         public bool downed, bledOut, spectating;
         public int phase;
+        public float rtt, lossIn;
     }
 
     /// <summary>Host to everyone, 30 times a second (unreliable): every player's state.</summary>
     public struct PlayerStatesMsg : NetworkMessage
     {
+        public uint seq;            // counts state messages (clients measure packet loss from gaps)
         public PlayerStateEntry[] players;
     }
 

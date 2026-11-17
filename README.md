@@ -70,7 +70,7 @@ your projectiles (yellow) and enemy projectiles (magenta) at their real collisio
 a moment after each hit: spell blast areas, nova and cloud rings (orange), instant rays and chain
 jumps (blue), and enemy blasts and swings (bright red). A legend sits on the left.
 
-## Multiplayer (in progress)
+## Multiplayer (experimental)
 
 Online co-op for 2-6 players through Steam is being built in phases. What works now:
 
@@ -83,7 +83,10 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
   in the friends list (also while the game is closed).
 - **Different versions can't play together**; full lobbies and runs in progress refuse joins.
 - **Direct IP (debug):** with Options > Dev mode on, copies of the game connect by address
-  (127.0.0.1:7777 on one PC) without Steam.
+  (127.0.0.1:7777 on one PC) without Steam. Give each copy its own identity with `-netkey NAME`.
+- **Debug tools (dev mode):** F6 shows the network overlay (role, tick rate, traffic, ping and packet
+  loss per player, prediction corrections); Ctrl+F6 cycles simulated lag and loss (off / 150 ms 2% /
+  300 ms 5%), also `-netlag 150 -netloss 2` at launch. Steam App ID: 3965800 (`Net/NetConfig.cs`).
 - Starting the run puts everyone in the start room of the same seeded floor. You see the other players as
   wizards in their own colour (8 directions, so you can tell which way they face), with their name and a
   small health bar; they raise their staff and glow while casting. Your own movement is instant (the

@@ -58,6 +58,7 @@ namespace Spellcaster.Net
 
         KcpTransport kcp;
         SteamSocketsTransport steam;
+        LatencySimulation lagSim;
         LobbyPrivacy privacy;
         bool leaving, everConnected;
         string rejectReason;
@@ -75,9 +76,14 @@ namespace Spellcaster.Net
             var k = go.AddComponent<KcpTransport>();
             k.Port = NetConfig.DebugPort;
             var s = go.AddComponent<SteamSocketsTransport>();
+            var lat = go.AddComponent<LatencySimulation>();
+            lat.wrap = k;
+            lat.latency = 0f; lat.jitter = 0f; lat.unreliableLoss = 0f; lat.unreliableScramble = 0f;
             var ns = go.AddComponent<NetSession>();
             ns.kcp = k;
             ns.steam = s;
+            ns.lagSim = lat;
+            NetStats.Hook();
             ns.transport = k;
             ns.autoCreatePlayer = false;
             ns.playerPrefab = null;
@@ -117,6 +123,8 @@ namespace Spellcaster.Net
             }
             sessionWas = on;
             NetPlayers.Tick();
+            NetStats.Tick();
+            NetOverlay.Update();
             NetEnemies.Tick();
             NetLoot.Tick();
             NetDowned.Tick();
@@ -145,9 +153,12 @@ namespace Spellcaster.Net
                     maxHp = me.MaxHP, pickups = NetLoot.ProxyCount,
                     downed = me.Downed, bledOut = me.BledOut, spectating = me.SpectateTarget != null,
                     phase = GameState.Instance ? (int)GameState.Instance.Phase : -1,
+                    rtt = (float)(NetworkTime.rtt * 1000.0), lossIn = NetStats.Loss(-1).Percent,
                 });
             }
         }
+
+        void OnGUI() => NetOverlay.Draw();
 
         /// <summary>Test only: the latest report from each client (host).</summary>
         public readonly Dictionary<int, DebugReportMsg> Reports = new Dictionary<int, DebugReportMsg>();
@@ -196,9 +207,12 @@ namespace Spellcaster.Net
             ss.ReadyForTest(fireball);
             ss.CastReadied();
             NetCombat.SendCast(fireball); // a second cast straight away, ignoring the cooldown
-            yield return new WaitForSecondsRealtime(0.8f);
-            if (target) me.LookAt(target.Center);
-            ss.FireBasic();
+            // Then a few magic bolts (one Fireball can miss a moving enemy at high ping).
+            for (int i = 0; i < 4 && target && target.IsAlive; i++)
+            {
+                yield return new WaitForSecondsRealtime(0.6f);
+                if (target) { me.LookAt(target.Center); ss.FireBasic(); }
+            }
         }
         float reportTimer;
 
@@ -235,7 +249,13 @@ namespace Spellcaster.Net
             if (InSession) return false;
             Prepare(Kind.Direct, maxPlayers);
             kcp.Port = port;
-            StartHost();
+            try { StartHost(); }
+            catch (Exception e)
+            {
+                Leave();
+                LastError = $"Couldn't host on port {port} (is another copy already hosting?) {e.Message}";
+                return false;
+            }
             Status = $"Hosting on port {port}";
             return true;
         }
@@ -274,7 +294,18 @@ namespace Spellcaster.Net
         void Prepare(Kind kind, int maxPlayers)
         {
             Using = kind;
+            NetStats.Hook();
             transport = kind == Kind.Steam ? (Transport)steam : kcp;
+            if (NetSim.Active)
+            {
+                // Debug: extra latency and loss on this copy's sends.
+                lagSim.wrap = transport;
+                lagSim.latency = NetSim.LatencyMs;
+                lagSim.unreliableLoss = NetSim.LossPercent;
+                lagSim.unreliableScramble = NetSim.LossPercent;
+                lagSim.jitter = NetSim.LatencyMs > 0f ? 0.02f : 0f;
+                transport = lagSim;
+            }
             Transport.active = transport;
             MaxPlayers = Mathf.Clamp(maxPlayers, NetConfig.MinPlayers, NetConfig.MaxPlayersLimit);
             maxConnections = MaxPlayers;
@@ -695,12 +726,18 @@ namespace Spellcaster.Net
         void ReadLaunchArguments()
         {
             var args = Environment.GetCommandLineArgs();
+            string joinAddress = null;
+            ulong joinLobby = 0;
+            float lagMs = 0f, lossPct = 0f;
             for (int i = 0; i < args.Length; i++)
             {
                 string a = args[i];
                 string next = i + 1 < args.Length ? args[i + 1] : null;
-                if (a == "+connect_lobby" && ulong.TryParse(next, out ulong lobby) && SteamService.Ready) JoinSteamLobby(new CSteamID(lobby));
-                else if (a == "-netjoin" && next != null) JoinDirect(next);
+                if (a == "+connect_lobby" && ulong.TryParse(next, out ulong lobby)) joinLobby = lobby;
+                else if (a == "-netjoin" && next != null) joinAddress = next;
+                else if (a == "-netlag" && float.TryParse(next, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ms)) lagMs = ms;
+                else if (a == "-netloss" && float.TryParse(next, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float lp)) lossPct = lp;
+                else if (a == "-netoverlay") NetOverlay.Shown = true;
                 else if (a == "-netready") autoReady = true;
                 else if (a == "-netquitafterstart") quitAfterStart = true;
                 else if (a == "-netreport") reportMode = true;
@@ -709,6 +746,10 @@ namespace Spellcaster.Net
                 else if (a == "-nettestloot") lootTest = true;
                 else if (a == "-netkey" && next != null) debugKey = next;
             }
+            // Settings first, then connect.
+            if (lagMs > 0f || lossPct > 0f) NetSim.Set(lagMs, lossPct);
+            if (joinLobby != 0 && SteamService.Ready) JoinSteamLobby(new CSteamID(joinLobby));
+            else if (joinAddress != null) JoinDirect(joinAddress);
         }
 
         IEnumerator QuitSoon()

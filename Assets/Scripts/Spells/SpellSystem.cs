@@ -398,6 +398,7 @@ namespace Spellcaster
             {
                 // Multiplayer client: the rune was drawn here; the host checks and casts it.
                 float ccd = EffectiveCooldown(s);
+                float held = Time.time - readiedAt;
                 var nextCard = Net.NetGrimoire.ClientMirror && Grimoire.GrimoireRun.Instance && Grimoire.GrimoireRun.Instance.Deck != null
                     ? Grimoire.GrimoireRun.Instance.Deck.Next : null; // the host plays it; predict its cooldown here
                 if (nextCard != null && (nextCard.Def.Id == "quicken" || nextCard.Def.Id == "fumble")) ccd = 0f;
@@ -405,10 +406,11 @@ namespace Spellcaster
                 if (ccd > 0f) cooldownLeft[s] = ccd; else cooldownLeft.Remove(s);
                 cooldownLengths[s] = ccd;
                 castCount++;
+                if (Stats.FreeCastEvery > 0 && castCount % Stats.FreeCastEvery == 0) { ccd = 0f; cooldownLeft.Remove(s); Flash("Free cast!"); } // Storm Crown (the host agrees)
                 Progress.Add("spells_cast");
                 Sfx.Play("cast", 0.6f);
                 WizardHands.Instance.Kick();
-                Net.NetCombat.SendCast(s);
+                Net.NetCombat.SendCast(s, held);
                 Raise("cast " + s.Name);
                 return true;
             }

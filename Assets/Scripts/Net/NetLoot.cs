@@ -232,8 +232,15 @@ namespace Spellcaster.Net
         {
             if (!ClientSide) return;
             if (m.onlyFor >= 0 && NetSession.Instance && m.onlyFor != NetSession.Instance.MyId) return;
-            ItemDef item = !string.IsNullOrEmpty(m.spell) ? Items.ForgottenRune(SpellCodec.FromJson(m.spell))
-                : m.item != null && m.item.StartsWith("rune_") ? Items.Rune(m.item.Substring(5)) : Items.Resolve(m.item);
+            ItemDef item = null;
+            try
+            {
+                // Known items first ("rune_stone" is a consumable), then spell runes ("rune_fireball").
+                item = !string.IsNullOrEmpty(m.spell) ? Items.ForgottenRune(SpellCodec.FromJson(m.spell)) : Items.Resolve(m.item);
+                if (item == null && m.item != null && m.item.StartsWith("rune_") && SpellBook.CreateBase(m.item.Substring(5)) != null)
+                    item = Items.Rune(m.item.Substring(5));
+            }
+            catch (System.Exception e) { Debug.LogWarning("[Spellcaster] couldn't read item " + m.item + " from host: " + e.Message); }
             if (item == null) { Debug.LogWarning("[Spellcaster] unknown item from host: " + m.item); return; }
             SpawningProxy = true;
             Pickup p;

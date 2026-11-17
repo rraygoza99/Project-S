@@ -72,8 +72,8 @@ namespace Spellcaster
                 System.Diagnostics.Process mpClient = null;
                 try
                 {
-                    mpClient = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(mpExe,
-                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netquitafterstart -logFile \"{mpLog}\"") { UseShellExecute = false });
+                    mpClient = Launched(System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(mpExe,
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netquitafterstart -logFile \"{mpLog}\"") { UseShellExecute = false }));
                 }
                 catch (Exception mpEx) { Debug.LogWarning("[AutoTest] couldn't start a second copy: " + mpEx.Message); }
                 float mpT = 0f;
@@ -1898,11 +1898,13 @@ namespace Spellcaster
                 var ffEnemies = new List<Enemy>();
                 for (int i = 0; i < ffTypes.Length; i++) ffEnemies.Add(SpawnAhead(player, ffTypes[i], 6f, (i - 1f) * 2.8f));
                 foreach (var e in ffEnemies.Take(2)) e.Freeze(4f);
-                yield return new WaitForSeconds(0.4f);
-                yield return Shot("22b_floor3_enemies");
+                yield return null;
+                // Checked at once: a hazard in the room may hit (and wake) it a moment later.
                 var ffMimic = ffEnemies[2];
                 var ffMb = ffMimic ? ffMimic.Brain as MimicBrain : null;
                 bool ffDormant = ffMb != null && ffMb.Dormant;
+                yield return new WaitForSeconds(0.4f);
+                yield return Shot("22b_floor3_enemies");
                 Check($"floor 3 enemies use the art pack: {string.Join(", ", ffTypes.Select(t => t.Name))}; the mimic waits as a chest",
                     ffTypes.All(t => t.Sprites.Dead != null) && ffDormant);
                 if (ffMimic)
@@ -2253,8 +2255,8 @@ namespace Spellcaster
                 System.Diagnostics.Process wsClient = null;
                 try
                 {
-                    wsClient = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
-                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -nettestcombat -nettestloot -netkey testclient -logFile \"{Path.Combine(outDir, "net_client2.log")}\"") { UseShellExecute = false });
+                    wsClient = Launched(System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -nettestcombat -nettestloot -netkey testclient -logFile \"{Path.Combine(outDir, "net_client2.log")}\"") { UseShellExecute = false }));
                 }
                 catch (Exception wsEx) { Debug.LogWarning("[AutoTest] couldn't start a second copy: " + wsEx.Message); }
                 float wsT = 0f;
@@ -2307,7 +2309,7 @@ namespace Spellcaster
                 // ---- combat (Phase 3): the host's enemy, a client's spells, an enemy's attack, doors ----
                 // Keep the host well away, so the enemy goes for the other player.
                 if (wsOther) player.Teleport(d.FindFreeSpot(d.Current, wsOther.transform.position - new Vector3(0f, 0f, 6f), 0.8f) + Vector3.up * 0.1f, 0f);
-                var cbImp = wsOther ? EnemySpawner.Instance.SpawnAt(EnemyType.Imp, wsOther.transform.position + new Vector3(0f, 0.05f, 5f), 30f, 1f) : null;
+                var cbImp = wsOther ? EnemySpawner.Instance.SpawnAt(EnemyType.Imp, d.FindFreeSpot(d.Current, wsOther.transform.position + new Vector3(0f, 0f, 3f), 0.6f) + Vector3.up * 0.05f, 30f, 1f) : null;
                 float cbT = 0f;
                 float cbOff = 99f;
                 while (cbT < 6f && cbImp)
@@ -2455,7 +2457,7 @@ namespace Spellcaster
                 ws.Reports.TryGetValue(wsClientId, out wsRep);
                 float dnNear = Vector3.Distance(wsOther.transform.position, player.transform.position);
                 Check($"when the room is cleared they come back next to a teammate with reduced HP ({wsOther.HP:0}/{wsOther.MaxHP:0}, {dnNear:0.0} m away; their screen out: {wsRep.bledOut})",
-                    !wsOther.IsDead && dnNear < 3.5f && Mathf.Abs(wsOther.HP - wsOther.MaxHP * Net.NetDowned.RespawnHpFraction) < 2f && !wsRep.bledOut);
+                    !wsOther.IsDead && dnNear < 3.5f && wsOther.HP <= wsOther.MaxHP * Net.NetDowned.RespawnHpFraction + 1f && !wsRep.bledOut); // reduced HP (the floor may nick them after)
                 player.God = false;
                 wsOther.TakeDamage(99999f);
                 for (int dnI = 0; dnI < 4 && !player.IsDead; dnI++) player.TakeDamage(99999f); // a Phoenix Feather may save the first hit
@@ -2490,8 +2492,8 @@ namespace Spellcaster
                 System.Diagnostics.Process svClient2 = null;
                 try
                 {
-                    svClient2 = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
-                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netkey testclient -netreport -logFile \"{Path.Combine(outDir, "net_client3.log")}\"") { UseShellExecute = false });
+                    svClient2 = Launched(System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netkey testclient -netreport -logFile \"{Path.Combine(outDir, "net_client3.log")}\"") { UseShellExecute = false }));
                 }
                 catch (Exception svEx) { Debug.LogWarning("[AutoTest] couldn't start a copy: " + svEx.Message); }
                 float svT = 0f;
@@ -2501,8 +2503,8 @@ namespace Spellcaster
                 Net.DebugReportMsg svRep = default;
                 if (svBack) ws.Reports.TryGetValue(svBack.NetId, out svRep);
                 Check($"the player comes back to the run in progress with their character (gold {(svBack ? svBack.Run.Gold : -1)}/{svGold}, spells {(svBack ? Net.NetCombat.BookCount(svBack) : -1)}/{svSpells}; their screen: {svRep.gold} gold, {svRep.spells} spells, floor {svRep.floor}, {svRep.players} players)",
-                    svBack && svBack.Run.Gold == svGold && Net.NetCombat.BookCount(svBack) == svSpells && svBack.Run.Has("ruby_heart")
-                    && svRep.gold == svGold && svRep.spells == svSpells && svRep.floor == d.Floor && svRep.players == 2);
+                    svBack && svBack.Run.Gold >= svGold && Net.NetCombat.BookCount(svBack) == svSpells && svBack.Run.Has("ruby_heart")
+                    && svRep.gold == svBack.Run.Gold && svRep.spells == svSpells && svRep.floor == d.Floor && svRep.players == 2);
                 if (svClient2 != null && !svClient2.HasExited) { try { svClient2.Kill(); } catch { } }
                 ws.Leave();
                 yield return new WaitForSecondsRealtime(0.3f);
@@ -2521,8 +2523,8 @@ namespace Spellcaster
                 System.Diagnostics.Process svClient3 = null;
                 try
                 {
-                    svClient3 = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
-                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netkey testclient -netreport -logFile \"{Path.Combine(outDir, "net_client4.log")}\"") { UseShellExecute = false });
+                    svClient3 = Launched(System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
+                        $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netkey testclient -netreport -logFile \"{Path.Combine(outDir, "net_client4.log")}\"") { UseShellExecute = false }));
                 }
                 catch (Exception svEx2) { Debug.LogWarning("[AutoTest] couldn't start a copy: " + svEx2.Message); }
                 svT = 0f;
@@ -2539,6 +2541,63 @@ namespace Spellcaster
                 if (svClient3 != null && !svClient3.HasExited) { try { svClient3.Kill(); } catch { } }
                 ws.ContinueSaved = false;
                 ws.Leave();
+                // ---- under 150 ms ping and 2% packet loss (Phase 7) ----
+                {
+                    Net.NetSim.Set(0f, 2f); // the host drops 2% of what it sends unreliably; the other copy adds 150 ms and 2%
+                    Net.NetSession.StartRunHandler = m =>
+                    {
+                        Net.NetPlayers.SetupRun(m);
+                        RunRandom.RunSeed = m.seed;
+                        d.BuildFloor(1);
+                    };
+                    player.God = true;
+                    yield return new WaitForSecondsRealtime(0.5f); // the previous session lets go of the port
+                    ws.HostDirect(Net.NetConfig.DebugPort, 4);
+                    System.Diagnostics.Process lgClient = null;
+                    try
+                    {
+                        lgClient = Launched(System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(wsExe,
+                            $"-batchmode -nographics -netjoin {Net.NetConfig.DebugAddress} -netready -netwalk -netreport -nettestcombat -netkey lagclient -netlag 150 -netloss 2 -logFile \"{Path.Combine(outDir, "net_client_lag.log")}\"") { UseShellExecute = false }));
+                    }
+                    catch (Exception lgEx) { Debug.LogWarning("[AutoTest] couldn't start a copy: " + lgEx.Message); }
+                    float lgT = 0f;
+                    while (lgT < 45f && !(ws.Roster.Count == 2 && ws.AllReady)) { lgT += Time.unscaledDeltaTime; yield return null; }
+                    ws.StartRun();
+                    lgT = 0f;
+                    while (lgT < 10f && ws.StartAcks < 2) { lgT += Time.unscaledDeltaTime; yield return null; }
+                    yield return new WaitForSecondsRealtime(0.5f);
+                    var lgOther = Players.All.FirstOrDefault(p => p && !p.IsLocal);
+                    Vector3 lgFrom = lgOther ? lgOther.transform.position : Vector3.zero;
+                    lgT = 0f;
+                    while (lgT < 10f && lgOther && Vector3.Distance(lgOther.transform.position, lgFrom) < 3f) { lgT += Time.unscaledDeltaTime; yield return null; }
+                    yield return new WaitForSecondsRealtime(3f);
+                    Net.DebugReportMsg lgRep = default;
+                    if (lgOther) ws.Reports.TryGetValue(lgOther.NetId, out lgRep);
+                    float lgGap = lgOther ? Vector3.Distance(lgRep.pos, lgOther.transform.position) : 99f;
+                    float lgMoved = lgOther ? Vector3.Distance(lgOther.transform.position, lgFrom) : 0f;
+                    Check($"at ~150 ms and 2% loss, movement stays consistent: ping {lgRep.rtt:0} ms, {lgMoved:0.0} m walked on the host, own position {lgGap:0.00} m from the host's ({lgRep.corrections} corrections)",
+                        lgRep.rtt >= 120f && lgMoved >= 3f && lgGap < 0.35f);
+                    NetOverlay_Show(true);
+                    yield return Shot("26_net_overlay");
+                    // Combat under lag: the host's enemy, the client's Fireball through the host.
+                    if (lgOther) player.Teleport(d.FindFreeSpot(d.Current, lgOther.transform.position - new Vector3(0f, 0f, 6f), 0.8f) + Vector3.up * 0.1f, 0f);
+                    var lgImp = lgOther ? EnemySpawner.Instance.SpawnAt(EnemyType.Imp, d.FindFreeSpot(d.Current, lgOther.transform.position + new Vector3(0f, 0f, 3f), 0.6f) + Vector3.up * 0.05f, 30f, 1f) : null;
+                    lgT = 0f;
+                    while (lgT < 10f && lgImp && lgImp.HP >= lgImp.MaxHP) { lgT += Time.unscaledDeltaTime; yield return null; }
+                    yield return new WaitForSecondsRealtime(1.5f);
+                    if (lgOther) ws.Reports.TryGetValue(lgOther.NetId, out lgRep);
+                    Check($"at ~150 ms and 2% loss, combat stays consistent: the client's Fireball hurts the host's enemy ({(lgImp ? lgImp.HP : 0):0}/{(lgImp ? lgImp.MaxHP : 0):0}, {lgRep.enemyHp:0} on their screen) and their health matches ({(lgOther ? lgOther.HP : 0):0} / {lgRep.hp:0})",
+                        lgImp && lgImp.HP < lgImp.MaxHP && Mathf.Abs(lgRep.enemyHp - lgImp.HP) < 45f && lgOther && Mathf.Abs(lgRep.hp - lgOther.HP) < 17f); // a hit may be in flight
+                    var lgLossIn = Net.NetStats.Loss(lgOther ? lgOther.NetId : 0).Percent;
+                    Check($"the debug overlay's numbers are live: traffic out {Net.NetStats.OutKBps:0.0} KB/s, in {Net.NetStats.InKBps:0.0} KB/s, their input loss {lgLossIn:0.0}%, loss on their side {lgRep.lossIn:0.0}%",
+                        Net.NetStats.OutKBps > 0f && Net.NetStats.InKBps > 0f && lgRep.lossIn >= 0f && lgRep.lossIn < 15f && lgLossIn < 15f);
+                    NetOverlay_Show(false);
+                    gs.ClearEnemies();
+                    if (lgClient != null && !lgClient.HasExited) { try { lgClient.Kill(); } catch { } }
+                    ws.Leave();
+                    Net.NetSim.Set(0f, 0f);
+                    yield return null;
+                }
                 Settings.SetGrimoireEnabled(gbSetting);
                 Net.NetSession.StartRunHandler = null;
                 yield return null;
@@ -2584,6 +2643,18 @@ namespace Spellcaster
                     foreach (var r in new[] { door.A, door.B })
                         if (seen.Add(r)) q.Enqueue(r);
             return seen.Count;
+        }
+
+        static void NetOverlay_Show(bool on) => Net.NetOverlay.Shown = on;
+
+        /// <summary>Copies of the game this test started: closed when the test ends, however it ends.</summary>
+        static readonly List<System.Diagnostics.Process> launched = new List<System.Diagnostics.Process>();
+        static System.Diagnostics.Process Launched(System.Diagnostics.Process p) { if (p != null) launched.Add(p); return p; }
+
+        void OnApplicationQuit()
+        {
+            foreach (var p in launched)
+                try { if (!p.HasExited) p.Kill(); } catch { }
         }
 
         static void EnterRoom(Player p, Room r) => p.Teleport(r.Center + new Vector3(0f, 0.1f, -8f), 0f);

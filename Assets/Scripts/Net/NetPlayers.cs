@@ -117,7 +117,9 @@ namespace Spellcaster.Net
             lastSeq.Clear();
             budget.Clear();
             lastAcked = 0;
+            batchSeq = 0;
             Corrections = 0;
+            NetStats.Reset();
             LastError = 0f;
             StatesReceived = 0;
         }
@@ -162,6 +164,8 @@ namespace Spellcaster.Net
         }
 
         /// <summary>Sends every input the host hasn't confirmed (resent until confirmed, so a lost packet costs nothing).</summary>
+        static uint batchSeq, stateSeq;
+
         static void SendInputs()
         {
             int start = history.FindIndex(h => h.input.seq > lastAcked);
@@ -175,7 +179,7 @@ namespace Spellcaster.Net
                     var m = history[from + i].input;
                     frames[i] = new InputFrame { seq = m.seq, dt = m.dt, yaw = m.yaw, pitch = m.pitch, wish = m.wish, autoDir = m.autoDir, flags = m.flags };
                 }
-                NetworkClient.Send(new InputBatchMsg { frames = frames }, Channels.Unreliable);
+                NetworkClient.Send(new InputBatchMsg { batch = ++batchSeq, frames = frames }, Channels.Unreliable);
             }
         }
 
@@ -183,6 +187,7 @@ namespace Spellcaster.Net
         {
             if (NetworkServer.active || !Running || msg.players == null) return;
             StatesReceived++;
+            NetStats.Loss(-1).Saw(msg.seq);
             float now = Time.unscaledTime;
             foreach (var e in msg.players)
             {
@@ -258,6 +263,7 @@ namespace Spellcaster.Net
         public static void OnInputs(NetworkConnectionToClient conn, InputBatchMsg msg)
         {
             if (!Running || msg.frames == null) return;
+            NetStats.Loss(conn.connectionId).Saw(msg.batch);
             var p = Players.ByNetId(conn.connectionId);
             if (!p || p.IsLocal || p.Mode != Player.Control.Simulated) return;
             lastSeq.TryGetValue(conn.connectionId, out uint last);
@@ -299,7 +305,7 @@ namespace Spellcaster.Net
                     downed = p.Downed, bledOut = p.BledOut, bleed = p.BleedTimer, revive = p.ReviveProgress,
                 });
             }
-            if (entries.Count > 0) NetworkServer.SendToAll(new PlayerStatesMsg { players = entries.ToArray() }, Channels.Unreliable);
+            if (entries.Count > 0) NetworkServer.SendToAll(new PlayerStatesMsg { seq = ++stateSeq, players = entries.ToArray() }, Channels.Unreliable);
         }
     }
 }
