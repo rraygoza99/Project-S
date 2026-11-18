@@ -246,6 +246,7 @@ namespace Spellcaster.Net
             var c = CasterOf(p);
             if (c == null || a < 0 || b < 0 || a >= c.book.Count || b >= c.book.Count || a == b) return null;
             if (!SpellForge.TryCombine(c.book[a], c.book[b], c.book, out var made, out _) || made == null) { SendBook(p); return null; }
+            if (p.Run && !p.Run.PayForge(made)) { SendBook(p); return null; } // their Essence, checked here too
             c.book.Add(made);
             Sfx.Play("forge", 0.6f);
             SendBook(p);

@@ -61,6 +61,7 @@ namespace Spellcaster
             RunRandom.TypedSeed = null;
             SpellBook.StartRun();
             Progress.NewThisRun.Clear();
+            Essence.ResetStats();
         }
 
         void OnDestroy() => Enemy.Killed -= OnKilled;

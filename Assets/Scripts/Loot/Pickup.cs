@@ -16,10 +16,12 @@ namespace Spellcaster
         public ItemDef Item { get; private set; }
         public int Price { get; private set; }
         /// <summary>Free coins and hearts are collected by walking over them; shop items always need E.</summary>
-        public bool IsAuto => Price == 0 && (Item.Kind == ItemKind.Coin || Item.Kind == ItemKind.Heart);
+        public bool IsAuto => Price == 0 && (Item.Kind == ItemKind.Coin || Item.Kind == ItemKind.Heart || Item.Kind == ItemKind.Essence);
+        /// <summary>Coins and Essence drift to you and are vacuumed up when the room is cleared.</summary>
+        bool Magnetic => Item.Kind == ItemKind.Coin || Item.Kind == ItemKind.Essence;
         public Vector3 LabelPosition => visual.position + Vector3.up * 0.7f;
 
-        Transform visual;
+        Transform visual, glowQuad;
         Renderer rend;
         MaterialPropertyBlock mpb;
         Vector3 velocity;
@@ -87,7 +89,7 @@ namespace Spellcaster
         static readonly int FlashId = Shader.PropertyToID("_Flash");
 
         /// <summary>Spawns a pickup. With pop, it bounces out in a random direction (enemy drops).</summary>
-        public static Pickup Spawn(ItemDef item, Vector3 position, int price = 0, bool pop = false, float height = 0.55f)
+        public static Pickup Spawn(ItemDef item, Vector3 position, int price = 0, bool pop = false, float height = 0.55f, int onlyFor = -1)
         {
             // A multiplayer client only shows the host's pickups (its own floor stock comes from the host).
             if (Net.NetSession.IsClientOnly && Net.NetPlayers.Running && !Net.NetLoot.SpawningProxy) return null;
@@ -95,8 +97,9 @@ namespace Spellcaster
             if (Dungeon.Instance && Dungeon.Instance.LevelRoot) go.transform.SetParent(Dungeon.Instance.LevelRoot, true);
             go.transform.position = new Vector3(position.x, height, position.z);
 
-            float size = item.Kind == ItemKind.Coin ? 0.45f : (item.Kind == ItemKind.Heart ? 0.6f : 0.8f);
-            var glow = Fx.CreateQuad(go.transform, new Color(item.Color.r, item.Color.g, item.Color.b, 0.5f), size * 1.8f);
+            float size = item.Kind == ItemKind.Coin ? 0.45f : item.Kind == ItemKind.Essence ? 0.5f : (item.Kind == ItemKind.Heart ? 0.6f : 0.8f);
+            bool essence = item.Kind == ItemKind.Essence;
+            var glow = Fx.CreateQuad(go.transform, new Color(item.Color.r, item.Color.g, item.Color.b, essence ? 0.75f : 0.5f), size * (essence ? 2.6f : 1.8f));
             glow.transform.localPosition = Vector3.zero;
 
             var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
@@ -113,7 +116,9 @@ namespace Spellcaster
             var p = go.AddComponent<Pickup>();
             p.Item = item;
             p.Price = price;
+            p.OnlyFor = onlyFor; // set before the host announces it, so other players never get a copy
             p.visual = quad.transform;
+            p.glowQuad = glow.transform;
             p.rend = r;
             p.mpb = new MaterialPropertyBlock();
             p.baseY = height;
@@ -131,11 +136,10 @@ namespace Spellcaster
         }
 
         /// <summary>A pickup only one player can take (multiplayer: a forgotten rune at their feet).</summary>
-        public static Pickup SpawnFor(ItemDef item, Vector3 position, int playerNetId)
+        public static Pickup SpawnFor(ItemDef item, Vector3 position, int playerNetId, bool pop = false)
         {
-            var p = Spawn(item, position);
+            var p = Spawn(item, position, pop: pop, height: item.Kind == ItemKind.Essence ? Items.EssenceHeight : 0.55f, onlyFor: playerNetId);
             if (!p) return null;
-            p.OnlyFor = playerNetId;
             if (Player.Instance && Player.Instance.NetId != playerNetId)
                 foreach (var r in p.GetComponentsInChildren<Renderer>()) r.enabled = false; // not yours: not shown here
             return p;
@@ -188,8 +192,11 @@ namespace Spellcaster
             else
             {
                 var p = transform.position;
-                p.y = baseY + 0.12f * Mathf.Sin(Time.time * 3f + bobPhase);
+                bool essence = Item.Kind == ItemKind.Essence;
+                // Essence floats higher and slower, and its glow breathes.
+                p.y = baseY + (essence ? 0.18f * Mathf.Sin(Time.time * 2f + bobPhase) : 0.12f * Mathf.Sin(Time.time * 3f + bobPhase));
                 transform.position = p;
+                if (essence && glowQuad) glowQuad.localScale = Vector3.one * (1f + 0.18f * Mathf.Sin(Time.time * 4f + bobPhase));
             }
 
             if (!IsAuto || age < 0.4f) return;
@@ -202,14 +209,14 @@ namespace Spellcaster
             Vector3 to = player.transform.position - transform.position;
             to.y = 0f;
             float dist = to.magnitude;
-            if (Item.Kind == ItemKind.Coin && !vacuum)
+            if (Magnetic && !vacuum)
             {
                 // Once the fight in this room is over, every coin left in it comes to you.
                 var dg = Dungeon.Instance;
                 var room = dg ? dg.Current : null;
                 if (room != null && room.HasEnemies && room.Cleared && room.Contains(transform.position)) vacuum = true;
             }
-            if (Item.Kind == ItemKind.Coin && (vacuum || dist < CoinMagnetRadius))
+            if (Magnetic && (vacuum || dist < CoinMagnetRadius))
             {
                 // coins fly to you: gently at the edge of the magnet, fast up close, fast when vacuumed
                 float speed = vacuum ? 16f : Mathf.Lerp(12f, 3f, dist / CoinMagnetRadius);

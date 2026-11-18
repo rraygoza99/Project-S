@@ -42,7 +42,14 @@ Every run starts knowing only Fireball. Defined in `Assets/Scripts/Spells/SpellB
   | Earth + Storm | Tremor |
 
 - **Forgotten runes:** forgetting a spell in the Forge drops a rune that teaches back that exact
-  spell, including forged ones.
+  spell, including forged ones. Forgetting refunds half the Essence that spell cost; taking the rune
+  back returns that refund.
+
+### Forge costs (Arcane Essence)
+
+Each forge in a run costs more: **3, 5, 7, 9...** (`BaseCost + forgesDone x CostIncrease`). Forgetting
+refunds `floor(paid x 0.5)` and never lowers the next cost. Free in the Practice tool. Values in
+`EssenceConfig` (`Assets/Scripts/Loot/Essence.cs`).
 
 ## Passive items (stat boosts)
 
@@ -104,6 +111,7 @@ Defined in `Assets/Scripts/Loot/Items.cs`.
 |---|---|---|
 | Gold | Worth 1 gold | – |
 | Gold pile | Worth 5 gold | – |
+| Arcane Essence | Pays for the Spell Forge. Enemies only: normal 15% (1), elite 75% (1-2), boss 100% (3-5); +3% per kill without a drop | – |
 | Heart | Restores 20 HP | 6 |
 
 ## Floors (endless)
@@ -241,7 +249,7 @@ Code in `Assets/Scripts/Net/`; every tunable is in `NetConfig.cs` and `NetDowned
 | Casting | Classic and Momentum both work; the rune is drawn on your own PC, the host checks the spell is known and off cooldown, then casts it as you. Friendly fire is off |
 | Grimoire | The host's Options setting decides for everyone; each player has their own deck, cycles and picks their own rewards. An elite's curse falls on the whole party |
 | Loot | Instanced: every coin, heart, item, rune and shop item has one copy per player |
-| Your run | Gold, items, consumables, stats, spell book and Forge are your own (held by the host) |
+| Your run | Gold, Arcane Essence, items, consumables, stats, spell book and Forge (and its cost) are your own (held by the host) |
 | Fight rooms | The first player in starts a 3 s "Fight! Gather up" countdown; then everyone outside is pulled in and the doors close |
 | Portal | Opens once every living player stands on it; the whole party moves to the next floor |
 | Pause | The pause menu doesn't stop the game in co-op |
@@ -277,6 +285,8 @@ Enemy HP and wave size (bosses: HP only), from `NetConfig.Scaling`:
 
 | Key / option | What it does |
 |---|---|
+| F10 / Shift+F10 | +5 / -5 Arcane Essence |
+| Ctrl+F10 / Alt+F10 | Reset forges done / print Essence drop statistics per enemy type |
 | F6 | Network overlay: role, tick rate (30 Hz), traffic, ping and packet loss per player, prediction corrections |
 | Ctrl+F6 | Simulated lag and loss: off / 150 ms 2% / 300 ms 5% |
 | `-netlag 150 -netloss 2` | The same at launch |

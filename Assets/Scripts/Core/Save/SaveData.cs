@@ -50,6 +50,8 @@ namespace Spellcaster
     public class RunSave
     {
         public int gold, goldEarned, kills;
+        /// <summary>Arcane Essence (save version 2; older saves load these as 0).</summary>
+        public int essence, forgesDone, essenceBadLuck, essenceRolls;
         public float runTime;
         public List<string> items = new List<string>();
         /// <summary>One entry per slot, "" when empty.</summary>

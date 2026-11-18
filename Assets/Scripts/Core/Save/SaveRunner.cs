@@ -53,6 +53,29 @@ namespace Spellcaster
             if (Input.GetKeyDown(KeyCode.F9)) ForceLoad();
             if (Input.GetKeyDown(KeyCode.F8)) { SaveSystem.Delete(); Flash("Save deleted"); }
             if (Input.GetKeyDown(KeyCode.F7)) PrintSave();
+            if (Input.GetKeyDown(KeyCode.F10)) EssenceDebug();
+        }
+
+        /// <summary>
+        /// Dev mode Essence tools: F10 +5 Essence, Shift+F10 -5, Ctrl+F10 reset forges done (forge cost back to
+        /// the base), Alt+F10 drop statistics this run (per enemy type, also in the log).
+        /// </summary>
+        static void EssenceDebug()
+        {
+            var run = Run.Instance;
+            if (!run) return;
+            bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+            bool alt = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
+            if (alt)
+            {
+                string stats = Essence.Describe();
+                Debug.Log("[Spellcaster] " + stats + $"\n  bad-luck streak {run.EssenceBadLuck}, rolls {run.EssenceRolls}");
+                Flash(stats.Replace("\n", "   "));
+            }
+            else if (ctrl) { run.ForgesDone = 0; Flash($"Forges done reset: next forge costs {run.ForgeCost}"); }
+            else if (shift) { run.AddEssence(-5); Flash($"Essence {run.Essence}"); }
+            else { run.AddEssence(5); Flash($"Essence {run.Essence}"); }
         }
 
         static void Flash(string s) { if (SpellSystem.Instance) SpellSystem.Instance.Flash(s); }

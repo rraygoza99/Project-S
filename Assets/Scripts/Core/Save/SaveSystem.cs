@@ -72,10 +72,16 @@ namespace Spellcaster
     public static class SaveSystem
     {
         /// <summary>Bump when the format changes, and add a migration from the previous version below.</summary>
-        public const int Version = 1;
+        public const int Version = 2;
 
         /// <summary>saveVersion n -> n + 1. Example: { 1, f => { /* rename a key, fill a default */ } }.</summary>
-        static readonly Dictionary<int, Action<SaveFile>> Migrations = new Dictionary<int, Action<SaveFile>>();
+        static readonly Dictionary<int, Action<SaveFile>> Migrations = new Dictionary<int, Action<SaveFile>>
+        {
+            // 1 -> 2: Arcane Essence. The run section gains essence, forgesDone, essenceBadLuck and
+            // essenceRolls, and spells gain essencePaid / essenceRefunded. Missing fields read as 0, which is
+            // the right default (no Essence yet, spells forged before Essence existed refund nothing).
+            { 1, f => { } },
+        };
 
         static readonly List<ISaveSection> sections = new List<ISaveSection>();
 

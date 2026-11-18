@@ -23,6 +23,48 @@ namespace Spellcaster
         public readonly PlayerStats Stats = new PlayerStats();
         public int Gold;
         public int GoldEarned;
+
+        // ---- Arcane Essence (pays for the Spell Forge; values in EssenceConfig) ----
+        public int Essence;
+        /// <summary>Successful forges this run. Never goes down (forgetting doesn't make forging cheaper).</summary>
+        public int ForgesDone;
+        /// <summary>Kills in a row without an Essence drop (each one raises the next chance).</summary>
+        public int EssenceBadLuck;
+        /// <summary>Essence rolls made so far: with the run seed, it seeds the next roll (saves can't reroll).</summary>
+        public int EssenceRolls;
+        /// <summary>HUD pulse on pickup, 1 fading to 0.</summary>
+        public float EssencePulse;
+        /// <summary>What the next forge costs (free in the Practice tool).</summary>
+        public int ForgeCost => Spellcaster.Essence.Free ? 0 : EssenceConfig.ForgeCost(ForgesDone);
+        public int NextForgeCost => Spellcaster.Essence.Free ? 0 : EssenceConfig.ForgeCost(ForgesDone + 1);
+        public bool CanAffordForge => Essence >= ForgeCost;
+
+        /// <summary>Pays for a forge and records what this spell cost. False if there isn't enough Essence.</summary>
+        public bool PayForge(SpellDefinition made)
+        {
+            int cost = ForgeCost;
+            if (Essence < cost) return false;
+            Essence -= cost;
+            if (made != null) { made.EssencePaid = cost; made.EssenceRefunded = 0; }
+            if (!Spellcaster.Essence.Free) ForgesDone++;
+            return true;
+        }
+
+        /// <summary>Forgetting a spell: gives back part of what was paid for it. The rune remembers the refund.</summary>
+        public int RefundForget(SpellDefinition s)
+        {
+            if (s == null) return 0;
+            int refund = EssenceConfig.Refund(s.EssencePaid);
+            Essence += refund;
+            s.EssenceRefunded = refund;
+            return refund;
+        }
+
+        public void AddEssence(int amount)
+        {
+            Essence = Mathf.Max(0, Essence + amount);
+            if (amount > 0) EssencePulse = 1f;
+        }
         /// <summary>Passive items and relics, in pickup order.</summary>
         public readonly List<ItemDef> Items = new List<ItemDef>();
         public readonly ItemDef[] Consumables = new ItemDef[Slots];
@@ -64,6 +106,7 @@ namespace Spellcaster
             var s = new RunSave
             {
                 gold = Gold, goldEarned = GoldEarned, stats = Stats,
+                essence = Essence, forgesDone = ForgesDone, essenceBadLuck = EssenceBadLuck, essenceRolls = EssenceRolls,
                 kills = gs ? gs.Kills : 0, runTime = gs ? gs.RunTime : 0f,
             };
             foreach (var i in Items) s.items.Add(i.Id);
@@ -77,6 +120,10 @@ namespace Spellcaster
         {
             Gold = s.gold;
             GoldEarned = s.goldEarned;
+            Essence = s.essence;
+            ForgesDone = s.forgesDone;
+            EssenceBadLuck = s.essenceBadLuck;
+            EssenceRolls = s.essenceRolls;
             Items.Clear();
             foreach (var id in s.items) { var it = Spellcaster.Items.Resolve(id); if (it != null) Items.Add(it); }
             for (int i = 0; i < Slots; i++) Consumables[i] = i < s.consumables.Count ? Spellcaster.Items.Resolve(s.consumables[i]) : null;
@@ -93,6 +140,7 @@ namespace Spellcaster
             SlowTimer = Mathf.Max(0f, SlowTimer - Time.deltaTime);
             frozenHeartCooldown = Mathf.Max(0f, frozenHeartCooldown - Time.deltaTime);
             ToastTimer = Mathf.Max(0f, ToastTimer - Time.deltaTime);
+            EssencePulse = Mathf.Max(0f, EssencePulse - Time.deltaTime * 2.5f);
 
             var player = Owner;
             if (AutoTest.Active || !IsLocal || !player || !player.InputEnabled || !GameState.Instance.AcceptsGameplayInput) return;
@@ -122,6 +170,8 @@ namespace Spellcaster
                     if (Owner && Owner.HP >= Owner.MaxHP) { reason = "Already at full health"; return false; }
                     break;
                 case ItemKind.Rune:
+                    // A forgotten spell's rune: taking it back returns the Essence its forgetting refunded.
+                    if (item.Spell != null && item.Spell.EssenceRefunded > Essence) { reason = $"Need {item.Spell.EssenceRefunded} Essence to take it back"; return false; }
                     bool remote = !IsLocal && Net.NetPlayers.Running; // another player's book (on the host)
                     if (remote ? Net.NetCombat.Knows(Owner, item.SpellId) : SpellBook.Knows(item.SpellId)) { reason = "You already know that spell"; return false; }
                     if ((remote ? Net.NetCombat.BookCount(Owner) : SpellBook.Known.Count) >= SpellBook.MaxSpells) { reason = "Spell book is full"; return false; }
@@ -138,6 +188,10 @@ namespace Spellcaster
                     AddGold(item.Value + Stats.CoinBonus);
                     Sfx.Play("coin", 0.5f, Random.Range(0.95f, 1.1f));
                     return;
+                case ItemKind.Essence:
+                    AddEssence(item.Value);
+                    if (IsLocal) Sfx.Play("essence", 0.55f, Random.Range(0.97f, 1.06f));
+                    return;
                 case ItemKind.Heart:
                     if (Owner) Owner.Heal(item.Value);
                     Sfx.Play("heal", 0.5f, 1.2f);
@@ -149,6 +203,11 @@ namespace Spellcaster
                     Toast(item.Name, $"{item.Desc}  (key {SlotKeyName(Mathf.Max(0, slot))})", item.Color);
                     return;
                 case ItemKind.Rune:
+                    if (item.Spell != null && item.Spell.EssenceRefunded > 0)
+                    {
+                        Essence = Mathf.Max(0, Essence - item.Spell.EssenceRefunded); // the refund goes back
+                        item.Spell.EssenceRefunded = 0;
+                    }
                     if (item.Spell != null) RelearnSpell(item.Spell);
                     else GrantSpell(item.SpellId);
                     return;
@@ -180,6 +239,11 @@ namespace Spellcaster
         {
             Gold = n.gold;
             GoldEarned = n.goldEarned;
+            if (n.essence > Essence) EssencePulse = 1f;
+            Essence = n.essence;
+            ForgesDone = n.forgesDone;
+            EssenceBadLuck = n.essenceBadLuck;
+            EssenceRolls = n.essenceRolls;
             HasteTimer = n.haste;
             Items.Clear();
             foreach (var id in n.items) { var it = Spellcaster.Items.Resolve(id); if (it != null) Items.Add(it); }
@@ -287,6 +351,7 @@ namespace Spellcaster
             if (e.LastElement == Element.Poison) Progress.Add("poison_kills");
             if (e.Type.IsBoss) Progress.Add("bosses");
             if (Stats.FrostSpread && e.DiedFrozen) FrostSpread(e);
+            Spellcaster.Essence.OnEnemyKilled(e); // every player rolls (bosses included)
             Loot.OnEnemyKilled(e, this);
         }
     }

@@ -114,6 +114,7 @@ namespace Spellcaster
             Add("enemyshot", 0.25f, (t, d) => Sin(Slide(t, d, 260, 620)) * 0.35f * Env(t, d, 1));
             // --- roguelike: loot, doors, rooms ---
             Add("coin", 0.16f, (t, d) => (Sq(1760 * t) * 0.15f + Sin(t < 0.05f ? 1320 * t : 1760 * t) * 0.2f) * Env(t, d, 2));
+            Add("essence", 0.5f, (t, d) => (Sin(880 * t + 2f * Sin(6 * t)) * 0.16f + Sin(1318 * t) * 0.12f * (t > 0.08f ? 1f : 0f) + Sin(1760 * t) * 0.06f * Sin(25 * t)) * Env(t, d, 1.4f));
             Add("pickup", 0.25f, (t, d) => Sin(Slide(t, d, 600, 1200)) * 0.3f * Env(t, d, 1.5f));
             Add("item", 0.8f, (t, d) =>
             {

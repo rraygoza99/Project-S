@@ -359,7 +359,13 @@ Every run starts with **Fireball**; the others are learned from **runes** (rune 
 ### Spell Forge: make your own spells
 
 Press **Tab** when no fight is on and click two spells (or press their numbers). The top row shows
-**A + B = result** and says what's still missing; click **Forge** (or press **Enter**). The new spell:
+**A + B = result** and says what's still missing; click **Forge** (or press **Enter**).
+
+**Forging costs Arcane Essence**, the violet crystals only enemies drop (see below). Each forge in a
+run costs more than the last: 3, 5, 7, 9... The Forge shows the cost, your Essence and what the next
+forge will cost; if you're short, the cost turns red ("Not enough Essence") and Forge is disabled.
+
+The new spell:
 
 - uses the first spell's **delivery** (projectile / instant bolt / nova / self) and carries **both
   payloads** at 85% strength,
@@ -378,8 +384,34 @@ Lifesteal never stacks inside one spell (only its largest lifesteal counts, plus
 one cast heals at most 12 HP.
 
 **Forget a spell** to make room (the book holds 9): pick one spell in the Forge and click **Forget**
-(or press Delete) twice. Its rune drops at your feet, so you can pick it back up if you change your
-mind. You always keep at least 2 spells.
+(or press Delete) twice. The confirmation shows how much Essence you get back: **half of what that
+spell cost** (rounded down; starting spells give nothing). The forge cost does not go back down. Its
+rune drops at your feet, so you can pick it back up if you change your mind; taking it back returns the
+refund. You always keep at least 2 spells.
+
+### Arcane Essence
+
+The second currency, for the Spell Forge only. **Only enemies drop it** (never crates, chests or room
+rewards), and much less often than gold:
+
+| Enemy | Chance | Amount |
+|---|---|---|
+| Normal | 15% | 1 |
+| Elite (Grimoire runs) | 75% | 1-2 |
+| Boss | 100% | 3-5 |
+
+- **Bad-luck protection:** each kill without a drop adds +3% to the next chance; a drop resets it.
+  That works out to about one drop every 4-5 normal kills.
+- Enemies killed by traps still drop it. Minions summoned in boss rooms, and Shade splits, don't.
+- It's a floating violet crystal with a cyan core and a soft glow, with its own chime. Like coins, it
+  drifts to you up close and flies to you when the room is cleared.
+- The HUD shows it next to your gold (the icon swells when you pick some up); the pause screen shows
+  gold, Essence and how many forges you've done.
+- Rolls come from the run seed and your roll count, so a loaded save can't reroll a drop.
+- **Practice tool:** the Forge is free there.
+- **Co-op:** Essence is per player. Each player rolls for themself, and the drop is a copy only they
+  can see and take. Each player has their own forge count; the host checks every cost and refund.
+- All tunable values are in `EssenceConfig` (`Assets/Scripts/Loot/Essence.cs`).
 
 Forged spells can be forged again (tier 3, 4...), up to 12 effects and 9 known spells. Relics apply
 to forged spells too, so a Splitting Prism on a "Frozen Fireball" fires three freezing fireballs.
@@ -441,7 +473,9 @@ the save; the previous save is kept as `save.json.bak`. A damaged file falls bac
 both are damaged, Continue is hidden and the menu says why. Settings and unlocks are not in it (they
 stay in PlayerPrefs). Everything the map decides is rolled from the run seed (`RunRandom`), so it
 needs no other random state. Dev mode keys: **F5** save now, **F9** load the save, **F8** delete it,
-**F7** print it to the log and open its folder.
+**F7** print it to the log and open its folder. Essence: **F10** +5, **Shift+F10** -5, **Ctrl+F10**
+reset forges done, **Alt+F10** drop statistics per enemy type (also in the log).
+The save format is version 2 (Essence); version-1 saves load with Essence and forges done at 0.
 
 **Add a system to the save:** write a plain `[Serializable]` data class (lists and numbers, stable
 string ids, no engine objects), give the system a `SaveState()` that fills it and a

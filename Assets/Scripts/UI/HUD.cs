@@ -244,11 +244,19 @@ namespace Spellcaster
             var gold = new GUIStyle(Label);
             gold.normal.textColor = new Color(1f, 0.85f, 0.3f);
             Shadowed(new Rect(bar.x + 2.2f * u, cy, bw, 2.4f * u), run.Gold.ToString(), gold);
+            // Arcane Essence, right of the gold: the icon swells briefly when you pick some up.
+            float ex = bar.x + 2.2f * u + gold.CalcSize(new GUIContent(run.Gold.ToString())).x + 1.4f * u;
+            float ePulse = run.EssencePulse, es = 1.8f * u * (1f + 0.35f * ePulse);
+            GUI.DrawTexture(new Rect(ex + 0.9f * u - es / 2f, cy + 1.1f * u - es / 2f, es, es), Items.Essence.Icon);
+            var ess = new GUIStyle(Label);
+            ess.normal.textColor = Color.Lerp(new Color(0.78f, 0.68f, 1f), Color.white, ePulse);
+            string essText = run.Essence.ToString();
+            Shadowed(new Rect(ex + 2.2f * u, cy, bw, 2.4f * u), essText, ess);
             if (run.HasteTimer > 0f)
             {
                 var hs = new GUIStyle(Small);
                 hs.normal.textColor = new Color(1f, 0.9f, 0.3f);
-                Shadowed(new Rect(bar.x + 7f * u, cy + 0.4f * u, bw, 2 * u), $"HASTE {run.HasteTimer:0}s", hs);
+                Shadowed(new Rect(ex + 2.2f * u + ess.CalcSize(new GUIContent(essText)).x + 1.4f * u, cy + 0.4f * u, bw, 2 * u), $"HASTE {run.HasteTimer:0}s", hs);
             }
         }
 
@@ -429,6 +437,20 @@ namespace Spellcaster
                     y += dh - 0.15f * lh;
                 }
                 y += lh;
+            }
+            if (withConsumables)
+            {
+                // Pause screen: the run's money (one colour per part; rich text would tint the shadow too).
+                string forge = Essence.Free ? "Forge: free" : $"Forges: {run.ForgesDone} (next costs {run.ForgeCost})";
+                float mx = x;
+                foreach (var (text, col) in new[] { ($"Gold {run.Gold}", new Color(1f, 0.85f, 0.3f)), ($"Arcane Essence {run.Essence}", new Color(0.78f, 0.68f, 1f)), (forge, new Color(0.85f, 0.85f, 0.9f)) })
+                {
+                    var ms = new GUIStyle(Small);
+                    ms.normal.textColor = col;
+                    Shadowed(new Rect(mx, y, w, 2 * u), text, ms);
+                    mx += ms.CalcSize(new GUIContent(text)).x + 2f * u;
+                }
+                y += 2.6f * u;
             }
             Shadowed(new Rect(x, y, w, 2.5f * u), "ITEMS & RELICS", Label);
             y += 2.8f * u;

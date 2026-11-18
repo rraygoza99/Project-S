@@ -18,6 +18,7 @@ namespace Spellcaster
         public float cooldown;
         public Color color;
         public int tier;
+        public int essencePaid, essenceRefunded;
         public List<string> components = new List<string>();
         public List<string> synergies = new List<string>();
         public ObjData delivery = new ObjData();
@@ -50,12 +51,13 @@ namespace Spellcaster
 
         public static SpellData ToData(SpellDefinition s)
         {
-            if (IsBase(s)) return new SpellData { baseId = s.Id };
+            if (IsBase(s)) return new SpellData { baseId = s.Id, essencePaid = s.EssencePaid, essenceRefunded = s.EssenceRefunded };
             return new SpellData
             {
                 id = s.Id, name = s.Name, noun = s.Noun, adjective = s.Adjective,
                 sequence = Arrows.ToText(s.Sequence), iconKey = s.IconKey, secondaryIconKey = s.SecondaryIconKey,
                 cooldown = s.Cooldown, color = s.Color, tier = s.Tier,
+                essencePaid = s.EssencePaid, essenceRefunded = s.EssenceRefunded,
                 components = new List<string>(s.Components), synergies = new List<string>(s.Synergies),
                 delivery = Obj(s.Delivery),
                 payload = s.Payload.Select(Obj).ToList(),
@@ -65,12 +67,17 @@ namespace Spellcaster
         public static SpellDefinition FromData(SpellData d)
         {
             if (!string.IsNullOrEmpty(d.baseId))
-                return SpellBook.CreateBase(d.baseId) ?? throw new InvalidOperationException("unknown spell " + d.baseId);
+            {
+                var b = SpellBook.CreateBase(d.baseId) ?? throw new InvalidOperationException("unknown spell " + d.baseId);
+                b.EssencePaid = d.essencePaid; b.EssenceRefunded = d.essenceRefunded;
+                return b;
+            }
             var s = new SpellDefinition
             {
                 Id = d.id, Name = d.name, Noun = d.noun, Adjective = d.adjective,
                 Sequence = Arrows.Parse(d.sequence), IconKey = d.iconKey, SecondaryIconKey = string.IsNullOrEmpty(d.secondaryIconKey) ? null : d.secondaryIconKey,
                 Cooldown = d.cooldown, Color = d.color, Tier = d.tier,
+                EssencePaid = d.essencePaid, EssenceRefunded = d.essenceRefunded,
                 Delivery = (SpellDelivery)FromObj(d.delivery),
             };
             s.Components.AddRange(d.components);

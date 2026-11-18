@@ -153,6 +153,13 @@ namespace Spellcaster
                 return null;
             }
             var made = preview;
+            var run = Run.Instance;
+            if (run && !run.CanAffordForge)
+            {
+                Say($"Not enough Essence: forging costs {run.ForgeCost} (you have {run.Essence}).");
+                Sfx.Play("fizzle", 0.5f);
+                return null;
+            }
             if (Net.NetSession.IsClientOnly && Net.NetPlayers.Running)
             {
                 // The host forges it into your book (it keeps everyone's) and sends the book back.
@@ -164,6 +171,7 @@ namespace Spellcaster
                 Refresh();
                 return made;
             }
+            if (run) run.PayForge(made);
             SpellBook.Known.Add(made);
             Progress.Add("forged");
             Sfx.Play("forge", 0.8f);
@@ -189,7 +197,8 @@ namespace Spellcaster
             if (forgetArmed != index)
             {
                 forgetArmed = index;
-                Say($"Forget {s.Name}? Click Forget (or Delete) again to confirm.");
+                int back = EssenceConfig.Refund(s.EssencePaid);
+                Say($"Forget {s.Name}? You get {back} Essence back. Click Forget (or Delete) again to confirm.");
                 Sfx.Play("tick", 0.6f, 0.8f);
                 return null;
             }
@@ -205,6 +214,7 @@ namespace Spellcaster
             }
             SpellBook.Known.RemoveAt(index);
             if (SpellSystem.Instance) SpellSystem.Instance.OnForgotten(s);
+            int refund = Run.Instance ? Run.Instance.RefundForget(s) : 0; // its rune remembers it: taking it back returns it
             var player = Player.Instance;
             if (player)
             {
@@ -214,7 +224,7 @@ namespace Spellcaster
                 Pickup.Spawn(Items.ForgottenRune(s), at);
             }
             Sfx.Play("portal", 0.5f, 1.4f);
-            Say($"Forgot {s.Name}. Its rune lies at your feet if you change your mind.");
+            Say($"Forgot {s.Name}" + (refund > 0 ? $" (+{refund} Essence)" : "") + ". Its rune lies at your feet if you change your mind.");
             picks.Clear();
             Refresh();
             return s;
@@ -316,15 +326,38 @@ namespace Spellcaster
             float by = panel.yMax - 7.5f * u, bw = pw * 0.48f, bh = 3.4f * u;
             forgeButton = new Rect(px0, by, bw, bh);
             forgetButton = new Rect(px0 + pw - bw, by, bw, bh);
-            Button(forgeButton, preview != null ? "FORGE" : "FORGE (pick two)", preview != null, new Color(0.95f, 0.6f, 0.2f), mouse, u);
+            var runE = Run.Instance;
+            bool afford = !runE || runE.CanAffordForge;
+            DrawCost(new Rect(px0, by - 2.6f * u, pw, 2.2f * u), runE, afford, u);
+            Button(forgeButton, preview == null ? "FORGE (pick two)" : afford ? "FORGE" : "FORGE (need Essence)", preview != null && afford, new Color(0.95f, 0.6f, 0.2f), mouse, u);
             bool canForget = ForgetBlocked == null;
             string forgetLabel = !canForget ? "FORGET (pick one)"
-                : forgetArmed == picks[0] ? "CONFIRM FORGET"
+                : forgetArmed == picks[0] ? $"CONFIRM (+{EssenceConfig.Refund(book[picks[0]].EssencePaid)} ESSENCE)"
                 : $"FORGET {book[picks[0]].Name.ToUpperInvariant()}";
             Button(forgetButton, forgetLabel, canForget, new Color(0.85f, 0.3f, 0.35f), mouse, u);
 
             if (messageTimer > 0f)
                 HUD.Shadowed(new Rect(panel.x, panel.yMax - 3 * u, panel.width, 2 * u), message, HUD.Label.Center());
+        }
+
+        /// <summary>"Cost 5 Essence   You have 7   Next: 7" (the cost in red with "Not enough Essence" if short).</summary>
+        static void DrawCost(Rect r, Run run, bool afford, float u)
+        {
+            if (!run) return;
+            var icon = Items.Essence.Icon;
+            GUI.DrawTexture(new Rect(r.x, r.y + 0.1f * u, 2f * u, 2f * u), icon, ScaleMode.ScaleToFit);
+            // One style per part (rich-text colours would also tint the shadow).
+            string cost = Essence.Free ? "Forge cost: free (Practice)"
+                : afford ? $"Forge cost: {run.ForgeCost} Essence" : $"Forge cost: {run.ForgeCost} Essence - Not enough Essence";
+            string have = $"You have: {run.Essence}" + (Essence.Free ? "" : $"   Next: {run.NextForgeCost}");
+            var cs = new GUIStyle(HUD.Small) { alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold };
+            cs.normal.textColor = afford ? new Color(0.85f, 0.8f, 1f) : new Color(1f, 0.35f, 0.3f);
+            var hs = new GUIStyle(HUD.Small) { alignment = TextAnchor.MiddleLeft };
+            hs.normal.textColor = new Color(0.8f, 0.8f, 0.85f);
+            float cx = r.x + 2.5f * u;
+            HUD.Shadowed(new Rect(cx, r.y, r.width - 2.5f * u, r.height), cost, cs);
+            cx += cs.CalcSize(new GUIContent(cost)).x + 1.5f * u;
+            HUD.Shadowed(new Rect(cx, r.y, r.xMax - cx, r.height), have, hs);
         }
 
         static void DrawSlot(Rect r, SpellDefinition s, string letter, bool hover, float u)

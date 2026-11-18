@@ -71,6 +71,21 @@ namespace Spellcaster
                 "....YYYY....",
                 "............",
             },
+            ["essence"] = new[]
+            {
+                ".....KK.....",
+                "....KLLK....",
+                "...KLWCCK...",
+                "..KLWCCCDK..",
+                "..KLCAACDK..",
+                ".KLCAWWACDK.",
+                ".KLCAWWACDK.",
+                "..KCCAACDK..",
+                "..KCCCCDDK..",
+                "...KCCDDK...",
+                "....KDDK....",
+                ".....KK.....",
+            },
             ["heart"] = new[]
             {
                 "............",
@@ -257,6 +272,7 @@ namespace Spellcaster
                     ['Y'] = new Color32(250, 205, 70, 255),
                     ['O'] = new Color32(190, 130, 30, 255),
                     ['P'] = new Color32(235, 215, 170, 255),
+                    ['A'] = new Color32(120, 235, 255, 255), // cyan (Essence core)
                 };
                 return PixelArt.FromAscii(rows, palette);
             });

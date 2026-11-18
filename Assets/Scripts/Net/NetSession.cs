@@ -148,6 +148,7 @@ namespace Spellcaster.Net
                         ? string.Join(",", Grimoire.GrimoireRun.Instance.Deck.Hand.Select(c => c.Def.Id)) : "",
                     decks = NetGrimoire.DecksReceived,
                     gold = Run.Instance ? Run.Instance.Gold : 0, items = Run.Instance ? Run.Instance.Items.Count : 0,
+                    essence = Run.Instance ? Run.Instance.Essence : 0, forgesDone = Run.Instance ? Run.Instance.ForgesDone : 0,
                     consumables = Run.Instance ? Run.Instance.Consumables.Count(c => c != null) : 0,
                     spells = SpellBook.Known.Count, floor = Dungeon.Instance ? Dungeon.Instance.Floor : 0,
                     maxHp = me.MaxHP, pickups = NetLoot.ProxyCount,

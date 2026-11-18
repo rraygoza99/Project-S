@@ -809,19 +809,88 @@ namespace Spellcaster
             gs.ClearEnemies();
             yield return new WaitForSeconds(1f);
 
+            // ---- Arcane Essence: drops ----
+            {
+                // Rolls: a normal enemy drops ~23% of the time with bad-luck protection, never 30 kills dry.
+                int esRolls0 = run.EssenceRolls, esLuck0 = run.EssenceBadLuck;
+                run.EssenceBadLuck = 0;
+                int esDrops = 0, esStreak = 0, esLongest = 0, esN = 3000;
+                for (int i = 0; i < esN; i++)
+                {
+                    int got = Essence.Roll(run, EssenceConfig.Normal);
+                    if (got > 0) { esDrops++; esStreak = 0; } else esLongest = Mathf.Max(esLongest, ++esStreak);
+                }
+                float esRate = esDrops / (float)esN;
+                Check($"Essence drop rate for normal enemies is about 23% with bad-luck protection ({esRate:P1}; longest dry run {esLongest} kills; gold drops from 40%+)",
+                    esRate > 0.18f && esRate < 0.29f && esLongest <= 29);
+                // The same run seed and roll count give the same roll (a loaded save can't reroll).
+                run.EssenceRolls = 77; run.EssenceBadLuck = 2;
+                int esA = Essence.Roll(run, EssenceConfig.Elite);
+                run.EssenceRolls = 77; run.EssenceBadLuck = 2;
+                int esB = Essence.Roll(run, EssenceConfig.Elite);
+                int esBoss = Essence.Roll(run, EssenceConfig.Boss);
+                Check($"Essence rolls come from the run seed (same roll twice: {esA} = {esB}); a boss always drops 3-5 ({esBoss})",
+                    esA == esB && esBoss >= 3 && esBoss <= 5);
+                run.EssenceRolls = esRolls0; run.EssenceBadLuck = esLuck0;
+
+                // Only enemies drop it: crates and room rewards never do.
+                int esBefore = Pickup.All.Count(p => p && p.Item.Kind == ItemKind.Essence);
+                var esJunk = new List<Pickup>(Pickup.All);
+                for (int i = 0; i < 60; i++) Loot.CrateDrop(AheadPoint(player, 4f, 0f));
+                for (int i = 0; i < 30; i++) Loot.RoomClearReward(Dungeon.Instance.Current);
+                int esAfter = Pickup.All.Count(p => p && p.Item.Kind == ItemKind.Essence);
+                foreach (var p in Pickup.All.ToArray()) if (p && !esJunk.Contains(p)) p.Discard();
+                Check($"crates and room rewards never drop Essence ({esAfter - esBefore} from 60 crates + 30 rewards)", esAfter == esBefore);
+
+                // A kill with a guaranteed roll drops a violet, glowing, floating crystal that flies to you.
+                run.EssenceBadLuck = 40;
+                var esVictim = SpawnAhead(player, EnemyType.Imp, 4f, 0f);
+                yield return new WaitForSeconds(0.2f);
+                int esHave = run.Essence;
+                esVictim.TakeDamage(9999f);
+                yield return null;
+                var esDrop = Pickup.All.FirstOrDefault(p => p && p.Item.Kind == ItemKind.Essence);
+                Check($"an enemy kill drops Arcane Essence (distinct from gold: {Items.Essence.Name}, auto-collect {esDrop && esDrop.IsAuto}, bad luck reset to {run.EssenceBadLuck})",
+                    esDrop && esDrop.IsAuto && Items.Essence.Color != Items.Coin.Color && run.EssenceBadLuck == 0);
+                yield return Shot("05k_essence_drop");
+                float esT = 0f;
+                while (esT < 4f && run.Essence == esHave) { esT += Time.deltaTime; yield return null; }
+                Check($"Essence flies to you and is collected ({esHave} -> {run.Essence}), and the HUD counter pulses ({run.EssencePulse:0.00})",
+                    run.Essence > esHave && run.EssencePulse > 0f);
+                yield return Shot("05l_essence_hud");
+                gs.ClearEnemies();
+            }
+
             // ---- Spell Forge ----
             var forge = SpellForgeUI.Instance;
+            // Forging costs Essence: 3, then 5, then 7...
+            run.Essence = 0;
+            run.ForgesDone = 0;
+            forge.Open();
+            forge.Toggle(IndexOf("Fireball"));
+            forge.Toggle(IndexOf("Frost Nova"));
+            int esBook0 = SpellBook.Known.Count;
+            bool esRefused = forge.Forge() == null && SpellBook.Known.Count == esBook0;
+            Check($"with no Essence the Forge refuses (forge costs {run.ForgeCost})", esRefused && run.ForgeCost == EssenceConfig.BaseCost);
+            yield return null;
+            yield return Shot("07a_forge_no_essence");
+            run.Essence = 30;
+            forge.Close();
             forge.Open();
             forge.Toggle(IndexOf("Fireball"));
             forge.Toggle(IndexOf("Frost Nova"));
             yield return Shot("07_forge_preview");
             var frozenFireball = forge.Forge();
             Check("Forge: Fireball + Frost Nova", frozenFireball != null && frozenFireball.Synergies.Contains("Shatter"));
+            int esAfter1 = run.Essence;
             if (frozenFireball != null) Log($"forged '{frozenFireball.Name}' {Arrows.ToText(frozenFireball.Sequence)} cd={frozenFireball.Cooldown}: {frozenFireball.Describe()}");
             forge.Toggle(IndexOf("Lightning"));
             forge.Toggle(IndexOf("Fireball"));
             var stormLightning = forge.Forge();
             Check("Forge: Lightning + Fireball unlocks Ignite", stormLightning != null && stormLightning.Synergies.Contains("Ignite"));
+            Check($"each forge costs more: paid {frozenFireball?.EssencePaid} then {stormLightning?.EssencePaid} (Essence 30 -> {esAfter1} -> {run.Essence}); forges done {run.ForgesDone}, next costs {run.ForgeCost}",
+                frozenFireball != null && stormLightning != null && frozenFireball.EssencePaid == 3 && stormLightning.EssencePaid == 5
+                && esAfter1 == 27 && run.Essence == 22 && run.ForgesDone == 2 && run.ForgeCost == 7 && run.NextForgeCost == 9);
             forge.Toggle(IndexOf("Fireball"));
             forge.Toggle(IndexOf("Fireball"));
             Check("Forge rejects picking the same spell twice", forge.Forge() == null);
@@ -835,6 +904,7 @@ namespace Spellcaster
             yield return null;
             yield return Shot("07b_forge_ui");
             int fgCount = SpellBook.Known.Count;
+            int fgCostPaid = run.ForgeCost;
             forge.Click(forge.ForgeButtonRect.center);
             Check($"Forge UI: clicking spells and the Forge button fuses them (first said \"{fgMissing}\")",
                 fgMissing.Contains("second") && SpellBook.Known.Count == fgCount + 1);
@@ -843,16 +913,29 @@ namespace Spellcaster
             yield return null;
             forge.Click(forge.ForgetButtonRect.center);
             bool fgStillKnown = SpellBook.Knows(fgVictim.Id);
+            int fgEssBefore = run.Essence, fgForges = run.ForgesDone;
             forge.Click(forge.ForgetButtonRect.center);
             var fgRune = Pickup.All.FirstOrDefault(p => p.Item.Spell == fgVictim);
             Check($"Forget asks to confirm, then removes {fgVictim.Name} and drops its rune", fgStillKnown && !SpellBook.Knows(fgVictim.Id) && fgRune);
+            int fgRefund = run.Essence - fgEssBefore;
+            Check($"forgetting refunds half of what that spell cost (paid {fgVictim.EssencePaid}, refund {fgRefund}) and forging doesn't get cheaper (forges done {fgForges} -> {run.ForgesDone}, next costs {run.ForgeCost})",
+                fgVictim.EssencePaid == fgCostPaid && fgRefund == fgCostPaid / 2 && run.ForgesDone == fgForges && run.ForgeCost == EssenceConfig.ForgeCost(fgForges));
             forge.Close();
+            int fgEssKeep = run.Essence;
+            run.Essence = 0;
+            bool fgNeedsRefund = fgRune && fgRefund > 0 && !run.CanAcquire(fgRune.Item, out _);
+            run.Essence = fgEssKeep;
             if (fgRune)
             {
                 run.Acquire(fgRune.Item);
                 Destroy(fgRune.gameObject);
             }
+            Check($"taking the rune back returns the refund (Essence {fgEssKeep} -> {run.Essence}; refused without it: {fgNeedsRefund}), so forge/forget/relearn isn't a discount",
+                run.Essence == fgEssKeep - fgRefund && fgNeedsRefund && fgVictim.EssenceRefunded == 0);
             Check("picking the rune back up relearns the forgotten spell", SpellBook.Knows(fgVictim.Id));
+            // A starting spell (never paid for) refunds nothing.
+            Check($"starting spells refund nothing ({SpellBook.Known[0].Name}: paid {SpellBook.Known[0].EssencePaid}, refund {EssenceConfig.Refund(SpellBook.Known[0].EssencePaid)})",
+                EssenceConfig.Refund(SpellBook.Known[0].EssencePaid) == 0);
             SpellBook.Known.Remove(fgVictim); // leave the book as the later checks expect it
             bool conflictFree = true;
             var book = SpellBook.Known;
@@ -1619,6 +1702,8 @@ namespace Spellcaster
                 int svNextFloor = RunRandom.FloorSeed(d.Floor + 1);
                 var svShop = string.Join(",", Pickup.All.Where(p => p.Price > 0).Select(p => p.Item.Id).OrderBy(x => x));
 
+                int svEss = run.Essence, svForges = run.ForgesDone, svLuck = run.EssenceBadLuck, svRolls = run.EssenceRolls;
+                run.Essence = 999; run.ForgesDone = 50; run.EssenceBadLuck = 9; run.EssenceRolls = 1;
                 run.Gold = 1;
                 run.Items.Clear();
                 player.God = false;
@@ -1633,6 +1718,9 @@ namespace Spellcaster
 
                 bool svLoaded = SaveSystem.LoadRun();
                 int svPickupsNow = Pickup.All.Count;
+                bool svEssence = run.Essence == svEss && run.ForgesDone == svForges && run.EssenceBadLuck == svLuck && run.EssenceRolls == svRolls
+                    && (svForged == null || SpellBook.Known.FirstOrDefault(s => s.Id == svForged.Id)?.EssencePaid == svForged.EssencePaid);
+                Check($"Essence survives save and Continue (Essence {run.Essence}/{svEss}, forges done {run.ForgesDone}/{svForges}, bad luck {run.EssenceBadLuck}, paid per spell kept)", svLoaded && svEssence);
                 yield return null;
                 Log($"resume detail: loaded {svLoaded} ({SaveSystem.LastError}), items {string.Join(",", run.Items.Select(i => i.Id)) == svItems}, spells {string.Join(",", SpellBook.Known.Select(s => s.Name)) == svSpells}, deck {string.Join(",", svGrim.Deck.DrawPile.Concat(svGrim.Deck.Hand).Concat(svGrim.Deck.DiscardPile).Select(c => c.Def.Id)) == svDeck}, map {string.Join(",", d.AllRooms.Where(r => r.Visited).Select(r => r.Id)) == svMap}, pickups {svPickupsNow}/{svPickups}, room {d.Current?.Id}, cleared now {string.Join(",", d.AllRooms.Where(r => r.Cleared).Select(r => r.Id))}");
                 Check($"Continue restores HP ({player.HP:0}), gold ({run.Gold}), items, spells, map, deck order and pickups, in the checkpoint room",
@@ -1650,6 +1738,20 @@ namespace Spellcaster
                     && RunRandom.FloorSeed(d.Floor + 1) == svNextFloor
                     && string.Join(",", Pickup.All.Where(p => p.Price > 0).Select(p => p.Item.Id).OrderBy(x => x)) == svShop);
                 yield return Shot("15b_continued");
+                {
+                    // Turn the current save into a version-1 file (no Essence fields) and load it.
+                    SaveSystem.Save();
+                    string v2 = File.ReadAllText(SaveSystem.FilePath);
+                    string v1 = System.Text.RegularExpressions.Regex.Replace(v2, @"""saveVersion"":\s*\d+", "\"saveVersion\": 1");
+                    v1 = System.Text.RegularExpressions.Regex.Replace(v1,
+                        @"\\""(essence|forgesDone|essenceBadLuck|essenceRolls|essencePaid|essenceRefunded)\\"":\s*-?\d+,?", "");
+                    File.WriteAllText(SaveSystem.FilePath, v1);
+                    SaveSystem.ClearError();
+                    run.Essence = 5; run.ForgesDone = 5;
+                    bool oldLoaded = SaveSystem.LoadRun();
+                    Check($"an old save (version 1, no Essence) still loads, with Essence 0 and forges done 0 (stripped: {v1.Length < v2.Length}; loaded {oldLoaded}, {SaveSystem.LastError ?? "no error"})",
+                        v1.Length < v2.Length && v1.Contains("\"saveVersion\": 1") && oldLoaded && run.Essence == 0 && run.ForgesDone == 0);
+                }
 
                 // Broken files never crash: a damaged save falls back to its backup; both damaged hides Continue.
                 SaveSystem.Save(); // the previous file becomes save.json.bak
@@ -2493,6 +2595,15 @@ namespace Spellcaster
                 Check($"the other player uses a consumable; the host applies it ({ltHurt:0} -> {wsOther.HP:0} HP, slot empty: {wsOther.Run.Consumables[0] == null})",
                     wsOther.HP > ltHurt && wsOther.Run.Consumables[0] == null);
 
+                // Essence is per player: a drop for them is theirs alone.
+                int esHost0 = player.Run.Essence, esCli0 = wsOther.Run.Essence;
+                Essence.Spawn((player.transform.position + wsOther.transform.position) * 0.5f, 1, wsOther);
+                yield return new WaitForSecondsRealtime(2f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"Essence is per player: a drop rolled for the other player goes to them only (them {esCli0} -> {wsOther.Run.Essence}, their screen {wsRep.essence}; you {esHost0} -> {player.Run.Essence})",
+                    wsOther.Run.Essence == esCli0 + 1 && wsRep.essence == wsOther.Run.Essence && player.Run.Essence == esHost0);
+                wsOther.Run.Essence = 10; // enough for one forge (3)
+                wsOther.Run.ForgesDone = 0;
                 bool ltLearned = Net.NetCombat.Learn(wsOther, SpellBook.CreateBase("lightning"));
                 ltT = 0f;
                 while (ltT < 5f && Net.NetCombat.BookCount(wsOther) < 3) { ltT += Time.unscaledDeltaTime; yield return null; }
@@ -2500,6 +2611,8 @@ namespace Spellcaster
                 ws.Reports.TryGetValue(wsClientId, out wsRep);
                 Check($"each player has their own spell book and Forge: they learn Lightning, fuse it with Fireball on their screen, and the host forges it into their book ({Net.NetCombat.BookCount(wsOther)} spells, their screen {wsRep.spells}; yours {SpellBook.Known.Count})",
                     ltLearned && Net.NetCombat.BookCount(wsOther) == 3 && wsRep.spells == 3);
+                Check($"the host charges the other player's own Essence for their forge (10 -> {wsOther.Run.Essence}, their screen {wsRep.essence}; their forges done {wsOther.Run.ForgesDone}, yours {player.Run.ForgesDone})",
+                    wsOther.Run.Essence == 7 && wsRep.essence == 7 && wsOther.Run.ForgesDone == 1 && wsRep.forgesDone == 1);
 
                 // A fight room: the other player walks in, you're outside; after the countdown you're pulled in.
                 var ltRoom = d.AllRooms.FirstOrDefault(r => r.Type == RoomType.Combat && !r.Cleared && r.HasEnemies);

@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Spellcaster
 {
-    public enum ItemKind { Passive, Relic, Consumable, Rune, Coin, Heart }
+    public enum ItemKind { Passive, Relic, Consumable, Rune, Coin, Heart, Essence }
 
     /// <summary>One kind of loot. Passives change stats, relics change how spells behave, consumables sit in a slot.</summary>
     public class ItemDef
@@ -49,6 +49,11 @@ namespace Spellcaster
             { Id = "coin", Name = "Gold", Kind = ItemKind.Coin, Shape = "coin", Color = C(1f, 0.85f, 0.25f) };
         public static readonly ItemDef BigCoin = new ItemDef
             { Id = "coin5", Name = "Gold pile", Kind = ItemKind.Coin, Shape = "coin", Value = 5, Color = C(1f, 0.85f, 0.25f) };
+        /// <summary>Arcane Essence: pays for the Spell Forge. Only enemies drop it (see Essence / EssenceConfig).</summary>
+        public static readonly ItemDef Essence = new ItemDef
+            { Id = "essence", Name = "Arcane Essence", Kind = ItemKind.Essence, Shape = "essence", Color = EssenceConfig.Color };
+        /// <summary>Essence floats a little higher than coins.</summary>
+        public const float EssenceHeight = 0.7f;
         public static readonly ItemDef Heart = new ItemDef
             { Id = "heart", Name = "Heart", Desc = "Restore 20 HP", Kind = ItemKind.Heart, Shape = "heart", Value = 20, Price = 6, Color = C(0.95f, 0.15f, 0.2f) };
 
@@ -209,6 +214,7 @@ namespace Spellcaster
             if (id == Coin.Id) return Coin;
             if (id == BigCoin.Id) return BigCoin;
             if (id == Heart.Id) return Heart;
+            if (id == Essence.Id) return Essence;
             return Get(id) ?? ExtraResolve?.Invoke(id);
         }
 

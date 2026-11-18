@@ -25,6 +25,10 @@ namespace Spellcaster
         public List<string> Components = new List<string>();
         public List<string> Synergies = new List<string>();
         public int Tier = 1;
+        /// <summary>Arcane Essence paid to forge this spell (0 for base spells and old saves).</summary>
+        public int EssencePaid;
+        /// <summary>Essence refunded when it was forgotten; taking its rune back returns it (0 otherwise).</summary>
+        public int EssenceRefunded;
         /// <summary>Not in the rune pool until its achievement is reached (meta progression).</summary>
         public bool StartsLocked;
         public bool IsAvailable => !StartsLocked || Progress.IsUnlocked("spell:" + Id);

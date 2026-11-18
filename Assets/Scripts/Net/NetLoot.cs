@@ -39,7 +39,7 @@ namespace Spellcaster.Net
     [System.Serializable]
     public class RunNet
     {
-        public int gold, goldEarned, toastId;
+        public int gold, goldEarned, toastId, essence, forgesDone, essenceBadLuck, essenceRolls;
         public float haste;
         public List<string> items = new List<string>(), consumables = new List<string>();
         public PlayerStats stats;
@@ -93,12 +93,13 @@ namespace Spellcaster.Net
             if (p.Age < 0.4f) return;
             var d = Dungeon.Instance;
             var room = d ? d.RoomAt(p.transform.position) : null;
-            bool vacuum = p.Item.Kind == ItemKind.Coin && room != null && room.HasEnemies && room.Cleared;
+            bool magnetic = p.Item.Kind == ItemKind.Coin || p.Item.Kind == ItemKind.Essence;
+            bool vacuum = magnetic && room != null && room.HasEnemies && room.Cleared;
             foreach (var pl in Players.All.ToArray())
             {
                 if (!pl || pl.IsDead || pl.NetId < 0 || !p.For(pl)) continue;
                 float dist = Mathf.Sqrt(Players.FlatSqr(pl.transform.position, p.transform.position));
-                bool reach = p.Item.Kind == ItemKind.Coin ? vacuum || dist < Pickup.CoinMagnetRadius : dist < 1.1f;
+                bool reach = magnetic ? vacuum || dist < Pickup.CoinMagnetRadius : dist < 1.1f;
                 if (reach && pl.Run && pl.Run.CanAcquire(p.Item, out _)) Take(p, pl, quiet: true);
                 if (!p) return;
             }
@@ -178,7 +179,7 @@ namespace Spellcaster.Net
         {
             var n = new RunNet
             {
-                gold = r.Gold, goldEarned = r.GoldEarned, haste = Mathf.Ceil(r.HasteTimer * 4f) / 4f, stats = r.Stats,
+                gold = r.Gold, goldEarned = r.GoldEarned, essence = r.Essence, forgesDone = r.ForgesDone, essenceBadLuck = r.EssenceBadLuck, essenceRolls = r.EssenceRolls, haste = Mathf.Ceil(r.HasteTimer * 4f) / 4f, stats = r.Stats,
                 toastId = r.ToastId, toastTitle = r.ToastTitle, toastText = r.ToastText, toastColor = r.ToastColor,
             };
             foreach (var i in r.Items) n.items.Add(i.Id);
@@ -202,6 +203,7 @@ namespace Spellcaster.Net
                 var s = NetCombat.Forget(pl, m.forget);
                 if (s != null)
                 {
+                    if (pl.Run) pl.Run.RefundForget(s); // the host pays the refund; the rune remembers it
                     // Its rune drops at their feet, for them only.
                     Vector3 at = pl.transform.position + pl.transform.forward * 1.3f;
                     var room = Dungeon.Instance ? Dungeon.Instance.RoomAt(pl.transform.position) : null;
@@ -210,6 +212,8 @@ namespace Spellcaster.Net
                 }
                 return;
             }
+            // The host checks the price: Essence and forges done are that player's own.
+            if (pl.Run && !pl.Run.CanAffordForge) { Deny(pl, $"Not enough Essence: forging costs {pl.Run.ForgeCost}"); NetCombat.SendBook(pl); return; }
             NetCombat.Fuse(pl, m.a, m.b);
         }
 
@@ -256,6 +260,7 @@ namespace Spellcaster.Net
             if (proxies.TryGetValue(m.id, out var p) && p)
             {
                 if (p.Item.Kind == ItemKind.Coin) Sfx.Play("coin", 0.5f, Random.Range(0.95f, 1.1f));
+                else if (p.Item.Kind == ItemKind.Essence) { Sfx.Play("essence", 0.55f, Random.Range(0.97f, 1.06f)); if (Run.Instance) Run.Instance.EssencePulse = 1f; }
                 else if (p.Item.Kind != ItemKind.Heart) Sfx.Play("item", 0.6f);
                 Fx.Flash(p.transform.position, p.Item.Color, 1.2f, 0.3f, 1.5f);
                 p.Discard();
