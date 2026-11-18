@@ -154,6 +154,7 @@ namespace Spellcaster.Net
                     downed = me.Downed, bledOut = me.BledOut, spectating = me.SpectateTarget != null,
                     phase = GameState.Instance ? (int)GameState.Instance.Phase : -1,
                     rtt = (float)(NetworkTime.rtt * 1000.0), lossIn = NetStats.Loss(-1).Percent, enemiesFresh = NetEnemies.FreshCount,
+                    pedestals = Dungeon.Instance ? Dungeon.Instance.PedestalCount : 0, portalOpen = Dungeon.Instance && Dungeon.Instance.PortalOpen,
                 });
             }
         }

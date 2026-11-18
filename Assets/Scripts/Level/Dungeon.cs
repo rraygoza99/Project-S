@@ -181,6 +181,9 @@ namespace Spellcaster
             Prop.All.Clear();
             floorStock.Clear();
 
+            RuntimePedestals.Clear();
+            PedestalCount = 0;
+            buildingFloor = true;
             Progress.Max("max_floor", floor);
             Theme = Scenarios.ThemeFor(floor);
             hpMult = Difficulty.HpMult(floor);
@@ -235,6 +238,7 @@ namespace Spellcaster
             var start = Rooms[Vector2Int.zero];
             PlaceAllPlayers(start.Center + new Vector3(0f, 0.1f, -3f));
             Enter(start);
+            buildingFloor = false;
             if (GameState.Instance) GameState.Instance.Show($"Floor {floor}: {Scenarios.NameFor(floor)}", 2.5f);
         }
 
@@ -331,9 +335,23 @@ namespace Spellcaster
             }
         }
 
+        /// <summary>Pedestals built during play (not with the floor), so a player joining mid-run gets them too.</summary>
+        public readonly List<(Room room, Vector3 local, Color glow)> RuntimePedestals = new List<(Room, Vector3, Color)>();
+        bool buildingFloor;
+        /// <summary>Pedestal bases standing on this floor (tests).</summary>
+        public int PedestalCount { get; private set; }
+
         Vector3 PedestalBase(Room room, Vector3 local, Color glow)
         {
             var pos = room.Center + local;
+            PedestalCount++;
+            // Built by the host during play (the boss room's are rebuilt with its portal on every PC):
+            // the other players build the same stone.
+            if (!buildingFloor && room.Type != RoomType.Boss && !Net.NetSession.IsClientOnly)
+            {
+                RuntimePedestals.Add((room, local, glow));
+                Net.NetCombat.PedestalBuilt(room, local, glow);
+            }
             Box(room.Root, "Pedestal", pos + Vector3.up * 0.45f, new Vector3(1.1f, 0.9f, 1.1f), pal.Pedestal);
             room.Occupy(pos, 1f);
             var halo = Fx.CreateQuad(room.Root, new Color(glow.r, glow.g, glow.b, 0.5f), 2.2f, billboard: false);
@@ -608,8 +626,14 @@ namespace Spellcaster
 
         public Room RoomById(string id) => AllRooms.FirstOrDefault(r => r.Id == id);
 
+        /// <summary>Test hook: drops a pending co-op gather countdown.</summary>
+        public void CancelGatherForTest() => GatherRoom = null;
+
         /// <summary>Test hook: as if everyone stepped through the portal.</summary>
         public void EnterPortalForTest() => EnterPortal();
+
+        /// <summary>Multiplayer client: a pedestal the host built during play.</summary>
+        public void PedestalForNet(Room room, Vector3 local, Color glow) => PedestalBase(room, local, glow);
 
         /// <summary>Multiplayer client: the host's boss (its health bar).</summary>
         public void SetBossForNet(Enemy e) => Boss = e;

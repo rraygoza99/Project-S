@@ -159,6 +159,8 @@ namespace Spellcaster.Net
             }
             foreach (var (kind, pos) in d.DestroyedProps()) conn.Send(new PropBrokenMsg { pos = pos, kind = (byte)kind });
             if (d.PortalOpen && d.PortalRoom != null) conn.Send(new FxMsg { kind = NetCombat.FxPortal, s = d.PortalRoom.Id });
+            foreach (var (room, local, glow) in d.RuntimePedestals)
+                conn.Send(new FxMsg { kind = NetCombat.FxPedestal, s = room.Id, a = local, color = glow });
             if (!dynamic) return;
             NetEnemies.SendAll(conn);
             NetLoot.SendAll(conn, forPlayer);

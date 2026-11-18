@@ -2491,6 +2491,30 @@ namespace Spellcaster
                 }
                 else Check("a fight room for the co-op room test", false);
 
+                // The boss falls: everyone sees the portal and the reward pedestal.
+                var bsRoom = d.AllRooms.First(r => r.Type == RoomType.Boss);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                int bsBefore = wsRep.pedestals;
+                // Both players step in together first (anyone left in another fight room would start that fight instead).
+                d.HoldEncounters = true;
+                wsOther.Teleport(bsRoom.Center + new Vector3(2f, 0.1f, -6f), 0f);
+                player.Teleport(bsRoom.Center + new Vector3(0f, 0.1f, -6f), 0f);
+                if (d.InCombat) { gs.ClearEnemies(); d.ClearCurrent(); gs.ClearEnemies(); }
+                yield return new WaitForSecondsRealtime(0.5f);
+                d.CancelGatherForTest();
+                d.HoldEncounters = false;
+                float bsT = 0f;
+                while (bsT < 10f && !(d.InCombat && d.Boss)) { bsT += Time.unscaledDeltaTime; yield return null; }
+                bool bsFought = d.InCombat && d.Boss;
+                Debug.Log($"[AutoTest] boss room {bsRoom.Id}: in it {bsRoom.Contains(player.transform.position, 0f)}, gather {d.GatherRoom?.Id}, current {d.Current?.Id}, combat {d.InCombat}, cleared {bsRoom.Cleared}, hold {d.HoldEncounters}");
+                yield return new WaitForSecondsRealtime(0.5f);
+                bsT = 0f;
+                while (bsT < 8f && d.InCombat) { gs.ClearEnemies(); bsT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(1.5f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"the boss falls and everyone sees the portal and the reward pedestal (host: fight {bsFought}, portal {d.PortalOpen}, boss room cleared {bsRoom.Cleared}; their screen: portal {wsRep.portalOpen}, pedestals {bsBefore} -> {wsRep.pedestals})",
+                    d.PortalOpen && wsRep.portalOpen && wsRep.pedestals == bsBefore + Difficulty.BossItems(d.Floor));
+
                 // Through the portal: everyone goes to the next floor together.
                 int ltFloor = d.Floor;
                 d.EnterPortalForTest();

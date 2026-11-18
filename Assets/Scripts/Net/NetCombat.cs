@@ -86,7 +86,11 @@ namespace Spellcaster.Net
                 case FxLava: LavaPool.CreateTemporary(m.a, m.f0, m.f1); break;
                 case FxBanner: if (GameState.Instance) GameState.Instance.Show(m.s, m.f0); break;
                 case FxPortal:
-                    if (Dungeon.Instance && Dungeon.Instance.RoomById(m.s) is Room pr && !Dungeon.Instance.PortalOpen) Dungeon.Instance.OpenPortal(pr);
+                    // The cleared boss room: its portal and reward pedestals (the items come as pickups).
+                    if (Dungeon.Instance && Dungeon.Instance.RoomById(m.s) is Room pr && !Dungeon.Instance.PortalOpen) Dungeon.Instance.RestoreBossRoom(pr);
+                    break;
+                case FxPedestal:
+                    if (Dungeon.Instance && Dungeon.Instance.RoomById(m.s) is Room pd) Dungeon.Instance.PedestalForNet(pd, m.a, m.color);
                     break;
                 case FxSound:
                 {
@@ -279,7 +283,13 @@ namespace Spellcaster.Net
             if (NetworkServer.connections.TryGetValue(p.NetId, out var conn)) conn.Send(new CooldownResetMsg());
         }
 
-        public const byte FxBanner = 11, FxPortal = 12;
+        public const byte FxBanner = 11, FxPortal = 12, FxPedestal = 13;
+
+        /// <summary>The host built a pedestal during play (a shop's Scroll of Erasure...): clients build it too.</summary>
+        public static void PedestalBuilt(Room room, Vector3 local, Color glow)
+        {
+            if (HostMirroring && room != null) SendFx(new FxMsg { kind = FxPedestal, s = room.Id, a = local, color = glow }, true);
+        }
 
         public static void PortalOpened(Room room)
         {
