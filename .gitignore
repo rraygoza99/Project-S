@@ -26,3 +26,6 @@ crashlytics-build.properties
 /Assets/ThirdParty/
 /Assets/ThirdParty.meta
 /Release/
+
+# steamcmd (downloaded by tools/steam/steam-upload.ps1; holds your cached Steam login)
+/tools/steam/steamcmd/

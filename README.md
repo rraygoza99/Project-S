@@ -46,6 +46,29 @@ own these packs, download them in Unity's Package Manager (My Assets > Download)
 Only the needed files are copied into `Assets/ThirdParty/` (gitignored: Asset Store content may not
 be redistributed).
 
+### Uploading to Steam (testers update through their Steam Library)
+
+```
+.\tools\steam\steam-upload.ps1 -User <steamworks account> -Branch playtest
+```
+
+It rebuilds, runs the self-test (and stops if any check fails), writes the SteamPipe build script
+to `Logs\steam\app_build.vdf`, and uploads `Build\` to depot 3965801 of app 3965800 with steamcmd. If
+steamcmd isn't found (`$env:STEAMCMD`, `tools\steam\steamcmd\`, `C:\steamcmd\`), it downloads Valve's copy
+into `tools\steam\steamcmd\` (gitignored). The first time, steamcmd asks for the password and Steam Guard
+code itself, then remembers the login. `steam_appid.txt`, `*_DoNotShip*` and `*.pdb` aren't uploaded.
+
+- `-Branch NAME` sets the build live on that beta branch (create it first in Steamworks > SteamPipe >
+  Builds). Without it, the build is only uploaded; set it live on the Steamworks site. The `default`
+  branch can only be set live there.
+- `-SkipBuild` uploads the current `Build\`; `-Desc "..."` replaces the build description (default
+  `v<version> (<commit>)`); `-Preview` checks the upload without sending files; `-NoUpload` only writes
+  the build script and prints the steamcmd command.
+
+One-time setup in Steamworks: check the depot ID (SteamPipe > Depots; change `$DepotId` in the script if
+it isn't 3965801), add a launch option for `Spellcaster.exe` (Installation > General), publish those
+changes, and hand testers keys (Users & Permissions > Request Steam Product Keys).
+
 ## Main menu
 
 - **Start game**: a new run. The very first run opens with the tutorial.
@@ -63,7 +86,7 @@ be redistributed).
 
 ### Dev mode
 
-Press **F3** in game (or Options > Dev mode) to draw hitboxes over the view, through walls:
+Press **F3** in game to draw hitboxes over the view, through walls:
 enemy hitboxes (green capsules around the sprite, with name and HP; flying enemies also show a faint
 ring where they touch the floor), melee reach and beetle ram contact (red rings),
 your projectiles (yellow) and enemy projectiles (magenta) at their real collision radius, and for
@@ -82,7 +105,7 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
 - **Join a game:** friends' games and public Spellcaster lobbies, or accept a Steam invite / "Join game"
   in the friends list (also while the game is closed).
 - **Different versions can't play together**; full lobbies and runs in progress refuse joins.
-- **Direct IP (debug):** with Options > Dev mode on, copies of the game connect by address
+- **Direct IP (debug):** with Dev mode on (F3), copies of the game connect by address
   (127.0.0.1:7777 on one PC) without Steam. Give each copy its own identity with `-netkey NAME`.
 - **Debug tools (dev mode):** F6 shows the network overlay (role, tick rate, traffic, ping and packet
   loss per player, prediction corrections); Ctrl+F6 cycles simulated lag and loss (off / 150 ms 2% /
