@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Spellcaster
 {
     /// <summary>
-    /// Dev mode (F3, or Options > Dev mode): wireframe hitboxes drawn over the game view, through walls.
+    /// Dev mode (F3; Options lists it only in development builds): wireframe hitboxes drawn over the game view, through walls.
     /// Live shapes: enemy colliders, melee reach, projectiles. Brief shapes recorded by the hit code:
     /// spell and enemy blast areas, nova and cloud rings, instant rays and chain jumps.
     /// </summary>

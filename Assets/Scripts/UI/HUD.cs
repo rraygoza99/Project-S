@@ -105,27 +105,29 @@ namespace Spellcaster
             if (player) DrawHealth(H, px, u, player, run);
             if (run) DrawSlots(H, px, u, run);
             bool practice = PracticeTool.Instance && PracticeTool.Instance.Active;
-            if (dungeon && !practice) DrawMinimap(u, dungeon, run);
+            if (dungeon && !practice) DrawMinimap(u, dungeon, pauseMenu ? null : run);
             if (practice) PracticeTool.Instance.Draw(W, H, u);
             if (Tutorial.Instance && Tutorial.Instance.Active) Tutorial.Instance.Draw(W, H, u);
-            if (dungeon && player) DrawWorldLabels(W, H, u, player);
+            if (dungeon && player && !gs.ForgeOpen) DrawWorldLabels(W, H, u, player);
             if (dungeon && dungeon.Boss && dungeon.Boss.IsAlive) DrawBossBar(W, u, dungeon.Boss);
 
             float pad = 4f * px;
             if (Settings.ShowFps) Shadowed(new Rect(0, H - pad - 1.6f * u, W - pad, 2 * u), $"{fps:0} FPS", Small.Right());
 
-            if (spells)
+            bool endScreen = gs.Phase == Phase.Dead || gs.Phase == Phase.Victory;
+            if (spells && !endScreen)
             {
                 DrawSpellPanel(W, H, u, spells);
                 DrawCastingInput(W, H, u, spells);
             }
             DrawOverlay?.Invoke(W, H, u);
 
-            if (player && gs.InRun && !pauseMenu && !player.IsDead) DrawInteractPrompt(W, H, u, player);
+            if (player && gs.InRun && !pauseMenu && !gs.ForgeOpen && !player.IsDead) DrawInteractPrompt(W, H, u, player);
             if (player && Net.NetPlayers.Running && gs.InRun) DrawCoopState(W, H, u, player);
             if (run && run.ToastTimer > 0f && !gs.Paused) DrawToast(W, H, u, run);
 
-            if (!pauseMenu) Shadowed(new Rect(0, H - pad - 1.6f * u, W, 2 * u),
+            float slotsRight = SlotsRight(H, px, u) + u;
+            if (!pauseMenu && !endScreen) ShadowedClear(new Rect(0, H - pad - 1.6f * u, W, 2 * u), slotsRight,
                 (Settings.CastingStyle == CastingStyle.Momentum
                     ? $"Hold {Bindings.Short(GameAction.Channel)}: run + {MomentumKeysHint()}   "
                     : $"Hold {Bindings.Short(GameAction.Channel)} + draw: rune   ") + $"{Bindings.Short(GameAction.Cast)}: cast   " +
@@ -155,7 +157,8 @@ namespace Spellcaster
                 if (MainMenu.Instance.Current == MainMenu.Page.Pause)
                 {
                     if (!GameState.PracticeMode && !GameState.TutorialMode) DrawSeedLine(W, H * 0.14f, u);
-                    if (run) DrawItemList(W * 0.3f, H * 0.24f, W * 0.4f, u, run, true);
+                    float listRight = Grimoire.GrimoireHUD.PauseShown ? Grimoire.GrimoireHUD.PauseLeft(W, u) - 1.5f * u : W - 19f * u;
+                    if (run) DrawItemList(W * 0.3f, H * 0.24f, Mathf.Min(W * 0.4f, listRight - W * 0.3f), u, run, true);
                     DrawPauseExtra?.Invoke(W, H, u);
                 }
             }
@@ -176,7 +179,8 @@ namespace Spellcaster
             string name = Scenarios.NameFor(floor);
             string where = won ? $"All {Dungeon.FinalFloor} floors cleared"
                 : floor > gs.BestFloorBefore && gs.BestFloorBefore > 0 ? $"Fell on floor {floor} ({name}): new deepest floor!"
-                : $"Fell on floor {floor} ({name})   deepest: {Mathf.Max(floor, gs.BestFloorBefore)}";
+                : gs.BestFloorBefore > floor ? $"Fell on floor {floor} ({name})   deepest: {gs.BestFloorBefore}"
+                : $"Fell on floor {floor} ({name})";
             Shadowed(new Rect(0, H * 0.42f, W, 4 * u), where, Centered);
             Shadowed(new Rect(0, H * 0.5f, W, 3 * u),
                 $"{gs.Kills} kills   {rooms} rooms cleared   {gold} gold found   {items} items   {SpellBook.Known.Count} spells   {t / 60}:{t % 60:00}", Label.Center());
@@ -246,6 +250,17 @@ namespace Spellcaster
                 hs.normal.textColor = new Color(1f, 0.9f, 0.3f);
                 Shadowed(new Rect(bar.x + 7f * u, cy + 0.4f * u, bw, 2 * u), $"HASTE {run.HasteTimer:0}s", hs);
             }
+        }
+
+        /// <summary>Where the item slots (bottom left) end.</summary>
+        static float SlotsRight(float H, float px, float u) => 4f * px + 70f * px + 2f * u + Run.Slots * 3.4f * u + (Run.Slots - 1) * 0.5f * u;
+
+        /// <summary>A centred line of small text, moved right if it would start before minX.</summary>
+        static void ShadowedClear(Rect r, float minX, string text, GUIStyle style)
+        {
+            float tw = style.CalcSize(new GUIContent(text)).x;
+            float x = Mathf.Max(minX, r.center.x - tw / 2f);
+            Shadowed(new Rect(x, r.y, tw + 2f, r.height), text, style);
         }
 
         static void DrawSlots(float H, float px, float u, Run run)
@@ -402,8 +417,17 @@ namespace Spellcaster
                 GUI.DrawTexture(new Rect(x, y, ic, ic), it.Icon, ScaleMode.ScaleToFit);
                 name.normal.textColor = Color.Lerp(it.Color, Color.white, 0.45f);
                 var size = name.CalcSize(new GUIContent(it.Name + extra));
-                Shadowed(new Rect(x + ic + 0.5f * u, y, w, lh), it.Name + extra, name);
-                Shadowed(new Rect(x + ic + 0.5f * u + size.x + 0.6f * u, y, w - size.x - ic, lh), it.Desc, Small);
+                float tx = x + ic + 0.5f * u, room = x + w - tx;
+                Shadowed(new Rect(tx, y, room, lh), it.Name + extra, name);
+                float descW = Small.CalcSize(new GUIContent(it.Desc)).x;
+                if (size.x + 0.6f * u + descW <= room) Shadowed(new Rect(tx + size.x + 0.6f * u, y, room - size.x - 0.6f * u, lh), it.Desc, Small);
+                else
+                {
+                    var wrap = new GUIStyle(Small) { wordWrap = true };
+                    float dh = wrap.CalcHeight(new GUIContent(it.Desc), room);
+                    Shadowed(new Rect(tx, y + 0.85f * lh, room, dh), it.Desc, wrap);
+                    y += dh - 0.15f * lh;
+                }
                 y += lh;
             }
             Shadowed(new Rect(x, y, w, 2.5f * u), "ITEMS & RELICS", Label);

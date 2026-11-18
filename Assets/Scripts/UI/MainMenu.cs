@@ -36,6 +36,12 @@ namespace Spellcaster
         List<Item> mainItems, optionItems, controlItems, unlockItems, confirmItems, seedItems, pauseItems;
         /// <summary>What the player has typed on the Seeded run page.</summary>
         public string SeedText { get; private set; } = "";
+        /// <summary>Test hook: pretend a save with this description exists (main menu and lobby layout).</summary>
+        public static string FakeSaveForTest;
+        static bool HasSave => SaveSystem.HasValidSave || FakeSaveForTest != null;
+        static string SaveDesc => FakeSaveForTest ?? SaveSystem.Describe();
+        /// <summary>What doesn't fit on the page drawn last (a label running into its value, rows into the hint), or null.</summary>
+        public string LayoutProblem { get; private set; }
         public const int MaxSeedLength = 24;
         /// <summary>What "Yes" on the confirm page starts (a new run or the tutorial) after deleting the save.</summary>
         Action confirmAction;
@@ -140,8 +146,8 @@ namespace Spellcaster
                 list.Add(new Item { Label = "Ready", Value = () => ns.MyReady ? "Yes" : "No", Change = d => ns.SetReady(!ns.MyReady), Activate = () => ns.SetReady(!ns.MyReady) });
             if (ns.IsHost && ns.Using == NetSession.Kind.Steam)
                 list.Add(new Item { Label = "Invite friends (Steam overlay)", Activate = ns.OpenInviteOverlay });
-            if (ns.IsHost && SaveSystem.HasValidSave)
-                list.Add(new Item { Label = "Run", Value = () => ns.ContinueSaved ? "Continue saved (" + SaveSystem.Describe() + ")" : "New run",
+            if (ns.IsHost && HasSave)
+                list.Add(new Item { Label = "Run", Value = () => ns.ContinueSaved ? "Continue saved" + (SaveDesc is string sd ? $" ({sd})" : "") : "New run",
                     Change = d => ns.ContinueSaved = !ns.ContinueSaved, Activate = () => ns.ContinueSaved = !ns.ContinueSaved });
             if (ns.IsHost)
             {
@@ -271,7 +277,7 @@ namespace Spellcaster
         void BuildMain()
         {
             mainItems = new List<Item>();
-            if (SaveSystem.HasValidSave) mainItems.Add(new Item { Label = "Continue", Activate = ContinueRun });
+            if (HasSave) mainItems.Add(new Item { Label = "Continue", Activate = ContinueRun });
             mainItems.Add(new Item { Label = "Start game", Activate = StartGame });
             mainItems.Add(new Item { Label = "Seeded run", Activate = () => { Open(Page.Seed); Selected = 1; } });
             mainItems.Add(new Item { Label = "Multiplayer", Activate = () => Open(Page.Multiplayer) });
@@ -362,6 +368,8 @@ namespace Spellcaster
                 new Item { Label = "Reset to defaults", Activate = () => { Settings.ResetToDefaults(); Sfx.Play("pickup", 0.5f); } },
                 new Item { Label = "Back", Activate = () => Open(PauseUp ? Page.Pause : Page.Main) },
             };
+            // Dev mode is a developer tool: listed only in development builds (F3 still toggles it in game).
+            if (!Debug.isDebugBuild) optionItems.RemoveAll(it => it.Label.StartsWith("Dev mode"));
             foreach (var it in optionItems)
                 if (it.Change != null && it.Activate == null) { var ch = it.Change; it.Activate = () => ch(1); }
 
@@ -577,6 +585,28 @@ namespace Spellcaster
             }
         }
 
+        /// <summary>The help line of the current page.</summary>
+        string Hint() => Current switch
+        {
+            Page.Main => "Mouse or W/S + Enter",
+            Page.Pause => "Esc: resume   Q: " + (QuitSaves ? "save & quit" : "quit") +
+                (QuitSaves && Dungeon.Instance && Dungeon.Instance.InCombat
+                    ? "\nIn a fight: you keep what you have, and the fight starts over from the last cleared room." : ""),
+            Page.Confirm => "Esc: back",
+            Page.Multiplayer => "Online co-op for 2-6 players through Steam.   Esc: back",
+            Page.HostSetup => "A/D or click < > to change   Esc: back",
+            Page.Browse => "Friends' games and public lobbies. Friends can also invite you from Steam.   Esc: back",
+            Page.Lobby => NetSession.Instance.IsHost ? "Click a player to remove them. The run starts when everyone is ready.   Esc: close lobby"
+                                                     : "Get ready; the host starts the run.   Esc: leave",
+            Page.Direct => "Debug: connect copies of the game by address (127.0.0.1 on this PC). No Steam needed.   Esc: back",
+            Page.Seed => "Type a seed (a number or any word); the same seed always builds the same dungeon, shops and enemy waves.   Ctrl+V: paste   Esc: back",
+            Page.Unlocks => "Reach a goal to add its spell or item to future runs. Your stats are never upgraded.",
+            Page.Options => "A/D or click < > to change   Esc: back   (rune size: how far the mouse moves per stroke)",
+            _ => Listening.HasValue
+                ? "Press a key or mouse button to bind it   Esc: cancel"
+                : "Click a key to change it (left: main, right: alternative)   Backspace: clear alternative   Esc: back",
+        };
+
         // ---------------- drawing (called from HUD.OnGUI for every event, so clicks work) ----------------
 
         public void DrawGUI(float W, float H)
@@ -626,7 +656,7 @@ namespace Spellcaster
             }
             if (repaint)
             {
-                HUD.Fill(new Rect(0, 0, W, H), new Color(0.03f, 0.01f, 0.05f, pausePage ? 0.6f : main ? 0.7f : 0.82f));
+                HUD.Fill(new Rect(0, 0, W, H), new Color(0.03f, 0.01f, 0.05f, pausePage ? 0.6f : PauseUp ? 0.94f : main ? 0.7f : 0.82f));
                 var title = new GUIStyle(HUD.Title);
                 title.normal.textColor = new Color(1f, 0.85f, 0.45f);
                 if (pausePage)
@@ -652,7 +682,7 @@ namespace Spellcaster
                         err.normal.textColor = new Color(1f, 0.6f, 0.45f);
                         HUD.Shadowed(new Rect(W * 0.15f, H * 0.255f, W * 0.7f, 2.6f * u), SaveSystem.LastError, err);
                     }
-                    else if (mainItems.Count > 0 && mainItems[0].Label == "Continue" && SaveSystem.Describe() is string d1)
+                    else if (mainItems.Count > 0 && mainItems[0].Label == "Continue" && SaveDesc is string d1)
                         HUD.Shadowed(new Rect(0, H * 0.26f, W, 2 * u), "Saved run: " + d1, HUD.Small.Center());
                 }
                 else
@@ -674,12 +704,24 @@ namespace Spellcaster
 
             var items = Items;
             bool unlocks = Current == Page.Unlocks;
+            // The hint line: at the bottom, wrapped to stay clear of the version number (paused: under the buttons).
+            string hint = Hint();
+            var hintStyle = new GUIStyle(HUD.Small) { alignment = TextAnchor.LowerCenter, wordWrap = true };
+            bool showVersion = !PauseUp; // in a run the FPS counter is down there
+            float verW = showVersion ? HUD.Small.CalcSize(new GUIContent(Application.version)).x + 2f * u : u;
+            var hintRect = new Rect(verW, 0f, W - 2f * verW, 0f);
+            hintRect.height = hintStyle.CalcHeight(new GUIContent(hint), hintRect.width);
+            hintRect.y = H - 1.5f * u - hintRect.height;
+
             float rowH = main || unlocks ? 4.6f * u : (Current == Page.Options ? 3.5f * u : 3.1f * u);
             float w = pausePage ? Mathf.Min(22f * u, W * 0.22f) : main || unlocks ? 26f * u : 48f * u;
             float y0 = pausePage ? H * 0.3f : main ? H * 0.31f : unlocks ? H * 0.86f : H * 0.14f;
             float x0 = pausePage ? W * 0.04f : (W - w) / 2; // paused: a column on the left, the run's items stay readable
-            // Long pages (Options, Controls) shrink their rows to stay above the hint line.
-            if (!main && !unlocks) rowH = Mathf.Min(rowH, (H - 4.5f * u - y0) / Mathf.Max(1, items.Count));
+            // Long pages (Options, Controls, the main page with Continue) shrink their rows to stay above the hint.
+            if (!pausePage && !unlocks) rowH = Mathf.Min(rowH, (hintRect.y - 0.5f * u - y0) / Mathf.Max(1, items.Count));
+            var valStyle = new GUIStyle(HUD.Label) { alignment = TextAnchor.MiddleCenter, fontSize = Mathf.RoundToInt(HUD.Label.fontSize * (main ? 1.15f : 0.95f)) };
+            string problem = null;
+            if (rowH < 2.4f * u) problem = $"{Current}: {items.Count} rows don't fit above the hint";
             Vector2 mouse = e.mousePosition;
             for (int i = 0; i < items.Count; i++)
             {
@@ -691,8 +733,10 @@ namespace Spellcaster
                 Rect left = default, right = default, slot0 = default, slot1 = default;
                 if (it.Value != null && !it.Field && !it.Plain)
                 {
+                    // the value box grows with its text (e.g. the lobby's "Continue saved (Floor 2 - ...)")
+                    float vw = Mathf.Max(12f * u, valStyle.CalcSize(new GUIContent(it.Value())).x + 1.5f * u);
                     right = new Rect(row.xMax - 4f * u, row.y, 4f * u, row.height);
-                    left = new Rect(right.x - 16f * u, row.y, 4f * u, row.height);
+                    left = new Rect(right.x - vw - 4f * u, row.y, 4f * u, row.height);
                 }
                 if (it.Binding.HasValue)
                 {
@@ -735,6 +779,14 @@ namespace Spellcaster
 
                 var vs = new GUIStyle(st) { alignment = TextAnchor.MiddleCenter };
                 vs.normal.textColor = new Color(1f, 0.85f, 0.45f);
+                // Does the label fit next to whatever is on its right?
+                float labelRoom = it.Binding.HasValue ? slot0.x - labelX
+                    : it.Field ? row.x + 12f * u - labelX
+                    : it.Plain ? row.xMax - 2.5f * u - labelX - vs.CalcSize(new GUIContent(it.Value())).x
+                    : it.Value != null ? left.x - labelX
+                    : row.width - 2f * u;
+                if (problem == null && st.CalcSize(new GUIContent(it.Label)).x > labelRoom + 1f)
+                    problem = $"{Current}: \"{it.Label}\" runs into its value";
                 if (it.Field)
                 {
                     var box = new Rect(row.x + 12f * u, row.y + 0.3f * u, row.width - 13f * u, row.height - 0.6f * u);
@@ -763,35 +815,24 @@ namespace Spellcaster
                         bool waiting = Listening.HasValue && Listening.Value.action == it.Binding.Value && Listening.Value.slot == s;
                         HUD.Fill(r, waiting ? new Color(1f, 0.85f, 0.45f, 0.35f) : new Color(1f, 1f, 1f, 0.08f));
                         HUD.Frame(r, new Color(1f, 1f, 1f, 0.25f), 1f);
-                        HUD.Shadowed(r, waiting ? "press a key..." : Bindings.KeyName(Bindings.Get(it.Binding.Value, s)), vs);
+                        string keyName = waiting ? "press a key..." : Bindings.KeyName(Bindings.Get(it.Binding.Value, s));
+                        if (problem == null && vs.CalcSize(new GUIContent(keyName)).x > r.width + 1f) problem = $"{Current}: key \"{keyName}\" is wider than its box";
+                        HUD.Shadowed(r, keyName, vs);
                     }
                 }
             }
 
             if (repaint)
             {
-                string hint = Current switch
+                if (pausePage)
                 {
-                    Page.Main => "Mouse or W/S + Enter",
-                    Page.Pause => "Esc: resume   W/S + Enter or click   Q: " + (QuitSaves ? "save & quit" : "quit") +
-                        (QuitSaves && Dungeon.Instance && Dungeon.Instance.InCombat
-                            ? "   (in a fight: you keep what you have, the fight starts over from the last cleared room)" : ""),
-                    Page.Confirm => "Esc: back",
-                    Page.Multiplayer => "Online co-op for 2-6 players through Steam.   Esc: back",
-                    Page.HostSetup => "A/D or click < > to change   Esc: back",
-                    Page.Browse => "Friends' games and public lobbies. Friends can also invite you from Steam.   Esc: back",
-                    Page.Lobby => NetSession.Instance.IsHost ? "Click a player to remove them. The run starts when everyone is ready.   Esc: close lobby"
-                                                             : "Get ready; the host starts the run.   Esc: leave",
-                    Page.Direct => "Debug: connect copies of the game by address (127.0.0.1 on this PC). No Steam needed.   Esc: back",
-                    Page.Seed => "Type a seed (a number or any word); the same seed always builds the same dungeon, shops and enemy waves.   Ctrl+V: paste   Esc: back",
-                    Page.Unlocks => "Reach a goal to add its spell or item to future runs. Your stats are never upgraded.",
-                    Page.Options => "A/D or click < > to change   Esc: back   (rune size: how far the mouse moves per stroke)",
-                    _ => Listening.HasValue
-                        ? "Press a key or mouse button to bind it   Esc: cancel"
-                        : "Click a key to change it (left: main, right: alternative)   Backspace: clear alternative   Esc: back",
-                };
-                HUD.Shadowed(new Rect(0, H - 3.5f * u, W, 2 * u), hint, HUD.Small.Center());
-                HUD.Shadowed(new Rect(0, H - 3.5f * u, W - u, 2 * u), Application.version, HUD.Small.Right());
+                    // Under the buttons: the keys, and what quitting in a fight does.
+                    var ph = new GUIStyle(HUD.Small) { alignment = TextAnchor.UpperCenter, wordWrap = true };
+                    HUD.Shadowed(new Rect(x0, y0 + items.Count * rowH + 0.5f * u, w, 10f * u), hint, ph);
+                }
+                else HUD.Shadowed(hintRect, hint, hintStyle);
+                if (showVersion) HUD.Shadowed(new Rect(0, H - 3.5f * u, W - u, 2 * u), Application.version, HUD.Small.Right());
+                LayoutProblem = problem;
                 lastMouse = mouse;
             }
         }

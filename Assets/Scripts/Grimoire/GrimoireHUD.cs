@@ -345,12 +345,18 @@ namespace Spellcaster.Grimoire
 
         // ---------------- pause screen ----------------
 
+        /// <summary>The pause screen shows the deck (the Grimoire is on in this run).</summary>
+        public static bool PauseShown { get { var g = GrimoireRun.Instance; return g != null && g.Active && g.Deck != null; } }
+        static float PauseWidth(float W, float u) => Mathf.Min(W * 0.24f, 26f * u);
+        /// <summary>Left edge of the deck panel: it sits left of the spell list (which is 17u wide at the right edge).</summary>
+        public static float PauseLeft(float W, float u) => W - 19.5f * u - PauseWidth(W, u);
+
         public static void DrawPause(float W, float H, float u)
         {
             var g = GrimoireRun.Instance;
             if (g == null || !g.Active || g.Deck == null) return;
             var deck = g.Deck;
-            float x = W * 0.72f, y = H * 0.24f, w = W * 0.26f;
+            float w = PauseWidth(W, u), x = PauseLeft(W, u) + u, y = H * 0.24f;
             var groups = deck.Grouped();
             HUD.Fill(new Rect(x - u, y - u, w + 1.5f * u, 6.8f * u + groups.Count * 3.6f * u), new Color(0.02f, 0.01f, 0.04f, 0.9f));
             Text(new Rect(x, y, w, 2.5f * u), $"GRIMOIRE ({deck.Count} cards)", Style(HUD.Label.fontSize, true, TextAnchor.UpperLeft), Color.white);

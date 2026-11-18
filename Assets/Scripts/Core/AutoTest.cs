@@ -81,7 +81,14 @@ namespace Spellcaster
                 Check($"a second copy of the game joins the lobby by address ({mpNs.Roster.Count} players after {mpT:0.0}s)", mpNs.Roster.Count == 2);
                 mpT = 0f;
                 while (mpT < 10f && !mpNs.AllReady) { mpT += Time.unscaledDeltaTime; yield return null; }
+                MainMenu.FakeSaveForTest = "Floor 12 - 1234 gold - 18 items";
+                mpNs.ContinueSaved = true;
                 yield return Shot("00h_lobby");
+                string mpLayout = MainMenu.Instance.LayoutProblem;
+                Check($"lobby layout: the saved-run row and the players fit ({mpLayout ?? "ok"})",
+                    mpLayout == null && MainMenu.Instance.LabelsForTest().Contains("Run"));
+                mpNs.ContinueSaved = false;
+                MainMenu.FakeSaveForTest = null;
                 Check($"the joining player readies up and the host sees it ({string.Join(", ", mpNs.Roster.Select(r => r.name + (r.ready ? " ready" : "")))})",
                     mpNs.Roster.Count == 2 && mpNs.AllReady);
                 bool mpStarted = mpNs.StartRun();
@@ -104,6 +111,16 @@ namespace Spellcaster
             var menu = MainMenu.Instance;
             Check("game opens on the main menu", gs.Phase == Phase.Title && menu.Visible && menu.Current == MainMenu.Page.Main);
             yield return Shot("00_main_menu");
+            string mmLayout1 = menu.LayoutProblem;
+            MainMenu.FakeSaveForTest = "Floor 12 - 1234 gold - 18 items";
+            menu.Open(MainMenu.Page.Main);
+            yield return Shot("00a_main_menu_continue");
+            string mmLayout2 = menu.LayoutProblem;
+            bool mmContinue = menu.LabelsForTest().FirstOrDefault() == "Continue";
+            MainMenu.FakeSaveForTest = null;
+            menu.Open(MainMenu.Page.Main);
+            Check($"main menu fits on screen, with and without a saved run's Continue row ({mmLayout1 ?? "ok"}, {mmLayout2 ?? "ok"})",
+                mmLayout1 == null && mmLayout2 == null && mmContinue);
 
             // ---- options ----
             menu.Open(MainMenu.Page.Options);
@@ -112,6 +129,7 @@ namespace Spellcaster
             Settings.SetFieldOfView(95f);
             Settings.SetInvertY(true);
             yield return Shot("00b_options");
+            string opLayout = menu.LayoutProblem;
             yield return null;
             Check("options change sensitivity, rune size, FOV and invert Y",
                 Mathf.Approximately(Settings.MouseSensitivity, 3f) && Mathf.Approximately(ss.Gesture.StrokeLength, 6f) &&
@@ -128,12 +146,22 @@ namespace Spellcaster
             Bindings.Set(GameAction.Interact, 1, KeyCode.F);
             menu.Listen(GameAction.Map, 1);
             yield return Shot("00c_controls");
+            string ctLayout = menu.LayoutProblem;
             Progress.Tracking = true;
             Progress.Add("kills", 37);
             Progress.Add("deaths", 3);
             Progress.Add("rooms", 10); // unlocks Poison Cloud
             menu.Open(MainMenu.Page.Unlocks);
             yield return Shot("00g_unlocks");
+            menu.Open(MainMenu.Page.Seed);
+            yield return Shot("00i_seed");
+            string sdLayout = menu.LayoutProblem;
+            menu.Open(MainMenu.Page.Multiplayer);
+            yield return Shot("00j_multiplayer");
+            string mlLayout = menu.LayoutProblem;
+            menu.Open(MainMenu.Page.Main);
+            Check($"Options, Controls, Seeded run and Multiplayer pages: nothing runs into anything ({opLayout ?? "ok"}, {ctLayout ?? "ok"}, {sdLayout ?? "ok"}, {mlLayout ?? "ok"})",
+                opLayout == null && ctLayout == null && sdLayout == null && mlLayout == null);
             Check("Unlocks page lists 18 goals with progress", Progress.All.Count == 18 && Progress.UnlockedCount == 2);
             Progress.ResetForTest();
             Progress.Tracking = false;
@@ -713,9 +741,12 @@ namespace Spellcaster
                 bool pmFirst = pmMenu.PauseUp && pmMenu.Current == MainMenu.Page.Pause && pmLabels == "Resume, Options, Save & quit";
                 Check($"pausing opens the pause menu ({pmLabels})", pmFirst);
                 yield return Shot("05i_pause_menu");
+                string pmLayout1 = pmMenu.LayoutProblem;
                 pmMenu.ChooseForTest("Options");
                 bool pmOptions = pmMenu.Current == MainMenu.Page.Options && pmMenu.LabelsForTest().Contains("Casting style");
                 yield return Shot("05j_pause_options");
+                string pmLayout2 = pmMenu.LayoutProblem;
+                Check($"pause menu and its Options page lay out cleanly ({pmLayout1 ?? "ok"}, {pmLayout2 ?? "ok"})", pmLayout1 == null && pmLayout2 == null);
                 pmMenu.ChooseForTest("Back");
                 Check("pause menu: Options opens the settings, Back returns to the pause menu",
                     pmOptions && pmMenu.Current == MainMenu.Page.Pause && gs.Paused);

@@ -48,7 +48,7 @@ namespace Spellcaster.Net
         /// <summary>Players must run the same version to play together.</summary>
         public static string Version => Application.version;
 
-        /// <summary>The direct-IP mode is a debug tool: shown with Options > Dev mode on (or in debug builds).</summary>
+        /// <summary>The direct-IP mode is a debug tool: shown with Dev mode on (F3) or in debug builds.</summary>
         public static bool DebugTransportAllowed => Settings.DevMode || Debug.isDebugBuild || AutoTest.Active;
     }
 }
