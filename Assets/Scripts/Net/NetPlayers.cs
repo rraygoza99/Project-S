@@ -22,8 +22,12 @@ namespace Spellcaster.Net
         /// snapshots to blend even when packets arrive unevenly. A short gap is bridged by extrapolating.
         /// </summary>
         public const float InterpDelay = 0.15f, MaxExtrapolate = 0.12f;
-        /// <summary>At most this many inputs per message (an unreliable packet must stay small).</summary>
-        const int MaxBatch = 40;
+        /// <summary>
+        /// Inputs per message: one unreliable message must fit one packet (Mirror drops bigger ones whole, which
+        /// used to stall a client's movement on the host after a hiccup). An input is about 33 bytes.
+        /// </summary>
+        public static int MaxBatch => Mathf.Clamp((NetworkMessages.MaxMessageSize(Channels.Unreliable) - 48) / InputBytes, 4, 30);
+        public const int InputBytes = 36;
 
         /// <summary>A multiplayer run is on (players are synced).</summary>
         public static bool Running { get; private set; }

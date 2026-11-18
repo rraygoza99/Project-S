@@ -167,6 +167,8 @@ namespace Spellcaster
         /// <summary>What this enemy drew last (the host sends it so clients draw the same frame).</summary>
         public struct NetVisual { public int anim, frame; public float alpha, squash, lift; public Color32 tint; public bool flash; }
         public NetVisual LastVisual { get; private set; }
+        /// <summary>Client: when this proxy last got a state from the host.</summary>
+        public float LastNetStateAt;
         Vector3 proxyLastPos;
 
         public void MakeProxy(int id, float hp, float maxHp)

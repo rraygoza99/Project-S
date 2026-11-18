@@ -19,6 +19,11 @@ namespace Spellcaster.Net
         static readonly Dictionary<int, List<Snap>> buffers = new Dictionary<int, List<Snap>>();
         struct Snap { public double t; public Vector3 pos; }
         static float stateTimer;
+        /// <summary>Enemies per state message (about 45 bytes each), so every message fits one unreliable packet.</summary>
+        public static int ChunkSize => Mathf.Clamp((NetworkMessages.MaxMessageSize(Channels.Unreliable) - 48) / EntryBytes, 4, 24);
+        public const int EntryBytes = 48;
+        /// <summary>Client: proxies that got a state in the last second (tests, overlay).</summary>
+        public static int FreshCount { get { int n = 0; float now = Time.unscaledTime; foreach (var e in proxies.Values) if (e && now - e.LastNetStateAt < 1f) n++; return n; } }
         static bool hooked;
 
         public static Enemy ById(int id)
@@ -102,7 +107,10 @@ namespace Spellcaster.Net
                         anim = (byte)v.anim, frame = (byte)v.frame, tint = v.tint, flash = v.flash, dead = !e.IsAlive, elite = e.IsElite,
                     });
                 }
-                if (entries.Count > 0) NetworkServer.SendToAll(new EnemyStatesMsg { time = NetworkTime.time, enemies = entries.ToArray() }, Channels.Unreliable);
+                // Big fights don't fit one packet: send the enemies in chunks that each do (a too-big message is dropped whole).
+                double now = NetworkTime.time;
+                for (int from = 0; from < entries.Count; from += ChunkSize)
+                    NetworkServer.SendToAll(new EnemyStatesMsg { time = now, enemies = entries.GetRange(from, Mathf.Min(ChunkSize, entries.Count - from)).ToArray() }, Channels.Unreliable);
             }
             else Interpolate();
         }
@@ -128,6 +136,7 @@ namespace Spellcaster.Net
             {
                 if (!proxies.TryGetValue(s.id, out var e) || !e) continue;
                 e.ApplyNetState(s);
+                e.LastNetStateAt = Time.unscaledTime;
                 if (!buffers.TryGetValue(s.id, out var list)) buffers[s.id] = list = new List<Snap>();
                 if (list.Count > 0 && list[list.Count - 1].t >= now) continue; // late or repeated packet
                 list.Add(new Snap { t = now, pos = s.pos });

@@ -2393,6 +2393,26 @@ namespace Spellcaster
                 ws.Reports.TryGetValue(wsClientId, out wsRep);
                 Check($"doors and deaths reach the client ({cbLocked} doors locked there; {wsRep.enemies} enemies left after the kill)", cbLocked > 0 && wsRep.enemies == 0);
 
+                // A big fight: every enemy keeps getting updates on the client (the update is split to fit packets).
+                for (int bf = 0; bf < 34; bf++)
+                {
+                    var bfSpot = d.FindFreeSpot(d.Current, d.Current.Center + new Vector3((bf % 7 - 3) * 2.2f, 0f, (bf / 7 - 2) * 2.2f), 0.5f);
+                    var bfE = EnemySpawner.Instance.SpawnAt(EnemyType.Imp, bfSpot + Vector3.up * 0.05f, 50f, 1f);
+                    bfE.Freeze(30f);
+                }
+                yield return new WaitForSecondsRealtime(2.5f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                var bfIn = new Net.InputBatchMsg { frames = new Net.InputFrame[Net.NetPlayers.MaxBatch] };
+                var bfSt = new Net.EnemyStatesMsg { enemies = new Net.EnemyStateEntry[Net.NetEnemies.ChunkSize] };
+                var bfW = new Mirror.NetworkWriter();
+                Mirror.NetworkMessages.Pack(bfIn, bfW); int bfInBytes = bfW.Position; bfW.Reset();
+                Mirror.NetworkMessages.Pack(bfSt, bfW); int bfStBytes = bfW.Position;
+                int bfMax = Mirror.NetworkMessages.MaxMessageSize(Mirror.Channels.Unreliable);
+                Check($"a big fight stays in sync: {wsRep.enemies} enemies on the client, {wsRep.enemiesFresh} of them updated in the last second; every message fits a packet (inputs {bfInBytes} B, enemy chunk {bfStBytes} B, limit {bfMax} B)",
+                    wsRep.enemies >= 34 && wsRep.enemiesFresh >= 34 && bfInBytes <= bfMax && bfStBytes <= bfMax);
+                gs.ClearEnemies();
+                yield return new WaitForSecondsRealtime(2f);
+
                 // ---- Grimoire (Phase 3b): every player has their own deck, held by the host ----
                 var gbHostDeck = Grimoire.GrimoireRun.Instance ? Grimoire.GrimoireRun.Instance.Deck : null;
                 var gbRemote = Net.NetGrimoire.DeckOf(wsClientId);

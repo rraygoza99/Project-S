@@ -177,6 +177,7 @@ namespace Spellcaster.Net
         public bool downed, bledOut, spectating;
         public int phase;
         public float rtt, lossIn;
+        public int enemiesFresh;
     }
 
     /// <summary>Host to everyone, 30 times a second (unreliable): every player's state.</summary>
