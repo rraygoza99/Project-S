@@ -39,7 +39,7 @@ namespace Spellcaster
                     break;
                 case RoomType.Boss:
                     foreach (var p in new[] { new Vector2(-7, -7), new Vector2(7, -7), new Vector2(-7, 7), new Vector2(7, 7) })
-                        Block(room, pal.Pillar, p, new Vector2(2, 2), Dungeon.WallH, room.Center);
+                        Block(room, pal.Pillar, p, new Vector2(2, 2), room.WallHeight, room.Center);
                     Sprinkle(room, rng, barrels: 2, crates: 0, spikes: 0);
                     break;
                 case RoomType.Start:
@@ -51,7 +51,7 @@ namespace Spellcaster
 
         static void Structures(Room room, Dungeon.Palette pal, int layout, Vector3 o)
         {
-            float H = Dungeon.WallH, low = 2.2f;
+            float H = room.WallHeight, low = 2.2f;
             switch (layout)
             {
                 case 0: // four pillars

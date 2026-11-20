@@ -30,6 +30,24 @@ namespace Spellcaster
         /// <summary>Called for every enemy this cast hits.</summary>
         public System.Action<Enemy> OnHit;
 
+        // ---- Blink Dash and Quickening (SelfSpellCards) ----
+        /// <summary>Dash: damage to each enemy dashed through (0 = none).</summary>
+        public float DashPierce;
+        /// <summary>Dash: leaves a trail of fire.</summary>
+        public bool DashTrail;
+        /// <summary>Dash: a second dash this many seconds after the cast (0 = none).</summary>
+        public float DashEcho;
+        /// <summary>Buff: multiplies its duration.</summary>
+        public float DurationMult = 1f;
+        /// <summary>Buff: allies within this radius get it too (0 = only you).</summary>
+        public float AllyRadius;
+        /// <summary>Buff: extra HP per second.</summary>
+        public float ExtraRegen;
+        /// <summary>Buff: clears your slows when cast.</summary>
+        public bool Cleanse;
+        /// <summary>Buff: enemies touching you catch fire / nearby enemies are slowed while it lasts.</summary>
+        public bool BuffBurn, BuffFrost;
+
         public static readonly CastMods None = new CastMods();
 
         public CastMods Clone() => (CastMods)MemberwiseClone();

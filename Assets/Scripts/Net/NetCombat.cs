@@ -197,7 +197,29 @@ namespace Spellcaster.Net
             }
             var spell = c.Find(m.spellId);
             if (spell == null) { Rejected++; return; }
-            if (c.readyAt.TryGetValue(m.spellId, out float ready) && now < ready - CooldownTolerance) { Rejected++; return; }
+            if (SelfSpellCards.IsDash(spell)) { Rejected++; return; } // a dash comes with the movement input (HostDash)
+            HostCast(p, c, spell, m.heldFor);
+        }
+
+        /// <summary>
+        /// Host: a client's Blink Dash, played on the movement frame that started it (so the dash happens at the
+        /// same point of their movement as on their screen). Same checks as any cast: they know it, it is off
+        /// cooldown, they didn't just cycle a card. Rejected: no dash, and their prediction is corrected.
+        /// </summary>
+        public static void HostDash(Player p)
+        {
+            if (!NetPlayers.Running || !p || p.IsLocal || p.IsDead || !casters.TryGetValue(p.NetId, out var c)) return;
+            if (NetGrimoire.Locked(p.NetId)) { Rejected++; return; }
+            var spell = c.Find(SelfSpellConfig.BlinkDashId);
+            if (spell == null) { Rejected++; return; }
+            HostCast(p, c, spell, 0f);
+        }
+
+        static void HostCast(Player p, Caster c, SpellDefinition spell, float heldFor)
+        {
+            float now = Time.time;
+            var stats = p.Run ? p.Run.Stats : new PlayerStats();
+            if (c.readyAt.TryGetValue(spell.Id, out float ready) && now < ready - CooldownTolerance) { Rejected++; return; }
             var req = NetGrimoire.Play(p, spell); // this player's Next card shapes the cast
             if (req != null && req.Fizzle) { Sfx.Play("fizzle", 0.6f, 0.8f); RemoteCasts++; return; } // lost, no cooldown spent
             float cd = spell.Cooldown * (p.Run ? p.Run.CooldownMult : 1f);
@@ -205,13 +227,13 @@ namespace Spellcaster.Net
             c.casts++;
             if (stats.FreeCastEvery > 0 && c.casts % stats.FreeCastEvery == 0) cd = 0f;
             float power = stats.Power;
-            if (stats.Overcharge && Mathf.Clamp(m.heldFor, 0f, 60f) >= 1.5f) power *= 1.5f;
+            if (stats.Overcharge && Mathf.Clamp(heldFor, 0f, 60f) >= 1.5f) power *= 1.5f;
             if (req != null) cd = req.ResetCooldown ? 0f : cd * req.CooldownMult;
-            c.readyAt[m.spellId] = now + cd;
+            c.readyAt[spell.Id] = now + cd;
             Sfx.Play("cast", 0.6f);
             if (req == null) new SpellCast(spell, p) { Power = power }.Launch();
             else NetGrimoire.LaunchCopies(p, spell, power, req);
-            if (stats.EchoChance > 0f && Random.value < stats.EchoChance && NetSession.Instance)
+            if (stats.EchoChance > 0f && !SelfSpellCards.IsDash(spell) && Random.value < stats.EchoChance && NetSession.Instance)
                 NetSession.Instance.StartCoroutine(EchoStone(p, spell, stats.Power * 0.7f));
             RemoteCasts++;
         }
@@ -319,6 +341,7 @@ namespace Spellcaster.Net
             if (c == null) return;
             c.book.Clear();
             foreach (var j in jsons) { var s = SpellCodec.FromJson(j); if (s != null) c.book.Add(s); }
+            SpellForge.FixClashes(c.book); // a forged rune from an older version that a new spell now blocks
             c.readyAt.Clear();
             SendBook(p);
         }

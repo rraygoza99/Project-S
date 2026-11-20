@@ -15,7 +15,9 @@ namespace Spellcaster
         Renderer rend, glowRend;
         MaterialPropertyBlock mpb, glowMpb;
         Vector3 shown, lastShown;
-        float animTime, speed;
+        float animTime, speed, ghostTimer;
+        /// <summary>Afterimages drawn for dashes (tests).</summary>
+        public int AfterimagesShown { get; private set; }
 
         static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         static readonly int MainTexStId = Shader.PropertyToID("_MainTex_ST");
@@ -64,6 +66,46 @@ namespace Spellcaster
         void OnDestroy()
         {
             if (root) Destroy(root.gameObject);
+        }
+
+        /// <summary>A fading copy of a player's sprite where it was a moment ago (Blink Dash).</summary>
+        class Afterimage : MonoBehaviour
+        {
+            Renderer r;
+            MaterialPropertyBlock block;
+            float age, life;
+
+            public static void Spawn(Transform source, Texture atlas, Vector4 st)
+            {
+                var q = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                Destroy(q.GetComponent<Collider>());
+                q.name = "Afterimage";
+                q.transform.SetPositionAndRotation(source.position, source.rotation);
+                q.transform.localScale = source.lossyScale;
+                var a = q.AddComponent<Afterimage>();
+                a.r = q.GetComponent<Renderer>();
+                a.r.sharedMaterial = Materials.Sprite;
+                a.r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                a.block = new MaterialPropertyBlock();
+                a.block.SetTexture(MainTexId, atlas);
+                a.block.SetVector(MainTexStId, st);
+                a.life = Mathf.Max(0.05f, SelfSpellConfig.AfterimageSeconds);
+                a.Apply();
+            }
+
+            void Apply()
+            {
+                float k = 1f - age / life;
+                block.SetColor(ColorId, new Color(0.6f, 0.95f, 1f, 0.45f * k * k));
+                r.SetPropertyBlock(block);
+            }
+
+            void Update()
+            {
+                age += Time.deltaTime;
+                if (age >= life) { Destroy(gameObject); return; }
+                Apply();
+            }
         }
 
         // Host: the client's copy jumps forward a batch at a time; remember where it was when, and draw it a moment behind.
@@ -126,11 +168,23 @@ namespace Spellcaster
             bool dead = player.IsDead;
             mpb.SetTexture(MainTexId, PlayerSprites.Atlas(player.ColorIndex));
             mpb.SetVector(MainTexStId, PlayerSprites.Frame(view, frame, mirror));
-            mpb.SetColor(ColorId, dead ? new Color(0.45f, 0.45f, 0.5f, 0.75f) : Color.white);
+            // Quickened: a soft green tint that breathes (no particles or screen effects for the others).
+            Color tint = Color.white;
+            if (!dead && player.ShowQuickened) tint = Color.Lerp(Color.white, new Color(0.55f, 1f, 0.6f), 0.35f + 0.15f * Mathf.Sin(Time.time * 4f));
+            mpb.SetColor(ColorId, dead ? new Color(0.45f, 0.45f, 0.5f, 0.75f) : tint);
             mpb.SetFloat(FlashId, player.HurtFlash > 0.5f ? 1f : 0f);
             rend.SetPropertyBlock(mpb);
             float h = PlayerSprites.CellH / PlayerSprites.PixelsPerUnit;
             quad.localPosition = new Vector3(0f, dead ? 0.3f : h * 0.5f, 0f); // fallen players sink (downed state is Phase 5)
+
+            // Blink Dash: a short trail of fading copies of the sprite.
+            ghostTimer -= dt;
+            if (!dead && player.ShowDashing && ghostTimer <= 0f)
+            {
+                ghostTimer = 0.035f;
+                Afterimage.Spawn(quad, PlayerSprites.Atlas(player.ColorIndex), PlayerSprites.Frame(view, frame, mirror));
+                AfterimagesShown++;
+            }
 
             bool casting = player.NetCasting && !dead;
             glow.gameObject.SetActive(casting);

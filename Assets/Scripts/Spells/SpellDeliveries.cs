@@ -179,7 +179,8 @@ namespace Spellcaster
 
         public override void Launch(SpellCast cast)
         {
-            Fx.Flash(SpellSystem.CastOriginFor(cast.Caster), cast.Spell.Color, 1.5f, 0.5f, 1.5f);
+            if (!cast.Spell.Payload.Exists(e => e is DashEffect)) // the dash's feedback is the view kick, not a flash
+                Fx.Flash(SpellSystem.CastOriginFor(cast.Caster), cast.Spell.Color, 1.5f, 0.5f, 1.5f);
             cast.Resolve(new List<Enemy>(), cast.Caster.ChestPosition);
         }
     }

@@ -1,11 +1,11 @@
-# Spellcaster content list (v0.14)
+# Spellcaster content list (v0.19)
 
 Everything currently in the game, read from the code. **Locked** means it only appears in runs after
 you earn the achievement shown (see `Assets/Scripts/Core/Progress.cs`).
 
-Totals: 12 spells (6 locked at first), 12 runes, 29 items (13 locked at first, 1 Grimoire only),
-3 pickups, 11 Grimoire cards, 3 scenarios rotating in an endless dungeon, 13 enemies and 3 bosses, 2 casting styles,
-online co-op for 2-6 players.
+Totals: 14 spells (6 locked at first, 2 Instant), 14 runes, 29 items (13 locked at first, 1 Grimoire only),
+4 pickups, 2 currencies (gold for shops, Arcane Essence for the Spell Forge), 11 Grimoire cards,
+3 scenarios rotating in an endless dungeon, 13 enemies and 3 bosses, 2 casting styles, online co-op for 2-6 players.
 
 ## Spells and their runes
 
@@ -20,12 +20,19 @@ Every run starts knowing only Fireball. Defined in `Assets/Scripts/Spells/SpellB
 | Heal | ↑ ↓ ↑ ↓ | 15 s | Heals you 25 HP | Always available |
 | Frost Shard | ← ↑ → | 2.5 s | Fast projectile, 22 frost damage, freezes for 1.2 s | Always available |
 | Thunder Ring | ↑ → ↓ | 8 s | 7 m burst around you, 25 storm damage, knockback | Always available |
+| Blink Dash | ← → | 4 s | **Instant.** 6 m dash along your view in 0.15 s; enemies and their shots pass through you; no damage for the dash + 0.1 s; stops at walls (slides along them) | Always available |
+| Quickening | ↓ ↑ ↓ | 20 s | **Instant.** 6 s buff: +30% speed (Momentum running too), 3 HP per second; recasting refreshes it, it doesn't stack; stacks with the Haste potion | Always available |
 | Poison Cloud | ← ↓ → | 7 s | Projectile, 10 damage plus poison, leaves a 4 m cloud for 5 s | Locked: clear 10 rooms |
 | Arcane Missiles | → ↑ → | 4 s | 5 homing missiles, 14 arcane damage each | Locked: defeat 100 enemies |
 | Blink | ↑ ← ↑ | 5 s | Teleports you 8 m | Locked: clear a room without getting hurt |
 | Quake | ↓ ← ↓ | 9 s | 8 m burst around you, 20 earth damage, stuns for 2.5 s | Locked: defeat a boss |
 | Life Drain | ← ↑ ← | 5 s | Instant hit (35 m range), 30 damage, heals you 35% of it | Locked: heal 300 HP in total |
 | Meteor | → ↓ ← | 14 s | Falls on a target up to 40 m away, 60 fire damage, 6 m explosion | Locked: reach floor 3 |
+
+**Instant spells** go off the moment the rune is complete (no click), and a spell already readied stays
+readied. Every other spell is **Readied**: the rune readies it and Left Click fires it. Forged spells are
+always Readied. Blink Dash has the shortest rune in the game; no rune is the start of another. Numbers and
+the cast mode switch are in `Assets/Scripts/Spells/SelfSpells.cs` (`SelfSpellConfig`).
 
 ### Other ways to get spells
 
@@ -114,6 +121,23 @@ Defined in `Assets/Scripts/Loot/Items.cs`.
 | Arcane Essence | Pays for the Spell Forge. Enemies only: normal 15% (1), elite 75% (1-2), boss 100% (3-5); +3% per kill without a drop | – |
 | Heart | Restores 20 HP | 6 |
 
+### Arcane Essence
+
+The currency for the Spell Forge (gold is for shops). Values in `EssenceConfig`
+(`Assets/Scripts/Loot/Essence.cs`).
+
+| Rule | Value |
+|---|---|
+| Who drops it | Enemies only: never crates, chests, barrels or room rewards |
+| Normal / elite / boss | 15% for 1 / 75% for 1-2 (elites exist in Grimoire runs) / 100% for 3-5 |
+| Bad-luck protection | +3% to the next chance per kill without a drop; reset by a drop (about 1 drop per 4-5 normal kills) |
+| No drop from | Minions summoned in boss rooms, Shade splits, a Flame Skull that blows itself up, the tutorial and the Practice tool |
+| Traps | Enemies killed by traps still drop it |
+| Look and sound | Floating violet crystal with a cyan core and a breathing glow; its own chime |
+| Pickup | Walk over it; it drifts to you within 7 m and flies to you when the room is cleared |
+| Rolls | Seeded from the run seed and your roll count: loading a save can't reroll a drop |
+| Shown | HUD next to your gold (the icon swells on pickup); pause screen with gold and forges done |
+
 ## Floors (endless)
 
 Three scenarios, each with its own look, room layouts, hazards, enemies and boss. Defined in
@@ -201,6 +225,14 @@ Starting deck: 5 Blank, Amplify, Split, Echo.
 | Frozen | Element | Hits slow enemies by 50% for 2 s |
 | Fumble | Curse | The spell fizzles (no cooldown spent) |
 
+On **Blink Dash**: Amplify +50% distance, Overload double distance and cooldown, Split 3 dashes at 60%,
+Pierce hurts enemies dashed through (15), Wide knockback burst at the start, Echo a second dash 0.5 s
+later, Quicken no cooldown, Burning a fire trail (enemies only), Frozen freezes enemies at the start (2 s),
+Fumble fizzles. On **Quickening**: Amplify +50% speed and regen, Overload double duration and cooldown,
+Split allies within 5 m (co-op) or +1 HP/s (solo), Pierce clears your slows, Wide allies within 10 m
+(co-op) or a slowing pulse (solo), Echo +50% duration, Quicken no cooldown, Burning sets enemies touching
+you on fire, Frozen slows enemies within 4 m, Fumble fizzles.
+
 - **Elites:** while the Grimoire is on, a fight room has a 15% chance of one elite enemy (double HP,
   marked ELITE). Killing it adds a Fumble curse to your discard pile.
 - **Scroll of Erasure:** a shop item that removes a card for free (see Consumables).
@@ -220,7 +252,11 @@ Pick one in **Options > Casting style**. Defined in `Assets/Scripts/Spells/Spell
 - **Saving:** the run saves every time you clear a fight room. **Continue** on the main menu resumes
   it. Dying or winning deletes the save.
 - **Pause menu (Esc):** Resume, Options and Save & quit. Save & quit saves where you are outside a
-  fight; in a fight it restarts from the last cleared room.
+  fight; in a fight it restarts from the last cleared room. The pause screen lists your gold, Arcane
+  Essence, forges done, items and consumables.
+- **Tutorial:** playing it from the main menu never replaces a saved run (the tutorial run isn't saved).
+- **Dev mode:** **F3** in a run (hitboxes and debug keys). It's listed in Options only in development
+  builds.
 - **Seeds:** **Seeded run** on the main menu takes a number or any word. The same seed builds the same
   dungeon, shops, enemy waves and rewards. The pause and end screens show the seed (**C** copies it).
 
@@ -237,8 +273,9 @@ Code in `Assets/Scripts/Net/`; every tunable is in `NetConfig.cs` and `NetDowned
 | Join a game | Friends' games and public Spellcaster lobbies; Steam invites and "Join game" in the friends list (also while the game is closed) |
 | Lobby screen | Steam names and avatars, Ready / Not ready, the host can remove a player, **Start run** once everyone is ready |
 | Run (host) | **New run** or **Continue saved** (when a save exists) |
+| Invites | **Invite friends** opens the Steam overlay; the overlay only works when the game is started from the Steam Library |
 | Refused joins | Another game version, a full lobby, a run already in progress (only players coming back get in) |
-| Direct IP (debug) | With Dev mode on: connect copies of the game by address, no Steam needed |
+| Direct IP (debug) | With Dev mode on (F3): connect copies of the game by address, no Steam needed |
 
 ### How a co-op run plays
 
@@ -248,7 +285,7 @@ Code in `Assets/Scripts/Net/`; every tunable is in `NetConfig.cs` and `NetDowned
 | Movement | Yours is instant (the host checks it and corrects it if needed); the others move smoothly |
 | Casting | Classic and Momentum both work; the rune is drawn on your own PC, the host checks the spell is known and off cooldown, then casts it as you. Friendly fire is off |
 | Grimoire | The host's Options setting decides for everyone; each player has their own deck, cycles and picks their own rewards. An elite's curse falls on the whole party |
-| Loot | Instanced: every coin, heart, item, rune and shop item has one copy per player |
+| Loot | Instanced: every coin, heart, item, rune and shop item has one copy per player. Arcane Essence is rolled per player: your drops are visible to you only. A forgotten rune is only for the player who dropped it |
 | Your run | Gold, Arcane Essence, items, consumables, stats, spell book and Forge (and its cost) are your own (held by the host) |
 | Fight rooms | The first player in starts a 3 s "Fight! Gather up" countdown; then everyone outside is pulled in and the doors close |
 | Portal | Opens once every living player stands on it; the whole party moves to the next floor |
@@ -272,19 +309,21 @@ Enemy HP and wave size (bosses: HP only), from `NetConfig.Scaling`:
 | Bleed out | After 30 s: you spectate a teammate (click to switch) |
 | Back in | When the room is cleared: next to a teammate with 35% HP |
 | Run over | Only when every player is down at the same time |
+| New run | The host presses **R** and the whole group goes back to the lobby together; the others see "Waiting for the host" (Esc leaves) |
 
 ### Leaving, rejoining and saving
 
-- A player who leaves mid-run is removed; the host keeps their character by SteamID (HP, gold, items,
-  consumables, spells, deck, loot taken). Rejoining the same run gives it back.
+- A player who leaves mid-run is removed; the host keeps their character by SteamID (HP, gold, Arcane
+  Essence and forges done, items, consumables, spells, deck, loot taken). Rejoining the same run gives it back.
 - If the host leaves, the session ends for everyone.
 - Only the host saves; the save keeps every player's character by SteamID. On **Continue saved**,
   returning players get theirs back and new players start fresh.
 
-### Debug tools (dev mode)
+### Debug tools (dev mode, F3)
 
 | Key / option | What it does |
 |---|---|
+| F3 | Dev mode on/off: hitboxes, and the keys below |
 | F10 / Shift+F10 | +5 / -5 Arcane Essence |
 | Ctrl+F10 / Alt+F10 | Reset forges done / print Essence drop statistics per enemy type |
 | F6 | Network overlay: role, tick rate (30 Hz), traffic, ping and packet loss per player, prediction corrections |

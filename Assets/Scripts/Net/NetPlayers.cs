@@ -202,6 +202,7 @@ namespace Spellcaster.Net
                 if (!p) continue;
                 p.SetNetDowned(e.downed, e.bledOut, e.bleed, e.revive);
                 p.SetNetHealth(e.hp);
+                p.SetNetFx(e.dashing, e.quickened);
                 if (p.IsLocal) Reconcile(p, e);
                 else
                 {
@@ -230,6 +231,7 @@ namespace Spellcaster.Net
             {
                 pos = e.pos, planar = e.planar, vertical = e.vertical, decel = e.decel, chill = e.chill,
                 wasAuto = e.wasAuto, wasStill = e.wasStill,
+                dash = e.dash, iframes = e.iframes, dashVel = e.dashVel, qDist = e.qDist, qWait = e.qWait,
             });
             for (int k = 0; k < history.Count; k++)
             {
@@ -316,6 +318,7 @@ namespace Spellcaster.Net
                 b -= d;
                 last = f.seq;
                 if (p.IsDead) continue;
+                if ((f.flags & Player.FlagDash) != 0) NetCombat.HostDash(p); // queues the dash this frame starts
                 p.Simulate(new Player.MoveInput { seq = f.seq, dt = d, yaw = f.yaw, pitch = f.pitch, wish = Vector2.ClampMagnitude(f.wish, 1f), autoDir = f.autoDir, flags = f.flags });
             }
             budget[conn.connectionId] = b;
@@ -338,6 +341,8 @@ namespace Spellcaster.Net
                     id = p.NetId, lastSeq = p.IsLocal ? 0 : seq, pos = s.pos, planar = s.planar, vertical = s.vertical,
                     decel = s.decel, chill = s.chill, wasAuto = s.wasAuto, wasStill = s.wasStill,
                     yaw = p.Yaw, pitch = p.Pitch, hp = p.HP, casting = casting,
+                    dash = s.dash, iframes = s.iframes, dashVel = s.dashVel, qDist = s.qDist, qWait = s.qWait,
+                    dashing = p.Dashing, quickened = p.Run && p.Run.Quickened,
                     downed = p.Downed, bledOut = p.BledOut, bleed = p.BleedTimer, revive = p.ReviveProgress,
                 });
             }

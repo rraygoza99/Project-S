@@ -238,7 +238,7 @@ namespace Spellcaster.Grimoire
             Deck.PlayNext();
             CardsPlayed++;
             var ctx = new CardContext { Request = req, Spell = req.Spell, Shape = Cards.ShapeOf(req.Spell), Player = Player.Instance };
-            next.Def.Apply?.Invoke(ctx);
+            Cards.Apply(next.Def, ctx);
             req.Label = (req.Spell != null ? req.Spell.Name : "Bolt") + " + " + next.Def.Name;
             LastCast = req.Label;
             LastCard = next.Def;

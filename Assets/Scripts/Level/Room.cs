@@ -31,6 +31,8 @@ namespace Spellcaster
 
         /// <summary>Half the interior size along x and z.</summary>
         public float HalfX => Dungeon.Half + (Size.x - 1) * Dungeon.Spacing * 0.5f;
+        /// <summary>Floor to ceiling: boss rooms are taller (Dungeon.BossWallH).</summary>
+        public float WallHeight => Type == RoomType.Boss ? Dungeon.BossWallH : Dungeon.WallH;
         public float HalfZ => Dungeon.Half + (Size.y - 1) * Dungeon.Spacing * 0.5f;
 
         public IEnumerable<Vector2Int> Cells

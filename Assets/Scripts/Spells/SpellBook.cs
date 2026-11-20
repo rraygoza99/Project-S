@@ -87,6 +87,24 @@ namespace Spellcaster
                 Payload = { new DamageEffect(25f, Element.Storm), new KnockbackEffect(9f) },
             },
 
+            // ---- self-buffs: Instant (they go off the moment the rune is complete; SelfSpells.cs) ----
+            new SpellDefinition
+            {
+                Id = SelfSpellConfig.BlinkDashId, Name = "Blink Dash", Noun = "Dash", Adjective = "Darting",
+                Sequence = Arrows.Parse(SelfSpellConfig.BlinkDashRune), Cooldown = SelfSpellConfig.DashCooldown, IconKey = "blinkdash",
+                Color = new Color(0.55f, 0.95f, 0.95f),
+                Delivery = new SelfDelivery(),
+                Payload = { new DashEffect(SelfSpellConfig.DashDistance) },
+            },
+            new SpellDefinition
+            {
+                Id = SelfSpellConfig.QuickeningId, Name = "Quickening", Noun = "Haste", Adjective = "Quickened",
+                Sequence = Arrows.Parse(SelfSpellConfig.QuickeningRune), Cooldown = SelfSpellConfig.QuickenCooldown, IconKey = "quickening",
+                Color = new Color(0.55f, 1f, 0.6f),
+                Delivery = new SelfDelivery(),
+                Payload = { new QuickenEffect(SelfSpellConfig.QuickenDuration, SelfSpellConfig.QuickenSpeedBonus, SelfSpellConfig.QuickenRegen) },
+            },
+
             // ---- unlocked through achievements (Progress.cs) ----
             new SpellDefinition
             {

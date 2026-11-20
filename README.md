@@ -188,8 +188,11 @@ rune glows in front of you while you draw, and the spell panel shows each spell'
 
 Casting rules: a full sequence **readies** the spell (hands glow in its colour); releasing the button keeps
 it readied; only one spell can be readied. Input that matches no available spell **fizzles** (0.3 s
-lockout). Spells on cooldown can't be readied, and cooldowns only count down during a fight (they pause in
-cleared rooms, so you can't wait out Heal between fights).
+lockout). Spells on cooldown can't be readied (drawing their rune says "Spell on CD"), and cooldowns only
+count down during a fight (they pause in cleared rooms, so you can't wait out Heal between fights).
+
+**Instant spells** (Blink Dash and Quickening, marked INSTANT in the spell panel) go off the moment their rune
+is complete, with no click, and a spell you already have readied stays readied.
 
 ## The run
 
@@ -355,6 +358,8 @@ Every run starts with **Fireball**; the others are learned from **runes** (rune 
 | Heal | ↑ ↓ ↑ ↓ | zig-zag | Restore 25 HP | 15 s |
 | Frost Shard | ← ↑ → | arch | Fast projectile, freezes for 1.2 s | 2.5 s |
 | Thunder Ring | ↑ → ↓ | cap ∩ | Storm nova that throws enemies back | 8 s |
+| Blink Dash | ← → | flick | **Instant.** Dash 6 m along your view in 0.15 s, through enemies and their shots (no damage during it), never through walls | 4 s |
+| Quickening | ↓ ↑ ↓ | N | **Instant.** For 6 s: +30% speed and 3 HP per second; recasting refreshes it | 20 s |
 
 ### Spell Forge: make your own spells
 
@@ -450,6 +455,21 @@ it off, the game plays exactly as without it.
 | Burning | Hits burn enemies (self spells: burn enemies around you) |
 | Frozen | Hits slow enemies by 50% for 2 s (self spells: around you) |
 | Fumble (curse) | The spell fizzles; no cooldown spent |
+
+Blink Dash and Quickening have their own effect for every card:
+
+| Card | Blink Dash | Quickening |
+|---|---|---|
+| Amplify | +50% distance | +50% speed and regen |
+| Overload | Double distance, double cooldown | Double duration, double cooldown |
+| Split | 3 short dashes in a row (60% each) | Co-op: allies within 5 m get it too. Solo: +1 HP per second |
+| Pierce | Hurts enemies you dash through | Clears your slows |
+| Wide | Knockback burst where you start | Co-op: allies within 10 m get it too. Solo: slows enemies around you |
+| Echo | A second dash 0.5 s later | Lasts 50% longer |
+| Quicken | No cooldown | No cooldown |
+| Burning | Leaves a trail of fire (it never burns players) | Enemies touching you catch fire |
+| Frozen | Freezes enemies where you start | Enemies near you are slowed while it lasts |
+| Fumble | Fizzles, no cooldown spent | Fizzles, no cooldown spent |
 
 Extra copies from Split, Pierce and Echo never lifesteal, so lifesteal balance is unchanged.
 

@@ -238,6 +238,7 @@ namespace Spellcaster
                 hs.normal.textColor = new Color(0.55f, 1f, 0.6f, Mathf.Clamp01(hf * 1.5f));
                 Shadowed(new Rect(bar.xMax - 8 * u, bar.y - 1.3f * bh - (1f - hf) * 1.5f * u, 8 * u, bh * 1.2f), $"+{Mathf.Max(1, Mathf.RoundToInt(player.LastHeal))}", hs);
             }
+            if (run && run.Quickened) DrawQuickening(bar, px, u, run);
             if (!run) return;
             float cy = bar.y - 1.25f * bh - 2.8f * u;
             GUI.DrawTexture(new Rect(bar.x, cy + 0.2f * u, 1.8f * u, 1.8f * u), Items.Coin.Icon);
@@ -597,6 +598,35 @@ namespace Spellcaster
 
         // ---------------- spells ----------------
 
+        static SpellDefinition quickeningIcon;
+
+        /// <summary>
+        /// Quickening on: the health bar glows with a soft slow pulse while regen runs, and a buff icon right of
+        /// the bar shows the time left (a draining fill and the seconds). Nothing covers the screen.
+        /// </summary>
+        static void DrawQuickening(Rect bar, float px, float u, Run run)
+        {
+            var col = new Color(0.55f, 1f, 0.6f);
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 4f);
+            if (run.QuickenRegen > 0f)
+            {
+                Fill(bar, new Color(col.r, col.g, col.b, 0.12f + 0.14f * pulse));
+                Frame(new Rect(bar.x - 2 * px, bar.y - 2 * px, bar.width + 4 * px, bar.height + 4 * px), new Color(col.r, col.g, col.b, 0.35f + 0.35f * pulse), Mathf.Max(1f, px));
+            }
+            quickeningIcon ??= SpellBook.CreateBase(SelfSpellConfig.QuickeningId);
+            // Above the right end of the bar (the item slots are to its right).
+            float s = 2.2f * u;
+            var box = new Rect(bar.xMax - s - 3.2f * u, bar.y - s - 0.5f * u, s, s);
+            Fill(new Rect(box.x - px, box.y - px, box.width + 2 * px, box.height + 2 * px), new Color(0f, 0f, 0f, 0.7f));
+            if (quickeningIcon != null) GUI.DrawTexture(box, quickeningIcon.Icon, ScaleMode.ScaleToFit);
+            float left = Mathf.Clamp01(run.QuickenTimer / Mathf.Max(0.01f, run.QuickenLength));
+            Fill(new Rect(box.x, box.y, box.width, box.height * (1f - left)), new Color(0f, 0f, 0f, 0.55f));
+            Frame(box, new Color(col.r, col.g, col.b, 0.6f + 0.4f * pulse), Mathf.Max(1f, px));
+            var st = new GUIStyle(Small) { alignment = TextAnchor.MiddleLeft };
+            st.normal.textColor = col;
+            Shadowed(new Rect(box.xMax + 0.5f * u, box.y, 8f * u, box.height), $"{Mathf.CeilToInt(run.QuickenTimer)}s", st);
+        }
+
         void DrawSpellPanel(float W, float H, float u, SpellSystem ss)
         {
             var book = ss.Book;
@@ -640,7 +670,7 @@ namespace Spellcaster
                 SetAlpha(Small, 1f);
                 var seqStyle = new GUIStyle(Small);
                 seqStyle.normal.textColor = new Color(0.8f, 0.8f, 0.85f, 0.8f * alpha);
-                Shadowed(new Rect(tx, row.y + 1.7f * u, width, 1.6f * u), Arrows.Glyphs(s.Sequence) + (s.AreaTag != null ? "   " + s.AreaTag : ""), seqStyle);
+                Shadowed(new Rect(tx, row.y + 1.7f * u, width, 1.6f * u), Arrows.Glyphs(s.Sequence) + (s.AreaTag != null ? "   " + s.AreaTag : "") + (s.IsInstant ? "   INSTANT" : ""), seqStyle);
 
                 // The rune's shape; strokes already drawn light up in the spell colour.
                 int lit = candidate && filtering ? ss.Entered.Count : 0;

@@ -162,6 +162,11 @@ namespace Spellcaster.Net
         public bool wasAuto, wasStill;
         public float yaw, pitch, hp;
         public bool casting;
+        /// <summary>Blink Dash state (reconciliation) and how others see this player: dashing, Quickened.</summary>
+        public float dash, iframes;
+        public Vector3 dashVel;
+        public Vector4 qDist, qWait;
+        public bool dashing, quickened;
         public bool downed, bledOut;
         public float bleed, revive;
     }

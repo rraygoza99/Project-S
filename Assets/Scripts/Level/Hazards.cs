@@ -53,6 +53,8 @@ namespace Spellcaster
     {
         public static readonly List<LavaPool> All = new List<LavaPool>();
         public const float PlayerDps = 16f, EnemyDps = 20f, Tick = 0.5f;
+        /// <summary>Burns enemies only (a Blink Dash + Burning fire trail).</summary>
+        public bool SparePlayers;
         public float Radius { get; private set; }
         public bool Temporary => life > 0f;
         float life, age, tick;
@@ -120,6 +122,7 @@ namespace Spellcaster
             tick = Tick;
             foreach (var p in Players.All.ToArray())
             {
+                if (SparePlayers) break;
                 if (!PlayerOnFloor(p) || FlatDistance(p.transform.position, transform.position) >= Radius + 0.15f) continue;
                 p.TakeDamage(PlayerDps * Tick);
                 Fx.Flash(p.transform.position + Vector3.up * 0.3f, new Color(1f, 0.5f, 0.1f), 1.2f, 0.25f, 1.2f);

@@ -78,6 +78,49 @@ namespace Spellcaster
         static string ToRoman(int i) => i switch { 2 => "II", 3 => "III", 4 => "IV", 5 => "V", _ => i.ToString() };
 
         /// <summary>
+        /// Gives a new rune to every forged spell whose rune clashes with a base spell or another spell in the book
+        /// (a save from before a new base spell took that rune). Returns the names of the spells changed.
+        /// </summary>
+        public static List<string> FixClashes(IList<SpellDefinition> book)
+        {
+            var changed = new List<string>();
+            var bases = SpellBook.Defaults().Select(s => s.Sequence).ToList();
+            for (int i = 0; i < book.Count; i++)
+            {
+                var s = book[i];
+                if (!s.IsForged) continue;
+                bool clash = bases.Any(b => Arrows.Conflicts(b, s.Sequence))
+                    || book.Where((o, j) => j != i).Any(o => Arrows.Conflicts(o.Sequence, s.Sequence));
+                if (!clash) continue;
+                var seq = Reroll(s, book, bases);
+                if (seq == null) continue;
+                s.Sequence = seq;
+                changed.Add(s.Name);
+            }
+            return changed;
+        }
+
+        static Arrow[] Reroll(SpellDefinition s, IList<SpellDefinition> book, List<Arrow[]> bases)
+        {
+            var rng = new System.Random(s.Name.GetHashCode());
+            var reserved = book.Where(o => o != s).Select(o => o.Sequence).Concat(bases).ToList();
+            for (int attempt = 0; attempt < 600; attempt++)
+            {
+                int len = Mathf.Max(4, s.Sequence.Length) + attempt / 150;
+                var seq = new Arrow[len];
+                seq[0] = s.Sequence[0]; // keeps its first stroke, so it still feels like the same spell
+                for (int i = 1; i < len; i++)
+                {
+                    var next = (Arrow)rng.Next(3);
+                    if (next >= seq[i - 1]) next++;
+                    seq[i] = next;
+                }
+                if (!reserved.Any(r => Arrows.Conflicts(r, seq))) return seq;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Starts with the first arrow of each parent (so it's memorable), then fills deterministically,
         /// rejecting any sequence that is a prefix of (or prefixed by) a known or base one.
         /// </summary>
@@ -86,14 +129,17 @@ namespace Spellcaster
             var rng = new System.Random(seed);
             // Also avoid every base spell's sequence, so a rune found later can never clash.
             var reserved = book.Select(s => s.Sequence).Concat(SpellBook.Defaults().Select(s => s.Sequence)).ToList();
+            // Runes can't repeat a stroke, so the second parent's first stroke is used only if it differs, and only
+            // if those two strokes aren't a whole rune already (Blink Dash is ← →): nothing could start with them.
+            var pair = new[] { a.Sequence[0], b.Sequence[0] };
+            bool usePair = pair[1] != pair[0] && !reserved.Any(r => Arrows.HasPrefix(pair, r));
             for (int attempt = 0; attempt < 500; attempt++)
             {
                 int len = length + attempt / 150; // grow if this length is crowded
                 var seq = new Arrow[len];
                 seq[0] = a.Sequence[0];
-                // Runes can't repeat a stroke, so the second parent's first stroke is used only if it differs.
                 int start = 1;
-                if (b.Sequence[0] != seq[0]) { seq[1] = b.Sequence[0]; start = 2; }
+                if (usePair) { seq[1] = pair[1]; start = 2; }
                 for (int i = start; i < len; i++)
                 {
                     var next = (Arrow)rng.Next(3);

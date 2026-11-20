@@ -314,7 +314,19 @@ namespace Spellcaster
             ClearPickups();
             player.Teleport(d.Current.Center + new Vector3(0, 0.1f, -3f), 0f);
             SpellBook.LearnAll();
-            Check("all 6 base spells learnable", SpellBook.Known.Count == 6);
+            Check("all 8 base spells learnable", SpellBook.Known.Count == 8);
+            {
+                // Boss rooms are taller (big boss sprites fit); other rooms keep the normal ceiling.
+                float CeilingOf(Room chR)
+                {
+                    Vector3 chFrom = chR.Center + new Vector3(0f, 0.5f, 0f);
+                    return Physics.Raycast(chFrom, Vector3.up, out var chHit, 30f, Layers.WorldMask, QueryTriggerInteraction.Ignore) ? chHit.point.y : -1f;
+                }
+                var chBoss = d.AllRooms.FirstOrDefault(chR => chR.Type == RoomType.Boss);
+                float chBossH = chBoss != null ? CeilingOf(chBoss) : -1f, chStartH = CeilingOf(d.Rooms[Vector2Int.zero]);
+                Check($"the boss room is taller ({chBossH:0.0} m to the ceiling) than other rooms ({chStartH:0.0} m)",
+                    Mathf.Abs(chBossH - Dungeon.BossWallH) < 0.1f && Mathf.Abs(chStartH - Dungeon.WallH) < 0.1f);
+            }
 
             // ---- basic bolt ----
             var dummy = SpawnAhead(player, EnemyType.Imp, 7f, 0f);
@@ -424,7 +436,7 @@ namespace Spellcaster
 
             // ---- cooldown blocks readying; wrong input fizzles ----
             yield return CastSequence("DRU", expectReady: null);
-            Check("Fireball on cooldown cannot be readied (fizzles)", ss.Readied == null && events.Contains("fizzle"));
+            Check($"Fireball on cooldown cannot be readied (says \"{ss.LastMessage}\")", ss.Readied == null && events.Contains("cooldown Fireball") && ss.LastMessage.StartsWith("Spell on CD"));
             yield return new WaitForSeconds(0.35f);
             events.Clear();
             yield return CastSequence("UL", expectReady: null);
@@ -798,6 +810,17 @@ namespace Spellcaster
             ss.CastReadied();
             yield return new WaitForSeconds(0.6f);
             Check("Frost Shard hits and freezes", shardTarget && shardTarget.IsFrozen && shardTarget.HP < shardTarget.MaxHP);
+            // Drawing a rune whose spell is cooling down says so, instead of a plain "Fizzle!".
+            var cdEvents = new List<string>();
+            System.Action<string> cdHook = cdE => cdEvents.Add(cdE);
+            ss.Event += cdHook;
+            yield return CastSequence("LUR", expectReady: null);
+            string cdMsg = ss.LastMessage;
+            yield return Shot("05m_spell_on_cd");
+            ss.SetChanneling(false);
+            ss.Event -= cdHook;
+            Check($"drawing the rune of a spell on cooldown says \"{cdMsg}\" instead of Fizzle (events: {string.Join(", ", cdEvents)})",
+                cdMsg != null && cdMsg.StartsWith("Spell on CD") && cdEvents.Any(x => x.StartsWith("cooldown Frost Shard")) && !cdEvents.Contains("fizzle"));
             var pushed = SpawnAhead(player, EnemyType.Imp, 3f, 0f);
             yield return new WaitForSeconds(0.2f);
             pushed.Freeze(2f);
@@ -862,6 +885,9 @@ namespace Spellcaster
             }
 
             // ---- Spell Forge ----
+            // These tests fill the book to its 9-spell limit from the 6 original spells: put Blink Dash and
+            // Quickening aside (the unlock section learns them again).
+            SpellBook.Known.RemoveAll(sfS => sfS.Id == SelfSpellConfig.BlinkDashId || sfS.Id == SelfSpellConfig.QuickeningId);
             var forge = SpellForgeUI.Instance;
             // Forging costs Essence: 3, then 5, then 7...
             run.Essence = 0;
@@ -2148,7 +2174,7 @@ namespace Spellcaster
             gs.ForcePlayingForTest();
             Progress.ResetForTest();
             Check("unlockable spells and items start locked and never drop",
-                SpellBook.Available.Count == 6 && !SpellBook.Available.Any(sp => sp.StartsLocked) &&
+                SpellBook.Available.Count == 8 && !SpellBook.Available.Any(sp => sp.StartsLocked) &&
                 Enumerable.Range(0, 200).Select(_ => Items.RandomTreasure(run, 0.5f)).All(i => i.IsAvailable) &&
                 Enumerable.Range(0, 50).Select(_ => Items.RandomConsumable()).All(i => i.IsAvailable));
             Progress.Tracking = true;
@@ -2168,7 +2194,7 @@ namespace Spellcaster
             Progress.UnlockAllForTest();
             Progress.Tracking = false;
             Check("18 achievements unlock 6 spells and 12 items",
-                Progress.All.Count == 18 && Progress.All.Count(a => a.IsSpell) == 6 && SpellBook.Available.Count == 12 &&
+                Progress.All.Count == 18 && Progress.All.Count(a => a.IsSpell) == 6 && SpellBook.Available.Count == 14 &&
                 Items.Passives.Concat(Items.Relics).Concat(Items.Consumables).Count(i => i.StartsLocked) == 12);
 
             for (int i = 0; i < Run.Slots; i++) run.Consumables[i] = null;
@@ -2217,6 +2243,331 @@ namespace Spellcaster
             ss.CastReadied();
             yield return null;
             Check($"Blink teleports forward ({(player.transform.position - before0).magnitude:0.0} m)", (player.transform.position - before0).z > 6f);
+
+            // ---- Blink Dash and Quickening: Instant self-buffs (SelfSpells.cs) ----
+            {
+                var bdSpell = Spell("Blink Dash");
+                var qkSpell = Spell("Quickening");
+                var sbBases = SpellBook.Defaults();
+                Check($"Blink Dash has the shortest rune in the game ({Arrows.Glyphs(bdSpell.Sequence)}; Quickening {Arrows.Glyphs(qkSpell.Sequence)}), both are Instant, every other spell Readied",
+                    bdSpell.Sequence.Length == 2 && sbBases.All(sbS => sbS.Id == bdSpell.Id || sbS.Sequence.Length > 2)
+                    && bdSpell.IsInstant && qkSpell.IsInstant && sbBases.Count(sbS2 => sbS2.IsInstant) == 2);
+                var sbEvents = new List<string>();
+                System.Action<string> sbHook = sbE => sbEvents.Add(sbE);
+                ss.Event += sbHook;
+
+                // Instant: ← → dashes at once, along the view, through an enemy; a readied Fireball stays readied.
+                gs.ClearEnemies();
+                ss.ResetCooldowns();
+                ss.SetChanneling(false);
+                player.Teleport(d.FindFreeSpot(d.Current, d.Current.Center, 0.8f) + Vector3.up * 0.1f, 0f);
+                yield return null;
+                float sbYaw = ClearHeading(player, 9f);
+                Vector3 sbDir = Quaternion.Euler(0f, sbYaw, 0f) * Vector3.forward;
+                player.SetLook(sbYaw, 0f);
+                Vector3 sbFrom = player.transform.position;
+                var sbImp = EnemySpawner.Instance.SpawnAt(EnemyType.Imp, sbFrom + sbDir * 3f);
+                yield return new WaitForSeconds(0.2f);
+                if (sbImp) sbImp.Freeze(6f);
+                player.God = false;
+                player.Heal(player.MaxHP);
+                float sbHp = player.HP;
+                ss.ReadyForTest(Spell("Fireball"));
+                int sbDashes = player.DashCount;
+                sbEvents.Clear();
+                yield return CastSequence("LR", expectReady: null);
+                bool sbInvuln = player.Invulnerable;
+                player.TakeDamage(25f); // during the dash: no damage
+                // An enemy shot flying straight at you during the dash passes through.
+                if (sbImp) sbImp.Shoot(player.ChestPosition + sbDir * 2.5f, -sbDir, 25f, Color.red, 0.6f, 10f);
+                yield return Shot("24a_blink_dash");
+                ss.SetChanneling(false);
+                yield return new WaitForSeconds(0.5f);
+                Vector3 sbMoved = player.transform.position - sbFrom;
+                sbMoved.y = 0f;
+                float sbDist0 = sbMoved.magnitude;
+                Check($"Blink Dash goes off the moment ← → is drawn, no click: {sbMoved.magnitude:0.00} m along the view (Fireball still readied: {ss.Readied?.Name}; cooldown {ss.CooldownRemaining(bdSpell):0.0}s; events {string.Join(", ", sbEvents)})",
+                    sbEvents.Contains("instant Blink Dash") && player.DashCount == sbDashes + 1 && sbMoved.magnitude > 5.4f && sbMoved.magnitude < 6.6f
+                    && Vector3.Dot(sbMoved.normalized, sbDir) > 0.95f && ss.Readied != null && ss.Readied.Name == "Fireball" && ss.OnCooldown(bdSpell));
+                Check($"the dash passes through the enemy in its way ({(sbImp ? Vector3.Dot(player.transform.position - sbImp.transform.position, sbDir) : 0f):0.0} m past it)",
+                    sbImp && sbImp.IsAlive && Vector3.Dot(player.transform.position - sbImp.transform.position, sbDir) > 1.5f);
+                Check($"no damage during the dash, from a hit or an enemy shot (HP {sbHp:0} -> {player.HP:0}, invulnerable during it: {sbInvuln}, after: {player.Invulnerable})",
+                    sbInvuln && Mathf.Approximately(player.HP, sbHp) && !player.Invulnerable);
+                player.TakeDamage(5f);
+                Check("after the dash damage applies again", player.HP < sbHp);
+                player.Heal(player.MaxHP);
+                ss.ClearReadied();
+                gs.ClearEnemies();
+
+                // Walls: straight on, it stops at the wall; at an angle, it slides along it. Never inside it.
+                yield return new WaitForSeconds(0.3f);
+                player.Teleport(d.FindFreeSpot(d.Current, d.Current.Center, 0.8f) + Vector3.up * 0.1f, 0f);
+                yield return null;
+                sbYaw = ClearHeading(player, 9f);
+                sbDir = Quaternion.Euler(0f, sbYaw, 0f) * Vector3.forward;
+                Vector3 wlFrom = player.transform.position;
+                var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                wall.layer = Layers.World;
+                wall.transform.position = wlFrom + sbDir * 3f + Vector3.up * 1.5f;
+                wall.transform.rotation = Quaternion.LookRotation(sbDir);
+                wall.transform.localScale = new Vector3(10f, 3f, 0.4f);
+                Physics.SyncTransforms();
+                player.SetLook(sbYaw, 0f);
+                ss.ResetCooldowns();
+                yield return CastSequence("LR", expectReady: null);
+                ss.SetChanneling(false);
+                yield return new WaitForSeconds(0.4f);
+                float wlAlong = Vector3.Dot(player.transform.position - wlFrom, sbDir);
+                bool wlInside = PlayerInSolid(player);
+                Check($"Blink Dash stops at a wall: {wlAlong:0.00} m of 6 (the wall is 2.8 m away), not inside it", wlAlong > 1.8f && wlAlong < 2.6f && !wlInside);
+                // The same wall turned 45 degrees: the dash slides along it.
+                player.Teleport(wlFrom, sbYaw);
+                wall.transform.rotation = Quaternion.LookRotation(Quaternion.Euler(0f, 45f, 0f) * sbDir);
+                Physics.SyncTransforms();
+                yield return null;
+                Vector3 wlN = wall.transform.forward;
+                float wlSide0 = Mathf.Sign(Vector3.Dot(wlFrom - wall.transform.position, wlN));
+                ss.ResetCooldowns();
+                yield return CastSequence("LR", expectReady: null);
+                ss.SetChanneling(false);
+                yield return new WaitForSeconds(0.4f);
+                Vector3 wlMoved = player.transform.position - wlFrom;
+                wlMoved.y = 0f;
+                float wlSlide = Vector3.Cross(sbDir, wlMoved).magnitude; // sideways, along the wall
+                float wlGap = Vector3.Dot(player.transform.position - wall.transform.position, wlN) * wlSide0;
+                Check($"at an angle it slides along the wall ({wlSlide:0.0} m sideways, {wlGap:0.00} m in front of it) and never clips in",
+                    wlSlide > 0.8f && wlGap > 0.3f && !PlayerInSolid(player));
+                UnityEngine.Object.Destroy(wall);
+                yield return null;
+
+                // Momentum: dashing while running; the run carries on after it.
+                player.Teleport(d.FindFreeSpot(d.Current, d.Current.Center, 0.8f) + Vector3.up * 0.1f, 0f);
+                yield return null;
+                sbYaw = ClearHeading(player, 9f);
+                player.SetLook(sbYaw, 0f);
+                ss.ResetCooldowns();
+                ss.SetChanneling(false);
+                ss.ClearFreshPressForTest();
+                Settings.SetCastingStyle(CastingStyle.Momentum);
+                void MdFrame(bool mdHeld, int mdPress = -1, int mdHold = -1)
+                {
+                    var mdPr = new bool[4]; var mdHd = new bool[4];
+                    if (mdPress >= 0) { mdPr[mdPress] = true; mdHd[mdPress] = true; }
+                    if (mdHold >= 0) mdHd[mdHold] = true;
+                    ss.ProcessMomentumInput(mdHeld, mdPr, mdHd, Time.deltaTime);
+                }
+                MdFrame(true, mdHold: 0);        // cast key down while W is held: run forward
+                yield return null;
+                MdFrame(true);                 // W released
+                yield return new WaitForSeconds(0.3f);
+                int mdDashes = player.DashCount;
+                MdFrame(true, mdPress: 1);       // A: left
+                yield return null;
+                MdFrame(true);
+                MdFrame(true, mdPress: 3);       // D: right -> Blink Dash
+                yield return null;
+                bool mdDashing = player.Dashing;
+                yield return new WaitForSeconds(0.45f);
+                float mdWant = run.MoveSpeed * MomentumConfig.SpeedMultiplier;
+                Check($"Momentum: A D dashes while running, and the run carries on after it (speed {player.PlanarSpeed:0.0} of {mdWant:0.0}, still running: {player.AutoForward})",
+                    player.DashCount == mdDashes + 1 && mdDashing && ss.InMomentum && player.AutoForward && Mathf.Abs(player.PlanarSpeed - mdWant) < 0.6f);
+                for (int mdI = 0; mdI < 20 && ss.Channeling; mdI++) { MdFrame(false); yield return null; }
+                Settings.SetCastingStyle(CastingStyle.Classic);
+                ss.SetChanneling(false);
+                yield return new WaitForSeconds(0.3f);
+
+                // Quickening: +30% speed and 3 HP/s for 6 s; the health bar glows, no "+N" pop.
+                gs.ClearEnemies();
+                ss.ResetCooldowns();
+                run.HasteTimer = 0f;
+                float qkBase = run.MoveSpeed;
+                player.Heal(player.MaxHP);
+                player.TakeDamage(40f);
+                yield return new WaitForSeconds(0.7f); // the hurt flash and any heal pop fade
+                float qkHp = player.HP;
+                sbEvents.Clear();
+                yield return CastSequence("DUD", expectReady: null);
+                ss.SetChanneling(false);
+                bool qkOn = run.Quickened && Mathf.Abs(run.QuickenTimer - 6f) < 0.3f;
+                float qkSpeed = run.MoveSpeed;
+                yield return new WaitForSeconds(1f);
+                float qkHealed = player.HP - qkHp;
+                bool qkQuiet = player.HealFlash <= 0f;
+                yield return Shot("24b_quickening_hud");
+                Check($"Quickening goes off at once: speed {qkBase:0.00} -> {qkSpeed:0.00} (+30%), {qkHealed:0.0} HP back in 1 s (3 x spell power {run.Stats.Power:0.00}), on: {qkOn}, the bar glows instead of a +N pop (events {string.Join(", ", sbEvents)})",
+                    sbEvents.Contains("instant Quickening") && qkOn && Mathf.Abs(qkSpeed - qkBase * 1.3f) < 0.01f && Mathf.Abs(qkHealed - 3f * run.Stats.Power) < 0.6f && qkQuiet);
+                Check($"Quickening also speeds up Momentum's running ({run.MoveSpeed * MomentumConfig.SpeedMultiplier:0.00} vs {qkBase * MomentumConfig.SpeedMultiplier:0.00})",
+                    run.MoveSpeed * MomentumConfig.SpeedMultiplier > qkBase * MomentumConfig.SpeedMultiplier * 1.29f);
+                float qkLeft = run.QuickenTimer;
+                ss.ResetCooldowns();
+                yield return CastSequence("DUD", expectReady: null);
+                ss.SetChanneling(false);
+                Check($"recasting refreshes it ({qkLeft:0.0} s left -> {run.QuickenTimer:0.0} s) without stacking (speed {run.MoveSpeed:0.00})",
+                    run.QuickenTimer > 5.7f && run.QuickenTimer <= 6.01f && Mathf.Abs(run.MoveSpeed - qkBase * 1.3f) < 0.01f);
+                run.HasteTimer = 5f;
+                float qkBoth = run.MoveSpeed;
+                Check($"the Haste potion stacks with it ({qkBoth:0.00} = {qkBase:0.00} x 1.35 x 1.3)", Mathf.Abs(qkBoth - qkBase * 1.35f * 1.3f) < 0.01f);
+                run.HasteTimer = 0f;
+                // The dash distance doesn't grow with the speed bonus.
+                player.Teleport(d.FindFreeSpot(d.Current, d.Current.Center, 0.8f) + Vector3.up * 0.1f, 0f);
+                yield return null;
+                sbYaw = ClearHeading(player, 9f);
+                player.SetLook(sbYaw, 0f);
+                sbFrom = player.transform.position;
+                ss.ResetCooldowns();
+                yield return CastSequence("LR", expectReady: null);
+                ss.SetChanneling(false);
+                yield return new WaitForSeconds(0.4f);
+                sbMoved = player.transform.position - sbFrom;
+                sbMoved.y = 0f;
+                Check($"Blink Dash goes as far while Quickened ({sbMoved.magnitude:0.00} m, {sbDist0:0.00} m without)", Mathf.Abs(sbMoved.magnitude - sbDist0) < 0.15f);
+                run.QuickenTimer = 0.05f;
+                yield return new WaitForSeconds(0.2f);
+                Check($"when it ends the speed is back ({run.MoveSpeed:0.00})", !run.Quickened && Mathf.Abs(run.MoveSpeed - qkBase) < 0.01f);
+                ss.Event -= sbHook;
+
+                // Grimoire: every card does something to both spells (Blank: nothing).
+                var sbNoEffect = new List<string>();
+                foreach (var sbCard in Grimoire.Cards.All)
+                    foreach (var sbSp in new[] { bdSpell, qkSpell })
+                    {
+                        var sbReq = new CastRequest { Spell = sbSp };
+                        Grimoire.Cards.Apply(sbCard, new Grimoire.CardContext { Request = sbReq, Spell = sbSp, Shape = Grimoire.Cards.ShapeOf(sbSp), Player = player });
+                        bool sbChanged = CardChanged(sbReq);
+                        if (sbCard.Id == "blank" ? sbChanged : !sbChanged) sbNoEffect.Add(sbCard.Name + " on " + sbSp.Name);
+                    }
+                Check($"every Grimoire card changes Blink Dash and Quickening, Blank changes nothing ({(sbNoEffect.Count == 0 ? "all ok" : string.Join(", ", sbNoEffect))})", sbNoEffect.Count == 0);
+
+                // Cards on the dash, played for real.
+                IEnumerator CardDash(string cdCard)
+                {
+                    player.Teleport(d.FindFreeSpot(d.Current, d.Current.Center, 0.8f) + Vector3.up * 0.1f, 0f);
+                    yield return null;
+                    float cdYaw = ClearHeading(player, 12f);
+                    player.SetLook(cdYaw, 0f);
+                    ss.ResetCooldowns();
+                    yield return null;
+                }
+                void PlayCard(SpellDefinition pcSpell, string pcCard)
+                {
+                    var pcReq = new CastRequest { Spell = pcSpell };
+                    Grimoire.Cards.Apply(Grimoire.Cards.Get(pcCard), new Grimoire.CardContext { Request = pcReq, Spell = pcSpell, Shape = Grimoire.Cards.ShapeOf(pcSpell), Player = player });
+                    if (pcReq.Fizzle) return;
+                    foreach (var pcM in pcReq.Copies) new SpellCast(pcSpell, player) { Power = run.Stats.Power * pcM.DamageMult, Mods = pcM }.Launch();
+                    pcReq.AfterLaunch?.Invoke();
+                }
+                Vector3 AheadOf(float aoDist, float aoSide = 0f) =>
+                    player.transform.position + Quaternion.Euler(0f, player.Yaw, 0f) * new Vector3(aoSide, 0f, aoDist);
+
+                yield return CardDash("split");
+                int cdN = player.DashCount;
+                PlayCard(bdSpell, "split");
+                yield return new WaitForSeconds(0.8f);
+                Check($"Split: three short dashes chained ({player.DashCount - cdN})", player.DashCount == cdN + 3);
+
+                yield return CardDash("echo");
+                cdN = player.DashCount;
+                PlayCard(bdSpell, "echo");
+                yield return new WaitForSeconds(0.3f);
+                int cdEarly = player.DashCount - cdN;
+                yield return new WaitForSeconds(0.5f);
+                Check($"Echo: a second dash 0.5 s later ({cdEarly} after 0.3 s, {player.DashCount - cdN} after 0.8 s)", cdEarly == 1 && player.DashCount == cdN + 2);
+
+                yield return CardDash("pierce");
+                var cdVictim = EnemySpawner.Instance.SpawnAt(EnemyType.Cultist, AheadOf(3f));
+                yield return new WaitForSeconds(0.2f);
+                if (cdVictim) cdVictim.Freeze(4f);
+                PlayCard(bdSpell, "pierce");
+                yield return new WaitForSeconds(0.4f);
+                Check($"Pierce: the dash hurts the enemy it passes through ({(cdVictim ? cdVictim.HP : 0):0}/{(cdVictim ? cdVictim.MaxHP : 0):0})", cdVictim && cdVictim.HP < cdVictim.MaxHP);
+                gs.ClearEnemies();
+
+                yield return CardDash("burning");
+                int cdLava = LavaPool.All.Count;
+                float cdHp = player.HP;
+                PlayCard(bdSpell, "burning");
+                yield return new WaitForSeconds(1.2f);
+                Check($"Burning: a trail of fire ({LavaPool.All.Count - cdLava} patches) that never burns you (HP {cdHp:0} -> {player.HP:0})",
+                    LavaPool.All.Count - cdLava >= 3 && Mathf.Approximately(player.HP, cdHp));
+
+                yield return CardDash("frozen");
+                var cdIce = EnemySpawner.Instance.SpawnAt(EnemyType.Cultist, AheadOf(-2.5f));
+                var cdPush = EnemySpawner.Instance.SpawnAt(EnemyType.Cultist, AheadOf(0f, 2.5f));
+                yield return new WaitForSeconds(0.2f);
+                if (cdPush) cdPush.Freeze(4f);
+                PlayCard(bdSpell, "frozen");
+                yield return null;
+                Check("Frozen: enemies where the dash starts are frozen", cdIce && cdIce.IsFrozen);
+                Vector3 cdStart = player.transform.position;
+                float cdPush0 = cdPush ? Vector3.Distance(cdPush.transform.position, cdStart) : 0f;
+                ss.ResetCooldowns();
+                PlayCard(bdSpell, "wide");
+                yield return new WaitForSeconds(0.5f);
+                float cdPush1 = cdPush ? Vector3.Distance(cdPush.transform.position, cdStart) : 0f;
+                Check($"Wide: a knockback burst where the dash starts ({cdPush0:0.0} -> {cdPush1:0.0} m)", cdPush && cdPush1 > cdPush0 + 1f);
+                gs.ClearEnemies();
+
+                // Cards on Quickening.
+                yield return new WaitForSeconds(0.3f);
+                var cdBurn = EnemySpawner.Instance.SpawnAt(EnemyType.Cultist, AheadOf(1.1f));
+                var cdSlow = EnemySpawner.Instance.SpawnAt(EnemyType.Cultist, AheadOf(-3f));
+                yield return new WaitForSeconds(0.2f);
+                // Put them exactly in place (a spawn can be nudged to a free spot further away).
+                if (cdBurn) { cdBurn.Warp(AheadOf(1.1f)); cdBurn.Freeze(4f); }
+                if (cdSlow) { cdSlow.Warp(AheadOf(-3f)); cdSlow.Freeze(4f); }
+                PlayCard(qkSpell, "burning");
+                yield return new WaitForSeconds(0.7f);
+                Check($"Quickening + Burning: enemies touching you catch fire ({(cdBurn ? Vector3.Distance(cdBurn.transform.position, player.transform.position) : -1f):0.0} m away, burning {(cdBurn && cdBurn.IsBurning)})", cdBurn && cdBurn.IsBurning);
+                PlayCard(qkSpell, "frozen");
+                yield return new WaitForSeconds(1.2f);
+                Check("Quickening + Frozen: enemies near you are slowed while it lasts", cdSlow && cdSlow.IsSlowed);
+                gs.ClearEnemies();
+                player.ChillTimer = 3f;
+                PlayCard(qkSpell, "pierce");
+                Check("Quickening + Pierce: clears your slows", player.ChillTimer <= 0f);
+                PlayCard(qkSpell, "echo");
+                Check($"Quickening + Echo: lasts 50% longer ({run.QuickenTimer:0.0} s)", Mathf.Abs(run.QuickenTimer - 9f) < 0.1f);
+                PlayCard(qkSpell, "overload");
+                Check($"Quickening + Overload: lasts twice as long ({run.QuickenTimer:0.0} s)", Mathf.Abs(run.QuickenTimer - 12f) < 0.1f);
+                PlayCard(qkSpell, "amplify");
+                Check($"Quickening + Amplify: +50% speed and regen ({run.QuickenSpeed:0.00} speed, {run.QuickenRegen:0.0} HP/s)",
+                    Mathf.Abs(run.QuickenSpeed - 0.45f) < 0.01f && Mathf.Abs(run.QuickenRegen - 4.5f * run.Stats.Power) < 0.05f);
+                PlayCard(qkSpell, "split");
+                Check($"Quickening + Split (solo): +1 regen ({run.QuickenRegen:0.0} HP/s)", Mathf.Abs(run.QuickenRegen - (3f * run.Stats.Power + 1f)) < 0.05f);
+                run.QuickenTimer = 0f;
+
+                // Forge: they fuse like any spell (the result is Readied, with a long rune).
+                var fgOk = SpellForge.TryCombine(Spell("Fireball"), bdSpell, new List<SpellDefinition> { Spell("Fireball"), bdSpell }, out var fgMade, out var fgErr);
+                var fgPairOk = SpellForge.TryCombine(Spell("Frost Shard"), Spell("Lightning"), new List<SpellDefinition> { Spell("Frost Shard"), Spell("Lightning") }, out var fgPair, out var fgPairErr);
+                Check($"Frost Shard (←...) + Lightning (→...) still fuse although ← → is Blink Dash's rune ({(fgPair != null ? Arrows.Glyphs(fgPair.Sequence) : fgPairErr)})",
+                    fgPairOk && fgPair != null && sbBases.All(fgB2 => !Arrows.Conflicts(fgB2.Sequence, fgPair.Sequence)));
+                Check($"the Forge fuses Fireball + Blink Dash into {fgMade?.Name} ({(fgMade != null ? Arrows.Glyphs(fgMade.Sequence) : fgErr)}), Readied, still dashing",
+                    fgOk && fgMade != null && !fgMade.IsInstant && fgMade.Sequence.Length >= 5 && fgMade.Payload.Exists(fgE => fgE is DashEffect)
+                    && sbBases.All(fgB => !Arrows.Conflicts(fgB.Sequence, fgMade.Sequence)));
+
+                // An old save with a forged spell whose rune now starts with ← →: it gets a new rune when loaded.
+                var fxS0 = ss.SaveState();
+                SpellForge.TryCombine(Spell("Frost Shard"), Spell("Lightning"), new List<SpellDefinition> { Spell("Frost Shard"), Spell("Lightning") }, out var fxOld, out var fxErr);
+                if (fxOld == null) Log("forge for the old-save test failed: " + fxErr);
+                if (fxOld != null) fxOld.Sequence = Arrows.Parse("LRUD");
+                var fxS1 = ss.SaveState();
+                if (fxOld != null) fxS1.known.Add(SpellCodec.ToData(fxOld));
+                ss.LoadState(fxS1);
+                var fxGot = SpellBook.Known.Last();
+                bool fxFree = true;
+                var fxBook = SpellBook.Known;
+                for (int fxI = 0; fxI < fxBook.Count; fxI++)
+                    for (int fxJ = fxI + 1; fxJ < fxBook.Count; fxJ++)
+                        if (Arrows.Conflicts(fxBook[fxI].Sequence, fxBook[fxJ].Sequence)) fxFree = false;
+                Check($"an old forged spell whose rune Blink Dash now blocks gets a new one on load (LRUD -> {Arrows.ToText(fxGot.Sequence)}, toast \"{run.ToastTitle}\")",
+                    fxGot.IsForged && fxGot.Sequence[0] == Arrow.Left && Arrows.ToText(fxGot.Sequence) != "LRUD" && fxFree && run.ToastTitle != null && run.ToastTitle.StartsWith("New rune"));
+                ss.LoadState(fxS0);
+                ss.ResetCooldowns();
+                player.God = true;
+                player.Heal(player.MaxHP);
+                gs.ClearEnemies();
+                yield return new WaitForSeconds(0.5f);
+            }
 
             // Quake: stuns and damages everything around
             var ringQ = new List<Enemy>();
@@ -2526,6 +2877,24 @@ namespace Spellcaster
                 ws.Reports.TryGetValue(wsClientId, out wsRep);
                 Check($"doors and deaths reach the client ({cbLocked} doors locked there; {wsRep.enemies} enemies left after the kill)", cbLocked > 0 && wsRep.enemies == 0);
 
+                // Blink Dash online: the client predicts it at once; the host plays it on the same movement frame.
+                if (wsOther)
+                {
+                    int bdHostDashes = wsOther.DashCount;
+                    Vector3 bdHostFrom = wsOther.transform.position;
+                    Net.NetCombat.Learn(wsOther, SpellBook.CreateBase(SelfSpellConfig.BlinkDashId));
+                    float bdT = 0f;
+                    while (bdT < 15f && wsOther.DashCount == bdHostDashes) { bdT += Time.unscaledDeltaTime; yield return null; }
+                    yield return new WaitForSecondsRealtime(2.5f);
+                    ws.Reports.TryGetValue(wsClientId, out wsRep);
+                    float bdGap = Vector3.Distance(wsRep.pos, wsOther.transform.position);
+                    var bdAv = wsOther.GetComponent<PlayerAvatar>();
+                    // Back to the book it had (the loot test below fuses its first two spells).
+                    Net.NetCombat.SetBook(wsOther, Net.NetCombat.BookJson(wsOther).Where(bdJ => !bdJ.Contains("\"" + SelfSpellConfig.BlinkDashId + "\"")).ToList());
+                    Check($"a client's Blink Dash: predicted on its PC, played by the host on the same movement frame ({wsOther.DashCount - bdHostDashes} dash on the host, {Vector3.Distance(bdHostFrom, wsOther.transform.position):0.0} m; client and host agree within {bdGap:0.00} m, last error {wsRep.lastError:0.000} m; {(bdAv ? bdAv.AfterimagesShown : 0)} afterimages)",
+                        wsOther.DashCount >= bdHostDashes + 1 && bdGap < 0.3f && bdAv && bdAv.AfterimagesShown > 0);
+                }
+
                 // A big fight: every enemy keeps getting updates on the client (the update is split to fit packets).
                 for (int bf = 0; bf < 34; bf++)
                 {
@@ -2622,10 +2991,11 @@ namespace Spellcaster
                     wsOther.Teleport(ltRoom.Center + new Vector3(0f, 0.1f, 0f), 0f);
                     yield return new WaitForSecondsRealtime(0.4f);
                     bool ltGathering = d.GatherRoom == ltRoom && !d.InCombat && !ltRoom.Contains(player.transform.position, 0f);
+                    string ltAt = $"at 0.4 s: gather {d.GatherRoom?.Id ?? "none"}, fight {d.InCombat}, you in {ltRoom.Contains(player.transform.position, 0f)}, other in {ltRoom.Contains(wsOther.transform.position, 0f)}, current {d.Current?.Id}";
                     yield return new WaitForSecondsRealtime(Net.NetConfig.GatherSeconds + 0.6f);
                     ws.Reports.TryGetValue(wsClientId, out wsRep);
                     var ltScale = Net.NetConfig.ScaleFor(2);
-                    Check($"stepping into a fight room starts a {Net.NetConfig.GatherSeconds:0}s countdown, then everyone is pulled in and the doors close (scaled for 2: HP x{d.LastScale.hp}, enemies x{d.LastScale.count}; doors locked on their screen: {wsRep.gatesLocked})",
+                    Check($"stepping into a fight room starts a {Net.NetConfig.GatherSeconds:0}s countdown, then everyone is pulled in and the doors close (scaled for 2: HP x{d.LastScale.hp}, enemies x{d.LastScale.count}; doors locked on their screen: {wsRep.gatesLocked}; countdown started {ltGathering} [gather {d.GatherRoom?.Id ?? "none"} vs {ltRoom.Id}], fight on {d.InCombat}, you pulled in {ltRoom.Contains(player.transform.position, 0f)}, other in it {ltRoom.Contains(wsOther.transform.position, 0f)}; {ltAt})",
                         ltGathering && d.InCombat && ltRoom.Contains(player.transform.position, 0f) && d.LastScale == ltScale && wsRep.gatesLocked > 0);
                     yield return new WaitForSecondsRealtime(1.5f);
                     gs.ClearEnemies();
@@ -2939,6 +3309,34 @@ namespace Spellcaster
         }
 
         static SpellDefinition Spell(string name) => SpellBook.Known.First(s => s.Name == name);
+
+        /// <summary>A direction (yaw) with nothing solid for `dist` metres from where the player stands.</summary>
+        static float ClearHeading(Player p, float dist)
+        {
+            Vector3 from = p.transform.position + Vector3.up * 0.9f;
+            for (int a = 0; a < 360; a += 15)
+            {
+                Vector3 dir = Quaternion.Euler(0f, a, 0f) * Vector3.forward;
+                if (!Physics.SphereCast(from, 0.5f, dir, out _, dist, Layers.SolidMask, QueryTriggerInteraction.Ignore)) return a;
+            }
+            return 0f;
+        }
+
+        /// <summary>The player's body overlaps a wall or prop (clipped into geometry).</summary>
+        static bool PlayerInSolid(Player p)
+        {
+            Vector3 b = p.transform.position;
+            return Physics.CheckCapsule(b + Vector3.up * 0.45f, b + Vector3.up * 1.35f, 0.33f, Layers.SolidMask, QueryTriggerInteraction.Ignore);
+        }
+
+        /// <summary>A card changed this cast in some way (Blink Dash / Quickening card tests).</summary>
+        static bool CardChanged(CastRequest r)
+        {
+            if (r.Copies.Count != 1 || r.CooldownMult != 1f || r.ResetCooldown || r.Fizzle || r.EchoDelay > 0f || r.AfterLaunch != null) return true;
+            var m = r.Copies[0];
+            return m.DamageMult != 1f || m.RangeMult != 1f || m.AreaMult != 1f || m.SizeMult != 1f || m.DashPierce > 0f || m.DashTrail || m.DashEcho > 0f
+                || m.DurationMult != 1f || m.AllyRadius > 0f || m.ExtraRegen > 0f || m.Cleanse || m.BuffBurn || m.BuffFrost || m.OnHit != null;
+        }
         static int IndexOf(string name) => SpellBook.Known.FindIndex(s => s.Name == name);
 
         static Vector3 AheadPoint(Player p, float distance, float side)

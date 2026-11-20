@@ -33,6 +33,9 @@ namespace Spellcaster
         public bool StartsLocked;
         public bool IsAvailable => !StartsLocked || Progress.IsUnlocked("spell:" + Id);
         public bool IsForged => Tier > 1;
+        /// <summary>Readied (Left Click fires it) or Instant (goes off when the rune is complete). Forged spells are Readied.</summary>
+        public CastMode Mode => IsForged ? CastMode.Readied : SelfSpellConfig.ModeOf(Id);
+        public bool IsInstant => Mode == CastMode.Instant;
 
         /// <summary>Radius of the largest area this spell hits (nova, explosion, cloud), in metres; 0 = single target.</summary>
         public float AreaRadius

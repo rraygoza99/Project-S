@@ -72,6 +72,21 @@ namespace Spellcaster
             return p;
         }
 
+        /// <summary>The first thing in the way, skipping players who can't be hit right now (Blink Dash).</summary>
+        bool CastFirst(Vector3 dir, float len, out RaycastHit hit)
+        {
+            if (!Physics.SphereCast(transform.position, radius, dir, out hit, len, mask, QueryTriggerInteraction.Ignore)) return false;
+            if (!Untouchable(hit.collider)) return true;
+            var hits = Physics.SphereCastAll(transform.position, radius, dir, len, mask, QueryTriggerInteraction.Ignore);
+            Array.Sort(hits, ByDistance);
+            foreach (var h in hits)
+                if (!Untouchable(h.collider)) { hit = h; return true; }
+            return false;
+        }
+
+        static bool Untouchable(Collider c) =>
+            c && c.gameObject.layer == Layers.Player && c.GetComponent<Player>() is Player p && p.Invulnerable;
+
         void Update()
         {
             float dt = Time.deltaTime;
@@ -117,7 +132,7 @@ namespace Spellcaster
                     }
                     transform.position += step;
                 }
-                else if (Physics.SphereCast(transform.position, radius, dir, out var hit, len, mask, QueryTriggerInteraction.Ignore))
+                else if (CastFirst(dir, len, out var hit))
                 {
                     transform.position += dir * hit.distance;
                     DevMode.Sphere(transform.position, Mathf.Max(radius, 0.1f), (mask & Layers.PlayerMask) != 0 ? DevMode.EnemyShot : DevMode.PlayerShot, 0.35f);

@@ -103,6 +103,10 @@ namespace Spellcaster
             Add("freeze", 0.6f, (t, d) => (Sin(2400 * t + Sin(7 * t)) * 0.15f + Sin(3150 * t) * 0.1f + Noise() * 0.15f * Env(t, 0.15f, 1)) * Env(t, d, 1.2f));
             Add("heal", 0.6f, (t, d) => (Sin(Slide(t, d, 523, 784)) * 0.25f + Sin(Slide(t, d, 659, 1046)) * 0.15f) * Mathf.Sin(Mathf.PI * t / d));
             Add("burn", 0.25f, (t, d) => Noise() * 0.3f * Env(t, d, 1) * (0.6f + 0.4f * Sin(30 * t)));
+            // whoosh: Blink Dash, a short airy swell (no bang)
+            Add("whoosh", 0.22f, (t, d) => { float sw = Mathf.Sin(Mathf.PI * t / d); return (Noise() * 0.28f * sw * sw + Sin(Slide(t, d, 320, 110)) * 0.08f * sw); });
+            // quicken: Quickening, a quick rising shimmer
+            Add("quicken", 0.5f, (t, d) => (Sin(Slide(t, d, 440, 990)) * 0.18f + Sin(Slide(t, d, 660, 1480)) * 0.08f * (0.5f + 0.5f * Sin(40 * t))) * Mathf.Sin(Mathf.PI * t / d));
             Add("shatter", 0.4f, (t, d) => (Noise() * 0.4f + Sin(3700 * t) * 0.2f + Sin(5100 * t) * 0.15f) * Env(t, d, 3));
 
             // --- generic creature fallbacks ---

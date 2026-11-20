@@ -80,7 +80,73 @@ namespace Spellcaster
         public Color ToastColor { get; private set; }
         public float ToastTimer { get; private set; }
 
-        public float MoveSpeed => Stats.MoveSpeed * (HasteTimer > 0f ? 1.35f : 1f);
+        public float MoveSpeed => Stats.MoveSpeed * SpeedBuff;
+
+        /// <summary>Haste potion and Quickening: they multiply, or only the bigger counts (SelfSpellConfig.StacksWithHaste).</summary>
+        float SpeedBuff
+        {
+            get
+            {
+                float haste = HasteTimer > 0f ? 1.35f : 1f, quick = Quickened ? 1f + QuickenSpeed : 1f;
+                return SelfSpellConfig.StacksWithHaste ? haste * quick : Mathf.Max(haste, quick);
+            }
+        }
+
+        // ---------------- Quickening (a timed buff; SelfSpells.cs) ----------------
+
+        /// <summary>Seconds of Quickening left, its speed bonus (0.3 = +30%) and HP per second.</summary>
+        public float QuickenTimer, QuickenSpeed, QuickenRegen;
+        /// <summary>The longest it lasted this time (HUD timer ring), and the card extras.</summary>
+        public float QuickenLength;
+        public bool QuickenBurn, QuickenFrost;
+        public bool Quickened => QuickenTimer > 0f;
+        float quickenBurnTick, quickenFrostTick;
+
+        /// <summary>Starts Quickening, or refreshes it: the new cast replaces the old one, it never stacks.</summary>
+        public void Quicken(QuickenBuff b)
+        {
+            QuickenTimer = QuickenLength = Mathf.Max(0.01f, b.seconds);
+            QuickenSpeed = b.speed;
+            QuickenRegen = b.regen;
+            QuickenBurn = b.burn;
+            QuickenFrost = b.frost;
+        }
+
+        void TickQuicken(float dt)
+        {
+            if (QuickenTimer <= 0f) return;
+            float step = Mathf.Min(dt, QuickenTimer);
+            QuickenTimer -= dt;
+            if (Net.NetSession.IsClientOnly || !Owner || Owner.IsDead) return; // the host heals and burns
+            // Regen counts as healing (the "heal" achievement); no item reacts to healing, so it can't loop.
+            if (QuickenRegen > 0f) Owner.Heal(QuickenRegen * step, quiet: true);
+            Vector3 at = Owner.transform.position;
+            if (QuickenBurn && (quickenBurnTick -= dt) <= 0f)
+            {
+                quickenBurnTick = 0.5f;
+                float dps = Grimoire.GrimoireConfig.BurnDps * Stats.Power;
+                foreach (var e in Enemy.All.ToArray())
+                    if (e.IsAlive && Flat(e.transform.position - at) <= SelfSpellConfig.QuickenBurnRadius + e.Type.Radius * 0.5f)
+                        e.Ignite(dps, Grimoire.GrimoireConfig.BurnSeconds);
+            }
+            if (QuickenFrost && (quickenFrostTick -= dt) <= 0f)
+            {
+                quickenFrostTick = 1f;
+                foreach (var e in Enemy.All.ToArray())
+                    if (e.IsAlive && Flat(e.transform.position - at) <= SelfSpellConfig.QuickenFrostRadius)
+                        e.Slow(Grimoire.GrimoireConfig.SlowFactor, Grimoire.GrimoireConfig.SlowSeconds);
+            }
+        }
+
+        static float Flat(Vector3 d) { d.y = 0f; return d.magnitude; }
+
+        float quickenPredictedAt = -10f;
+        /// <summary>Co-op client: the buff starts at once here (the host applies the real one and sends it back).</summary>
+        public void PredictQuicken(QuickenBuff b)
+        {
+            Quicken(b);
+            quickenPredictedAt = Time.time;
+        }
         public float CooldownMult => Stats.CooldownMult * (HasteTimer > 0f ? 0.5f : 1f);
 
         void Awake() => Enemy.Killed += OnKilled;
@@ -129,6 +195,7 @@ namespace Spellcaster
             for (int i = 0; i < Slots; i++) Consumables[i] = i < s.consumables.Count ? Spellcaster.Items.Resolve(s.consumables[i]) : null;
             JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(s.stats), Stats);
             HasteTimer = SlowTimer = 0f;
+            QuickenTimer = 0f; // buffs are not saved
             if (GameState.Instance) GameState.Instance.RestoreTotals(s.kills, s.runTime);
             Progress.NewThisRun.Clear();
             foreach (var r in s.newAchievements) { var a = Progress.All.FirstOrDefault(x => x.Reward == r); if (a != null) Progress.NewThisRun.Add(a); }
@@ -137,6 +204,7 @@ namespace Spellcaster
         void Update()
         {
             HasteTimer = Mathf.Max(0f, HasteTimer - Time.deltaTime);
+            TickQuicken(Time.deltaTime);
             SlowTimer = Mathf.Max(0f, SlowTimer - Time.deltaTime);
             frozenHeartCooldown = Mathf.Max(0f, frozenHeartCooldown - Time.deltaTime);
             ToastTimer = Mathf.Max(0f, ToastTimer - Time.deltaTime);
@@ -245,6 +313,9 @@ namespace Spellcaster
             EssenceBadLuck = n.essenceBadLuck;
             EssenceRolls = n.essenceRolls;
             HasteTimer = n.haste;
+            // A Quickening this client just predicted isn't in the host's state yet: keep it for a moment.
+            if (n.quicken > 0f || Time.time - quickenPredictedAt > 0.5f) QuickenTimer = n.quicken;
+            if (n.quicken > 0f) { QuickenSpeed = n.quickenSpeed; QuickenRegen = n.quickenRegen; QuickenLength = Mathf.Max(n.quickenLength, 0.01f); }
             Items.Clear();
             foreach (var id in n.items) { var it = Spellcaster.Items.Resolve(id); if (it != null) Items.Add(it); }
             for (int i = 0; i < Slots; i++) Consumables[i] = i < n.consumables.Count ? Spellcaster.Items.Resolve(n.consumables[i]) : null;

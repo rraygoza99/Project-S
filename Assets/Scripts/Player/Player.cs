@@ -1,3 +1,4 @@
+using System.Linq;
 using UnityEngine;
 
 namespace Spellcaster
@@ -124,8 +125,15 @@ namespace Spellcaster
             public Vector2 wish;      // x = right, y = forward, length up to 1 (keys already masked)
             public byte flags;
             public Vector2 autoDir;   // Momentum run direction relative to the camera (x, z)
+            /// <summary>
+            /// A Blink Dash cast this frame, as this PC predicts it (a co-op client replays these; the host ignores
+            /// them and plays the cast itself on the frame flagged <see cref="FlagDash"/>): metres per dash, how
+            /// many chain, and an echo dash's delay.
+            /// </summary>
+            public float dashDist, dashEcho;
+            public byte dashCount;
         }
-        public const byte FlagChanneling = 1, FlagAutoForward = 2, FlagHoldStill = 4, FlagCasting = 8;
+        public const byte FlagChanneling = 1, FlagAutoForward = 2, FlagHoldStill = 4, FlagCasting = 8, FlagDash = 16;
 
         /// <summary>Everything a replay needs to continue from (host state for reconciliation).</summary>
         public struct SimState
@@ -133,6 +141,10 @@ namespace Spellcaster
             public Vector3 pos, planar;
             public float vertical, decel, chill;
             public bool wasAuto, wasStill;
+            /// <summary>Blink Dash: time left of the current dash, its velocity, no-damage time, and the dashes queued (distance, wait).</summary>
+            public float dash, iframes;
+            public Vector3 dashVel;
+            public Vector4 qDist, qWait;
         }
 
         /// <summary>The input this PC made last frame (sent to the host by NetPlayers).</summary>
@@ -146,6 +158,7 @@ namespace Spellcaster
             float dt = Time.deltaTime;
             HurtFlash = Mathf.Max(0f, HurtFlash - dt * 2.5f);
             HealFlash = Mathf.Max(0f, HealFlash - dt * 1.5f);
+            DashKick = Mathf.Max(0f, DashKick - dt * 5f);
             if (IsLocal) HandleCursor();
             if (IsLocal && Net.NetPlayers.Running) UpdateDownedView();
             if (IsDead || Mode != Control.Local) return; // others are moved by the network
@@ -196,8 +209,17 @@ namespace Spellcaster
             if (HoldStill) flags |= FlagHoldStill;
             var ss = SpellSystem.Instance;
             if (ss && (ss.Channeling || ss.Readied != null)) flags |= FlagCasting;
+            float dashDist = 0f, dashEcho = 0f;
+            byte dashCount = 0;
+            if (PendingDash.HasValue)
+            {
+                flags |= FlagDash;
+                (dashDist, dashCount, dashEcho) = PendingDash.Value;
+                PendingDash = null;
+            }
             return new MoveInput
             {
+                dashDist = dashDist, dashCount = dashCount, dashEcho = dashEcho,
                 seq = ++inputSeq, dt = dt, yaw = Yaw, pitch = Pitch, wish = wish, flags = flags,
                 autoDir = new Vector2(AutoDir.x, AutoDir.z),
             };
@@ -227,6 +249,20 @@ namespace Spellcaster
             wasStill = still;
             if (auto) decelTimer = 0f;
             else if (decelTimer > 0f) decelTimer -= dt;
+
+            // Blink Dash: a predicted cast (co-op client), then the queue, then the dash itself replaces walking.
+            if (input.dashDist > 0f)
+            {
+                for (int i = 0; i < input.dashCount; i++) QueueDash(input.dashDist, 0f);
+                if (input.dashEcho > 0f) QueueDash(input.dashDist, EchoWait(input.dashEcho));
+            }
+            iframes = Mathf.Max(0f, iframes - dt);
+            if (dashLeft <= 0f && qDist.x > 0f)
+            {
+                qWait.x -= dt;
+                if (qWait.x <= 0f) BeginDash();
+            }
+            if (dashLeft > 0f) { DashStep(dt); return; }
 
             Vector3 wish = auto || still ? Vector3.zero : new Vector3(input.wish.x, 0f, input.wish.y);
             if (wish.sqrMagnitude > 1f) wish.Normalize();
@@ -259,6 +295,7 @@ namespace Spellcaster
         {
             pos = transform.position, planar = planarVelocity, vertical = verticalVelocity,
             decel = decelTimer, chill = ChillTimer, wasAuto = wasAuto, wasStill = wasStill,
+            dash = dashLeft, iframes = iframes, dashVel = dashVel, qDist = qDist, qWait = qWait,
         };
 
         public void SetSimState(SimState s)
@@ -272,6 +309,11 @@ namespace Spellcaster
             ChillTimer = s.chill;
             wasAuto = s.wasAuto;
             wasStill = s.wasStill;
+            dashLeft = s.dash;
+            iframes = s.iframes;
+            dashVel = s.dashVel;
+            qDist = s.qDist;
+            qWait = s.qWait;
         }
 
         /// <summary>Snapshot playback for another player on a client: no physics, just where the host says.</summary>
@@ -436,7 +478,7 @@ namespace Spellcaster
             float want = AutoForward && Settings.MomentumCue ? Mathf.Clamp01(PlanarSpeed / Mathf.Max(0.1f, autoSpeed)) : 0f;
             bool wasOn = cue > 0f;
             cue = Mathf.MoveTowards(cue, want, dt * 5f);
-            Cam.fieldOfView = Settings.FieldOfView + MomentumConfig.CueFov * cue;
+            Cam.fieldOfView = Settings.FieldOfView + MomentumConfig.CueFov * cue + SelfSpellConfig.DashFovKick * Mathf.Sin(DashKick * Mathf.PI * 0.5f);
             if (cue > 0f)
             {
                 bobTime += dt * MomentumConfig.CueBobRate;
@@ -506,6 +548,7 @@ namespace Spellcaster
         public void TakeDamage(float amount)
         {
             if (IsDead || amount <= 0f) return;
+            if (Invulnerable) return; // Blink Dash: no damage during the dash and a moment after
             if (Net.NetSession.IsClientOnly) return; // in multiplayer the host decides damage; HP comes from it
             if (Run) amount *= Run.Stats.DamageTaken;
             HurtFlash = 1f;
@@ -526,13 +569,14 @@ namespace Spellcaster
             }
         }
 
-        public void Heal(float amount)
+        /// <summary>Heals. Quiet (regen ticks): no "+N" pop or flash; the health bar glows instead.</summary>
+        public void Heal(float amount, bool quiet = false)
         {
             if (IsDead) return;
             float before = HP;
             HP = Mathf.Min(MaxHP, HP + amount);
             float gained = HP - before;
-            if (gained > 0.05f)
+            if (gained > 0.05f && !quiet)
             {
                 LastHeal = HealFlash > 0.3f ? LastHeal + gained : gained;
                 HealFlash = 1f;
@@ -560,6 +604,127 @@ namespace Spellcaster
             cc.enabled = true;
             Fx.Flash(ChestPosition, color, 2.4f, 0.4f, 1.2f);
             Sfx.Play("zap", 0.6f, 1.4f);
+        }
+
+        // ---------------- Blink Dash ----------------
+
+        float dashLeft, iframes;
+        Vector3 dashVel;
+        Vector4 qDist, qWait;
+        float pathPierce;
+        bool pathTrail;
+        Vector3 lastTrail;
+        readonly System.Collections.Generic.HashSet<Enemy> pierced = new System.Collections.Generic.HashSet<Enemy>();
+        bool netDashing, netQuickened;
+
+        /// <summary>Dashing right now (enemy bodies and shots pass through you, walls don't).</summary>
+        public bool Dashing => dashLeft > 0f;
+        /// <summary>No damage: the dash and a moment after (traps and enemies can't hurt you, shots fly through).</summary>
+        public bool Invulnerable => iframes > 0f;
+        /// <summary>Dashes queued and not started yet (chained Split dashes, an Echo dash).</summary>
+        public int DashesQueued => (qDist.x > 0f ? 1 : 0) + (qDist.y > 0f ? 1 : 0) + (qDist.z > 0f ? 1 : 0) + (qDist.w > 0f ? 1 : 0);
+        /// <summary>Dashes started so far (tests).</summary>
+        public int DashCount { get; private set; }
+        /// <summary>0..1 view kick right after a dash starts (this PC's player).</summary>
+        public float DashKick { get; private set; }
+        /// <summary>Co-op client: a predicted Blink Dash for the next input (distance, how many, echo delay).</summary>
+        public (float dist, byte count, float echo)? PendingDash;
+
+        /// <summary>How others see this player: dashing (afterimage) and Quickened (tint).</summary>
+        public bool ShowDashing => Mode == Control.Interpolated ? netDashing : Dashing;
+        public bool ShowQuickened => Mode == Control.Interpolated ? netQuickened : Run && Run.Quickened;
+        public void SetNetFx(bool dashing, bool quickened) { netDashing = dashing; netQuickened = quickened; }
+
+        /// <summary>The wait before an Echo dash, counted from the end of the dash before it.</summary>
+        public static float EchoWait(float echoDelay) => Mathf.Max(0f, echoDelay - SelfSpellConfig.DashDuration);
+
+        /// <summary>
+        /// Queues a dash of `distance` metres along the view, `wait` seconds after the previous one ends
+        /// (at once when nothing is dashing). Up to four can wait. The direction is taken when it starts.
+        /// </summary>
+        public void QueueDash(float distance, float wait, float pierceDamage = 0f, bool fireTrail = false)
+        {
+            if (distance <= 0f) return;
+            if (qDist.x <= 0f) { qDist.x = distance; qWait.x = wait; }
+            else if (qDist.y <= 0f) { qDist.y = distance; qWait.y = wait; }
+            else if (qDist.z <= 0f) { qDist.z = distance; qWait.z = wait; }
+            else if (qDist.w <= 0f) { qDist.w = distance; qWait.w = wait; }
+            else return;
+            pathPierce = Mathf.Max(pathPierce, pierceDamage);
+            pathTrail |= fireTrail;
+        }
+
+        void BeginDash()
+        {
+            float dist = qDist.x;
+            qDist = new Vector4(qDist.y, qDist.z, qDist.w, 0f);
+            qWait = new Vector4(qWait.y, qWait.z, qWait.w, 0f);
+            float dur = Mathf.Max(0.01f, SelfSpellConfig.DashDuration);
+            Vector3 dir = Quaternion.Euler(0f, Yaw, 0f) * Vector3.forward; // the view, horizontal only
+            dashVel = dir * (dist / dur);
+            dashLeft = dur;
+            iframes = Mathf.Max(iframes, dur + SelfSpellConfig.DashExtraIFrames);
+            DashKick = 1f;
+            DashCount++;
+            lastTrail = transform.position;
+            if (pathTrail && Authority) Trail(transform.position);
+        }
+
+        void DashStep(float dt)
+        {
+            float step = Mathf.Min(dt, dashLeft);
+            dashLeft -= dt;
+            verticalVelocity = cc.isGrounded ? -2f : verticalVelocity - 20f * step;
+            // Enemy bodies don't stop you; walls and props do (the controller slides along them, never through).
+            var exclude = cc.excludeLayers;
+            cc.excludeLayers = exclude | Layers.EnemyBodyMask;
+            cc.Move((dashVel + Vector3.up * verticalVelocity) * step);
+            cc.excludeLayers = exclude;
+            // Leave the dash at base running speed (no buffs: the dash goes as far with Quickening), so Momentum
+            // or the keys carry on smoothly.
+            float run = Run ? Run.Stats.MoveSpeed : MoveSpeed;
+            planarVelocity = dashVel.sqrMagnitude > 1e-4f ? dashVel.normalized * run : Vector3.zero;
+            if (Authority) PathEffects();
+            if (dashLeft <= 0f && qDist.x <= 0f) { pathPierce = 0f; pathTrail = false; pierced.Clear(); }
+        }
+
+        /// <summary>This PC decides what happens to enemies (single-player or the host).</summary>
+        static bool Authority => !Net.NetSession.IsClientOnly;
+
+        /// <summary>Grimoire extras along the path: Pierce damages enemies dashed through, Burning leaves fire.</summary>
+        void PathEffects()
+        {
+            Vector3 pos = transform.position;
+            if (pathPierce > 0f)
+                foreach (var e in Enemy.All.ToArray())
+                {
+                    if (!e.IsAlive || pierced.Contains(e)) continue;
+                    Vector3 d = e.transform.position - pos;
+                    d.y = 0f;
+                    if (d.sqrMagnitude > 1.6f * 1.6f) continue;
+                    pierced.Add(e);
+                    e.TakeDamage(pathPierce, Element.Arcane);
+                    Fx.Flash(e.Center, new Color(0.55f, 0.95f, 0.95f), 1.4f, 0.3f, 1f);
+                }
+            if (pathTrail)
+            {
+                Vector3 d = pos - lastTrail;
+                d.y = 0f;
+                if (d.magnitude >= SelfSpellConfig.DashTrailSpacing) { Trail(pos); lastTrail = pos; }
+            }
+        }
+
+        static void Trail(Vector3 at)
+        {
+            var lp = LavaPool.CreateTemporary(at, SelfSpellConfig.DashTrailRadius, SelfSpellConfig.DashTrailSeconds);
+            if (lp) lp.SparePlayers = true;
+        }
+
+        /// <summary>Quickening + Pierce: clears your slows.</summary>
+        public void Cleanse()
+        {
+            ChillTimer = 0f;
+            Fx.Flash(ChestPosition, new Color(0.7f, 1f, 0.8f), 1.6f, 0.35f, 1f);
         }
 
         /// <summary>Keeps HP within a (possibly lowered) max.</summary>

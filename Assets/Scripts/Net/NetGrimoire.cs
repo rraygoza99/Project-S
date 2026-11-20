@@ -140,7 +140,7 @@ namespace Spellcaster.Net
             }
             r.deck.PlayNext();
             r.played++;
-            next.Def.Apply?.Invoke(new CardContext { Request = req, Spell = spell, Shape = Cards.ShapeOf(spell), Player = p });
+            Cards.Apply(next.Def, new CardContext { Request = req, Spell = spell, Shape = Cards.ShapeOf(spell), Player = p });
             req.Label = (spell != null ? spell.Name : "Bolt") + " + " + next.Def.Name;
             Send(p.NetId);
             return req;

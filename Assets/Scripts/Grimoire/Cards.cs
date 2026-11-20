@@ -120,6 +120,13 @@ namespace Spellcaster.Grimoire
 
         public static CardDef Get(string id) => All.FirstOrDefault(c => c.Id == id);
 
+        /// <summary>Plays a card on a cast: Blink Dash and Quickening have their own effect for every card (SelfSpells.cs).</summary>
+        public static void Apply(CardDef card, CardContext ctx)
+        {
+            if (SelfSpellCards.TryApply(card, ctx)) return;
+            card.Apply?.Invoke(ctx);
+        }
+
         /// <summary>Cards rooms can offer: every non-curse card except Blank.</summary>
         public static List<CardDef> RewardPool => All.Where(c => !c.IsCurse && c.Id != "blank").ToList();
 

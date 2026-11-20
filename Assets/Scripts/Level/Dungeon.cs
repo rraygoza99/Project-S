@@ -16,6 +16,8 @@ namespace Spellcaster
         public const float Spacing = 28f;      // grid cell size
         public const float Half = 13f;         // half the interior size
         public const float WallH = 5f;
+        /// <summary>Boss rooms are taller, so big boss sprites fit under the ceiling.</summary>
+        public const float BossWallH = 10f;
         public const float DoorW = 3.2f, DoorH = 3.6f;
         /// <summary>The classic run's last floor: its portal counts as a win, and the dungeon goes on (endless).</summary>
         public const int FinalFloor = Scenarios.ClassicFloors;
@@ -248,7 +250,8 @@ namespace Spellcaster
             Vector3 c = room.Center;
             var span = new Vector3(room.Size.x * Spacing, 1, room.Size.y * Spacing);
             Box(root, "Floor", c + new Vector3(0, -0.5f, 0), span, pal.Floor);
-            Box(root, "Ceiling", c + new Vector3(0, WallH + 0.5f, 0), span, pal.Ceiling);
+            float wallH = room.WallHeight;
+            Box(root, "Ceiling", c + new Vector3(0, wallH + 0.5f, 0), span, pal.Ceiling);
 
             // Walls go on every cell edge that leads out of the room; edges between the room's own cells stay open.
             foreach (var cell in room.Cells)
@@ -259,7 +262,7 @@ namespace Spellcaster
                     if (room.Owns(cell + dir)) continue;
                     var d3 = new Vector3(dir.x, 0, dir.y);
                     var along = new Vector3(Mathf.Abs(dir.y), 0, Mathf.Abs(dir.x)); // wall runs perpendicular to dir
-                    Vector3 wallCenter = cc + d3 * (Half + 0.5f) + Vector3.up * WallH * 0.5f;
+                    Vector3 wallCenter = cc + d3 * (Half + 0.5f) + Vector3.up * wallH * 0.5f;
                     Vector3 thick = new Vector3(Mathf.Abs(dir.x), 0, Mathf.Abs(dir.y)); // 1 m thickness axis
                     var door = room.Doors.FirstOrDefault(dr => (dr.Cell == cell && dr.Dir == dir) || (dr.Cell == cell + dir && dr.Dir == -dir));
 
@@ -272,13 +275,13 @@ namespace Spellcaster
 
                     if (door == null)
                     {
-                        Box(root, "Wall", wallCenter, along * Spacing + thick + Vector3.up * WallH, pal.Wall);
+                        Box(root, "Wall", wallCenter, along * Spacing + thick + Vector3.up * wallH, pal.Wall);
                         continue;
                     }
                     float seg = (Spacing - DoorW) * 0.5f;
                     foreach (float s in new[] { -1f, 1f })
-                        Box(root, "Wall", wallCenter + along * s * (DoorW * 0.5f + seg * 0.5f), along * seg + thick + Vector3.up * WallH, pal.Wall);
-                    float lintel = WallH - DoorH;
+                        Box(root, "Wall", wallCenter + along * s * (DoorW * 0.5f + seg * 0.5f), along * seg + thick + Vector3.up * wallH, pal.Wall);
+                    float lintel = wallH - DoorH;
                     Box(root, "Lintel", cc + d3 * (Half + 0.5f) + Vector3.up * (DoorH + lintel * 0.5f), along * DoorW + thick + Vector3.up * lintel, pal.Wall);
 
                     // One gate per doorway, built by the door's A room.

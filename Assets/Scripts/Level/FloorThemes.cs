@@ -83,7 +83,7 @@ namespace Spellcaster
             foreach (var q in new[] { new Vector2(-7, -7), new Vector2(7, -7), new Vector2(-7, 7), new Vector2(7, 7) })
             {
                 if (floor == 2) Crystals(room, pal, rng, c + new Vector3(q.x, 0f, q.y), 5);
-                else Pillar(room, pal.Pillar, c + new Vector3(q.x, 0f, q.y), 2f, Dungeon.WallH);
+                else Pillar(room, pal.Pillar, c + new Vector3(q.x, 0f, q.y), 2f, room.WallHeight);
             }
             if (floor == 2)
             {
@@ -113,10 +113,10 @@ namespace Spellcaster
                 {
                     var p = RandomPoint(room, rng);
                     float len = Rand(rng, 0.7f, 1.6f), w = Rand(rng, 0.35f, 0.8f);
-                    var g = Dungeon.Box(room.Root, "Stalactite", p + Vector3.up * (Dungeon.WallH - len * 0.5f), new Vector3(w, len, w), rock);
+                    var g = Dungeon.Box(room.Root, "Stalactite", p + Vector3.up * (room.WallHeight - len * 0.5f), new Vector3(w, len, w), rock);
                     Object.DestroyImmediate(g.GetComponent<Collider>());
                     g.transform.rotation = Quaternion.Euler(0f, Rand(rng, 0f, 90f), 0f);
-                    var tip = Dungeon.Box(g.transform.parent, "StalactiteTip", p + Vector3.up * (Dungeon.WallH - len - 0.25f), new Vector3(w * 0.45f, 0.5f, w * 0.45f), rock);
+                    var tip = Dungeon.Box(g.transform.parent, "StalactiteTip", p + Vector3.up * (room.WallHeight - len - 0.25f), new Vector3(w * 0.45f, 0.5f, w * 0.45f), rock);
                     Object.DestroyImmediate(tip.GetComponent<Collider>());
                 }
             }
@@ -134,8 +134,8 @@ namespace Spellcaster
                 for (int i = 3 + 2 * room.CellCount; i > 0; i--)
                 {
                     var p = RandomPoint(room, rng);
-                    float len = Rand(rng, 0.8f, 2f);
-                    var g = Dungeon.Box(room.Root, "Chain", p + Vector3.up * (Dungeon.WallH - len * 0.5f), new Vector3(0.12f, len, 0.12f), iron);
+                    float len = Rand(rng, 0.8f, 2f) * (room.WallHeight / Dungeon.WallH); // longer chains under a high ceiling
+                    var g = Dungeon.Box(room.Root, "Chain", p + Vector3.up * (room.WallHeight - len * 0.5f), new Vector3(0.12f, len, 0.12f), iron);
                     Object.DestroyImmediate(g.GetComponent<Collider>());
                 }
             }
@@ -272,7 +272,7 @@ namespace Spellcaster
                     {
                         float a = (45f + k * 90f) * Mathf.Deg2Rad;
                         var p = o + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * 7f;
-                        Pillar(room, pal.Pillar, p, 1.6f, Dungeon.WallH);
+                        Pillar(room, pal.Pillar, p, 1.6f, room.WallHeight);
                         var fire = Fx.CreateQuad(room.Root, new Color(1f, 0.5f, 0.12f, 0.9f), 1.1f);
                         fire.transform.position = p + Vector3.up * 2.4f + (o - p).normalized * 0.95f;
                     }
@@ -347,9 +347,13 @@ namespace Spellcaster
             for (int i = 0; i < Count; i++) Respawn(i, p, true);
         }
 
+        /// <summary>The ceiling of the room you're in (boss rooms are taller).</summary>
+        static float CeilingHere => Dungeon.Instance && Dungeon.Instance.Current != null ? Dungeon.Instance.Current.WallHeight : Dungeon.WallH;
+
         void Respawn(int i, Vector3 around, bool anywhere)
         {
-            float y = anywhere ? Random.Range(0.2f, Dungeon.WallH - 0.2f) : (floor == 2 ? Dungeon.WallH - 0.1f : floor >= 3 ? 0.15f : Random.Range(0.2f, Dungeon.WallH - 0.2f));
+            float h = CeilingHere;
+            float y = anywhere ? Random.Range(0.2f, h - 0.2f) : (floor == 2 ? h - 0.1f : floor >= 3 ? 0.15f : Random.Range(0.2f, h - 0.2f));
             motes[i].position = new Vector3(around.x + Random.Range(-Range, Range), y, around.z + Random.Range(-Range, Range));
             phase[i] = Random.value * 10f;
             Color c;
@@ -388,7 +392,7 @@ namespace Spellcaster
                 Vector3 sway = floor == 2 ? new Vector3(Mathf.Sin(phase[i] * 1.3f), 0f, Mathf.Cos(phase[i])) * 0.25f : Vector3.zero;
                 Vector3 pos = t.position + (vel[i] + sway) * dt;
                 Vector3 d = pos - p;
-                if (Mathf.Abs(d.x) > Range || Mathf.Abs(d.z) > Range || pos.y < 0.05f || pos.y > Dungeon.WallH) { Respawn(i, p, false); continue; }
+                if (Mathf.Abs(d.x) > Range || Mathf.Abs(d.z) > Range || pos.y < 0.05f || pos.y > CeilingHere) { Respawn(i, p, false); continue; }
                 t.position = pos;
             }
         }

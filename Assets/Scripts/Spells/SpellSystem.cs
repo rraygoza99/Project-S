@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -77,6 +78,13 @@ namespace Spellcaster
         {
             SpellBook.Known.Clear();
             foreach (var d in s.known) SpellBook.Known.Add(SpellCodec.FromData(d));
+            // A forged spell from an older version whose rune a new spell now blocks (0.19: Blink Dash ←→) gets a new rune.
+            foreach (var name in SpellForge.FixClashes(SpellBook.Known))
+            {
+                var sp = SpellBook.Known.First(k => k.Name == name);
+                if (Run.Instance) Run.Instance.Toast($"New rune for {name}", $"A new spell took its old rune. Now {Arrows.Glyphs(sp.Sequence)}", sp.Color, 5f);
+                Debug.Log($"[Spellcaster] {name} got a new rune {Arrows.ToText(sp.Sequence)} (its old one clashed with a new spell)");
+            }
             castCount = s.castCount;
             Readied = null;
             ResetCooldowns();
@@ -354,14 +362,38 @@ namespace Spellcaster
             if (!any || exact != null) LastStrokes = new List<Arrow>(Entered);
             if (!any)
             {
-                Fizzle();
+                // The strokes belong to a spell that's cooling down: say so instead of a plain fizzle.
+                var cooling = Book.FirstOrDefault(sp => OnCooldown(sp) && Arrows.HasPrefix(sp.Sequence, Entered));
+                if (cooling != null) OnCooldownFizzle(cooling);
+                else Fizzle();
                 return;
             }
             // Rising pitch with each arrow, and a different base pitch per direction.
             float pitch = 0.85f + 0.1f * (int)arrow + 0.06f * (Entered.Count - 1);
             Sfx.Play("tick", 0.8f, pitch);
             Raise("arrow " + arrow);
-            if (exact != null) Ready(exact);
+            if (exact == null) return;
+            if (exact.IsInstant) CastInstant(exact);
+            else Ready(exact);
+        }
+
+        /// <summary>
+        /// An Instant spell (Blink Dash, Quickening) goes off the moment its rune is complete. A spell already
+        /// readied stays readied.
+        /// </summary>
+        void CastInstant(SpellDefinition s)
+        {
+            Entered.Clear();
+            Echo(s.Color);
+            if (CastLock > 0f)
+            {
+                Lockout = FizzleLockout;
+                Flash("Can't cast yet");
+                Raise("locked " + s.Name);
+                return;
+            }
+            Raise("instant " + s.Name);
+            Cast(s, 0f);
         }
 
         float readiedAt;
@@ -389,16 +421,33 @@ namespace Spellcaster
             Raise("fizzle");
         }
 
+        /// <summary>You drew the rune of a spell that's on cooldown.</summary>
+        public void OnCooldownFizzle(SpellDefinition s)
+        {
+            Entered.Clear();
+            Echo(new Color(1f, 0.6f, 0.2f));
+            Lockout = FizzleLockout;
+            FizzleFlash = 0.6f;
+            Sfx.Play("fizzle", 0.45f, 1.25f);
+            Flash($"Spell on CD ({s.Name} {CooldownRemaining(s):0.0}s)");
+            Raise("cooldown " + s.Name);
+        }
+
         public bool CastReadied()
         {
             var s = Readied;
             if (s == null || !Player.Instance) return false;
             Readied = null;
+            return Cast(s, Time.time - readiedAt);
+        }
+
+        /// <summary>Casts a spell (readied, or instant): `held` is how long it was readied (the Overcharge relic).</summary>
+        bool Cast(SpellDefinition s, float held)
+        {
             if (Net.NetSession.IsClientOnly && Net.NetPlayers.Running)
             {
                 // Multiplayer client: the rune was drawn here; the host checks and casts it.
                 float ccd = EffectiveCooldown(s);
-                float held = Time.time - readiedAt;
                 var nextCard = Net.NetGrimoire.ClientMirror && Grimoire.GrimoireRun.Instance && Grimoire.GrimoireRun.Instance.Deck != null
                     ? Grimoire.GrimoireRun.Instance.Deck.Next : null; // the host plays it; predict its cooldown here
                 if (nextCard != null && (nextCard.Def.Id == "quicken" || nextCard.Def.Id == "fumble")) ccd = 0f;
@@ -410,7 +459,20 @@ namespace Spellcaster
                 Progress.Add("spells_cast");
                 Sfx.Play("cast", 0.6f);
                 WizardHands.Instance.Kick();
-                Net.NetCombat.SendCast(s, held);
+                if (SelfSpellCards.IsDash(s))
+                {
+                    // Blink Dash moves you at once (predicted with the Next card); the host plays the cast on the
+                    // same movement frame, checks it and corrects you if it disagrees.
+                    SelfSpellCards.Predict(nextCard != null ? nextCard.Def.Id : null, out float dd, out int dn, out float de);
+                    Player.Instance.PendingDash = (dd, (byte)dn, de);
+                    if (dn > 0) Sfx.Play("whoosh", 0.7f);
+                }
+                else
+                {
+                    if (SelfSpellCards.IsQuickening(s) && Run.Instance && (nextCard == null || nextCard.Def.Id != "fumble"))
+                        Run.Instance.PredictQuicken(new QuickenBuff { seconds = SelfSpellConfig.QuickenDuration, speed = SelfSpellConfig.QuickenSpeedBonus, regen = SelfSpellConfig.QuickenRegen });
+                    Net.NetCombat.SendCast(s, held);
+                }
                 Raise("cast " + s.Name);
                 return true;
             }
@@ -430,7 +492,7 @@ namespace Spellcaster
             var stats = Stats;
             if (stats.FreeCastEvery > 0 && castCount % stats.FreeCastEvery == 0) { cd = 0f; Flash("Free cast!"); } // Storm Crown
             float power = stats.Power;
-            if (stats.Overcharge && Time.time - readiedAt >= 1.5f) { power *= 1.5f; Flash("Overcharged!"); }
+            if (stats.Overcharge && held >= 1.5f) { power *= 1.5f; Flash("Overcharged!"); }
             if (req != null) cd = req.ResetCooldown ? 0f : cd * req.CooldownMult;
             if (cd > 0f) cooldownLeft[s] = cd; else cooldownLeft.Remove(s);
             cooldownLengths[s] = cd;
@@ -440,7 +502,7 @@ namespace Spellcaster
             else LaunchCopies(s, power, req, false);
             Raise("cast " + s.Name);
             // Echo Stone relic: sometimes the spell goes off a second time, a little weaker.
-            if (Stats.EchoChance > 0f && Random.value < Stats.EchoChance) StartCoroutine(Echo(s));
+            if (Stats.EchoChance > 0f && !SelfSpellCards.IsDash(s) && Random.value < Stats.EchoChance) StartCoroutine(Echo(s)); // no surprise second dash
             if (req != null && req.EchoDelay > 0f) StartCoroutine(RequestEcho(s, power, req));
             return true;
         }
@@ -500,6 +562,9 @@ namespace Spellcaster
 
         /// <summary>Drops a readied spell (debug / tests).</summary>
         public void ClearReadied() => Readied = null;
+
+        /// <summary>Test hook: casts a spell as if its rune had just been drawn (co-op test client).</summary>
+        public bool CastForTest(SpellDefinition s) => s != null && Player.Instance && Cast(s, 0f);
 
         /// <summary>Test hook: readies a spell without drawing its rune.</summary>
         public void ReadyForTest(SpellDefinition s) => Ready(s);

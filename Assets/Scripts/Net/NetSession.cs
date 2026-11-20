@@ -185,7 +185,7 @@ namespace Spellcaster.Net
                     var p = Pickup.NearestInteractable(me.transform.position);
                     if (p && p.NetId != 0 && tried.Add(p.NetId)) NetLoot.RequestTake(p, force: true);
                     if (!used && run.Consumables[0] != null) { used = true; run.UseConsumable(0); }
-                    if (!fused && SpellBook.Known.Count == 2) { fused = true; NetLoot.SendFuse(0, 1); }
+                    if (!fused && SpellBook.Known.Count == 2 && !SpellBook.Known.Any(SelfSpellCards.IsDash)) { fused = true; NetLoot.SendFuse(0, 1); } // not the dash the combat test was taught
                 }
                 yield return new WaitForSecondsRealtime(0.2f);
             }
@@ -215,6 +215,17 @@ namespace Spellcaster.Net
                 yield return new WaitForSecondsRealtime(0.6f);
                 if (target) { me.LookAt(target.Center); ss.FireBasic(); }
             }
+            // Then Blink Dash, once the host teaches it: predicted here, played by the host.
+            float dashWait = 0f;
+            SpellDefinition dash = null;
+            while (dashWait < 40f && (dash = SpellBook.Known.FirstOrDefault(s => s.Id == SelfSpellConfig.BlinkDashId)) == null)
+            {
+                dashWait += Time.unscaledDeltaTime;
+                yield return null;
+            }
+            if (dash == null || !SpellSystem.Instance) yield break;
+            yield return new WaitForSecondsRealtime(0.3f);
+            SpellSystem.Instance.CastForTest(dash);
         }
         float reportTimer;
 
