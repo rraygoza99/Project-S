@@ -2732,6 +2732,17 @@ namespace Spellcaster
             Check($"practice: a fizzle is reported with the strokes read ({practice.Feedback})", practice.Attempts == 2 && practice.Feedback.StartsWith("Fizzle"));
             yield return Shot("23b_practice_fizzle");
             ss.SetChanneling(false);
+            // An Instant spell counts too: it goes off without being readied.
+            {
+                var prDash = SpellBook.Known.First(prS => prS.Id == SelfSpellConfig.BlinkDashId);
+                practice.SetTargetForTest(prDash);
+                int prHits = practice.Successes;
+                ss.ResetCooldowns();
+                yield return new WaitForSeconds(0.4f); // the fizzle's lockout ends
+                yield return CastSequence(Arrows.ToText(prDash.Sequence), expectReady: null);
+                ss.SetChanneling(false);
+                Check($"practice: drawing an Instant target (Blink Dash) scores a hit ({practice.Feedback})", practice.Successes == prHits + 1 && practice.Target != prDash);
+            }
 
             // ---- seeded runs ----
             {
@@ -2984,6 +2995,9 @@ namespace Spellcaster
                     wsOther.Run.Essence == 7 && wsRep.essence == 7 && wsOther.Run.ForgesDone == 1 && wsRep.forgesDone == 1);
 
                 // A fight room: the other player walks in, you're outside; after the countdown you're pulled in.
+                // You wait in the start room (outside any fight), so the only countdown is for the room they enter.
+                player.Teleport(d.Rooms[Vector2Int.zero].Center + new Vector3(0f, 0.1f, -3f), 0f);
+                yield return new WaitForSecondsRealtime(0.3f);
                 var ltRoom = d.AllRooms.FirstOrDefault(r => r.Type == RoomType.Combat && !r.Cleared && r.HasEnemies);
                 if (ltRoom != null)
                 {

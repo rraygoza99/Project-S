@@ -84,6 +84,9 @@ namespace Spellcaster
         }
 
         /// <summary>Picks a different spell to practise (N key).</summary>
+        /// <summary>Test hook: practise this spell next.</summary>
+        public void SetTargetForTest(SpellDefinition s) => Target = s;
+
         public void NextTarget()
         {
             var book = SpellBook.Known;
@@ -99,10 +102,11 @@ namespace Spellcaster
         {
             if (!Active || Target == null) return;
             var ss = SpellSystem.Instance;
-            if (e.StartsWith("ready "))
+            // A rune drawn in full: "ready X", or "instant X" for spells that go off at once (Blink Dash, Quickening).
+            if (e.StartsWith("ready ") || e.StartsWith("instant "))
             {
                 Attempts++;
-                string name = e.Substring(6);
+                string name = e.Substring(e.IndexOf(' ') + 1);
                 if (name == Target.Name)
                 {
                     Successes++;
