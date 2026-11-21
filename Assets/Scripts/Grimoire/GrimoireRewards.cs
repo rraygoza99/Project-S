@@ -17,6 +17,8 @@ namespace Spellcaster.Grimoire
         public bool RemovedThisPanel { get; private set; }
         /// <summary>Opened by a Scroll of Erasure: removal only, no gold cost.</summary>
         public bool IsFree { get; private set; }
+        /// <summary>Multiplayer client: the item slot of the Scroll of Erasure that opened the list (-1: none).</summary>
+        public int FreeSlot { get; private set; } = -1;
         System.Action onFreeRemoved, onFreeCancelled;
         public readonly List<CardDef> Choices = new List<CardDef>();
         public string Message { get; private set; }
@@ -71,8 +73,9 @@ namespace Spellcaster.Grimoire
         }
 
         /// <summary>Removal only, free (Scroll of Erasure). False if the deck is already as small as it can be.</summary>
-        public bool OpenFreeRemoval(GrimoireRun g, System.Action onRemoved, System.Action onCancelled)
+        public bool OpenFreeRemoval(GrimoireRun g, System.Action onRemoved, System.Action onCancelled, int netSlot = -1)
         {
+            FreeSlot = netSlot;
             if (g == null || g.Deck == null || g.Deck.Count <= C.MinDeckSize) return false;
             owner = g;
             Choices.Clear();
@@ -203,6 +206,16 @@ namespace Spellcaster.Grimoire
             var groups = owner.Deck.Grouped();
             if (i < 0 || i >= groups.Count) return false;
             var def = groups[i].def;
+            if (Net.NetGrimoire.ClientMirror && IsFree)
+            {
+                // A Scroll of Erasure: the host removes the card and takes the scroll; the deck comes back from it.
+                Net.NetGrimoire.SendErase(FreeSlot, def.Id);
+                RemovedThisPanel = true;
+                Removing = false;
+                Sfx.Play("buy", 0.7f);
+                Close();
+                return true;
+            }
             if (Net.NetGrimoire.ClientMirror)
             {
                 // The host removes it (and takes the gold); the deck comes back from it.

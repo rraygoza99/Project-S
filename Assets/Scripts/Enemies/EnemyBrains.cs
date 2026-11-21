@@ -67,7 +67,7 @@ namespace Spellcaster
             DevMode.Ring(Fx.Ground(at), radius, DevMode.EnemyArea);
             Sfx.Play("explode", 0.7f, 0.7f);
             foreach (var q in Players.All.ToArray())
-                if (q && !q.IsDead && Players.FlatSqr(q.transform.position, at) <= radius * radius) q.TakeDamage(damage * E.DamageMult);
+                if (q && !q.IsDead && Players.FlatSqr(q.transform.position, at) <= radius * radius) q.TakeDamage(damage * E.DamageMult, E.transform.position, E.HitKey);
         }
 
         protected void Summon(EnemyType type, Vector3 near, int max)
@@ -127,7 +127,7 @@ namespace Spellcaster
                     if (!bit && phaseTime >= T.Windup)
                     {
                         bit = true;
-                        if (dist <= T.AttackRange + 0.5f && !p.IsDead) p.TakeDamage(T.Damage * E.DamageMult);
+                        if (dist <= T.AttackRange + 0.5f && !p.IsDead) p.TakeDamage(T.Damage * E.DamageMult, E.transform.position, E.HitKey);
                         Sfx.Play("claw", 0.6f, 0.8f);
                     }
                     if (phaseTime >= T.Windup + T.Recover) Enter("hunt", S.Walk);
@@ -341,7 +341,7 @@ namespace Spellcaster
                         if (!q || q.IsDead || rolledOver.Contains(q)) continue;
                         if (Players.FlatSqr(q.transform.position, E.transform.position) >= (T.Radius + 1.0f) * (T.Radius + 1.0f)) continue;
                         rolledOver.Add(q);
-                        q.TakeDamage(22f * E.DamageMult);
+                        q.TakeDamage(22f * E.DamageMult, E.transform.position, E.HitKey);
                         Sfx.Play("claw", 0.7f, 0.6f);
                     }
                     if (phaseTime > 0.12f && (E.LastFlags & CollisionFlags.Sides) != 0)

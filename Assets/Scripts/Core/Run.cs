@@ -88,8 +88,27 @@ namespace Spellcaster
             get
             {
                 float haste = HasteTimer > 0f ? 1.35f : 1f, quick = Quickened ? 1f + QuickenSpeed : 1f;
-                return SelfSpellConfig.StacksWithHaste ? haste * quick : Mathf.Max(haste, quick);
+                float sprint = SprintTimer > 0f ? 1f + SprintBonus : 1f; // the Quicken card on a spell without a cooldown
+                return (SelfSpellConfig.StacksWithHaste ? haste * quick : Mathf.Max(haste, quick)) * sprint;
             }
+        }
+
+        /// <summary>A short burst of speed (the Quicken card on a spell without a cooldown): seconds left and bonus.</summary>
+        public float SprintTimer, SprintBonus;
+        float sprintPredictedAt = -10f;
+
+        /// <summary>Starts or refreshes the burst of speed (the bigger bonus and the longer time win).</summary>
+        public void Sprint(float seconds, float bonus)
+        {
+            SprintTimer = Mathf.Max(SprintTimer, seconds);
+            SprintBonus = Mathf.Max(SprintTimer > seconds ? SprintBonus : 0f, bonus);
+        }
+
+        /// <summary>Co-op client: the burst starts here at once (the host's comes back with the run state).</summary>
+        public void PredictSprint(float seconds, float bonus)
+        {
+            Sprint(seconds, bonus);
+            sprintPredictedAt = Time.time;
         }
 
         // ---------------- Quickening (a timed buff; SelfSpells.cs) ----------------
@@ -204,6 +223,7 @@ namespace Spellcaster
         void Update()
         {
             HasteTimer = Mathf.Max(0f, HasteTimer - Time.deltaTime);
+            SprintTimer = Mathf.Max(0f, SprintTimer - Time.deltaTime);
             TickQuicken(Time.deltaTime);
             SlowTimer = Mathf.Max(0f, SlowTimer - Time.deltaTime);
             frozenHeartCooldown = Mathf.Max(0f, frozenHeartCooldown - Time.deltaTime);
@@ -313,6 +333,7 @@ namespace Spellcaster
             EssenceBadLuck = n.essenceBadLuck;
             EssenceRolls = n.essenceRolls;
             HasteTimer = n.haste;
+            if (n.sprint > 0f || Time.time - sprintPredictedAt > 0.5f) { SprintTimer = n.sprint; if (n.sprint > 0f) SprintBonus = n.sprintBonus; }
             // A Quickening this client just predicted isn't in the host's state yet: keep it for a moment.
             if (n.quicken > 0f || Time.time - quickenPredictedAt > 0.5f) QuickenTimer = n.quicken;
             if (n.quicken > 0f) { QuickenSpeed = n.quickenSpeed; QuickenRegen = n.quickenRegen; QuickenLength = Mathf.Max(n.quickenLength, 0.01f); }
@@ -362,7 +383,12 @@ namespace Spellcaster
         {
             var item = slot >= 0 && slot < Slots ? Consumables[slot] : null;
             if (item == null || Owner == null || Owner.IsDead) return false;
-            if (IsLocal && Net.NetSession.IsClientOnly && Net.NetPlayers.Running) { Net.NetLoot.SendUse(slot); return true; } // the host uses it
+            if (IsLocal && Net.NetSession.IsClientOnly && Net.NetPlayers.Running)
+            {
+                if (item.ClientUse != null) return item.ClientUse(this, slot); // a panel on this screen first
+                Net.NetLoot.SendUse(slot); // the host uses it
+                return true;
+            }
             if (!item.Use(this))
             {
                 Sfx.Play("fizzle", 0.4f, 1.3f);

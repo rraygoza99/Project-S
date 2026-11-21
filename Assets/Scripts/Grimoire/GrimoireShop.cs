@@ -16,6 +16,7 @@ namespace Spellcaster.Grimoire
             Id = "grimoire_erasure", Name = "Scroll of Erasure", Desc = "Remove a card from your Grimoire",
             Kind = ItemKind.Consumable, Shape = "scroll", Color = new Color(0.75f, 0.55f, 1f), Price = C.ErasurePrice,
             Use = UseErasure,
+            ClientUse = ClientErasure,
         };
 
         static readonly HashSet<Room> stocked = new HashSet<Room>();
@@ -58,8 +59,29 @@ namespace Spellcaster.Grimoire
             foreach (var r in d.AllRooms) if (set.Contains(r.Id)) stocked.Add(r);
         }
 
+        /// <summary>
+        /// Multiplayer client: the removal list opens here with this player's own deck; the chosen card goes
+        /// to the host, which checks the scroll is in that slot, removes the card from their deck and takes the
+        /// scroll. Backing out sends nothing (the scroll stays).
+        /// </summary>
+        static bool ClientErasure(Run run, int slot)
+        {
+            var g = GrimoireRun.Instance;
+            if (g == null || !g.Active || g.Deck == null)
+            {
+                if (SpellSystem.Instance) SpellSystem.Instance.Flash("The Grimoire is off");
+                return false;
+            }
+            if (g.Rewards.IsOpen) return false;
+            bool opened = g.Rewards.OpenFreeRemoval(g, null, null, slot);
+            if (!opened && SpellSystem.Instance) SpellSystem.Instance.Flash($"The deck can't go below {C.MinDeckSize} cards");
+            return opened;
+        }
+
         static bool UseErasure(Run run)
         {
+            // Another player's scroll (multiplayer host): their screen opens the list (ClientErasure), never this one.
+            if (run.Owner && !run.Owner.IsLocal) return false;
             var g = GrimoireRun.Instance;
             if (g == null || !g.Active || g.Deck == null)
             {

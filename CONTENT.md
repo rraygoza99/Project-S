@@ -12,22 +12,24 @@ Totals: 14 spells (6 locked at first, 2 Instant), 14 runes, 29 items (13 locked 
 Each spell has one rune: a sequence of arrows you draw with the mouse (Classic) or type with W A S D (Momentum, see [Casting styles](#casting-styles)). A rune pickup costs 25 gold in shops.
 Every run starts knowing only Fireball. Defined in `Assets/Scripts/Spells/SpellBook.cs`.
 
+Only spells that heal have a cooldown (Heal, Life Drain, Quickening); `cooldowns.json` next to the game can give any spell one back.
+
 | Spell | Rune | Cooldown | What it does | Unlock |
 |---|---|---|---|---|
-| Fireball | ↓ → ↑ | 3 s | Projectile, 40 fire damage, 3.5 m explosion | Known from the start |
-| Lightning | → ↓ → | 6 s | Instant hit (45 m range), 45 storm damage, chains to 2 more enemies | Always available |
-| Frost Nova | ↓ ← ↑ → | 10 s | 6.5 m burst around you, 8 damage, freezes for 3 s | Always available |
+| Fireball | ↓ → ↑ | none | Projectile, 40 fire damage, 3.5 m explosion | Known from the start |
+| Lightning | → ↓ → | none | Instant hit (45 m range), 45 storm damage, chains to 2 more enemies | Always available |
+| Frost Nova | ↓ ← ↑ → | none | 6.5 m burst around you, 8 damage, freezes for 3 s | Always available |
 | Heal | ↑ ↓ ↑ ↓ | 15 s | Heals you 25 HP | Always available |
-| Frost Shard | ← ↑ → | 2.5 s | Fast projectile, 22 frost damage, freezes for 1.2 s | Always available |
-| Thunder Ring | ↑ → ↓ | 8 s | 7 m burst around you, 25 storm damage, knockback | Always available |
-| Blink Dash | ← → | 4 s | **Instant.** 6 m dash along your view in 0.15 s; enemies and their shots pass through you; no damage for the dash + 0.1 s; stops at walls (slides along them) | Always available |
+| Frost Shard | ← ↑ → | none | Fast projectile, 22 frost damage, freezes for 1.2 s | Always available |
+| Thunder Ring | ↑ → ↓ | none | 7 m burst around you, 25 storm damage, knockback | Always available |
+| Blink Dash | ← → | none | **Instant.** 6 m dash along your view in 0.15 s; enemies and their shots pass through you; no damage for the dash + 0.1 s; stops at walls (slides along them) | Always available |
 | Quickening | ↓ ↑ ↓ | 20 s | **Instant.** 6 s buff: +30% speed (Momentum running too), 3 HP per second; recasting refreshes it, it doesn't stack; stacks with the Haste potion | Always available |
-| Poison Cloud | ← ↓ → | 7 s | Projectile, 10 damage plus poison, leaves a 4 m cloud for 5 s | Locked: clear 10 rooms |
-| Arcane Missiles | → ↑ → | 4 s | 5 homing missiles, 14 arcane damage each | Locked: defeat 100 enemies |
-| Blink | ↑ ← ↑ | 5 s | Teleports you 8 m | Locked: clear a room without getting hurt |
-| Quake | ↓ ← ↓ | 9 s | 8 m burst around you, 20 earth damage, stuns for 2.5 s | Locked: defeat a boss |
+| Poison Cloud | ← ↓ → | none | Projectile, 10 damage plus poison, leaves a 4 m cloud for 5 s | Locked: clear 10 rooms |
+| Arcane Missiles | → ↑ → | none | 5 homing missiles, 14 arcane damage each | Locked: defeat 100 enemies |
+| Blink | ↑ ← ↑ | none | Teleports you 8 m | Locked: clear a room without getting hurt |
+| Quake | ↓ ← ↓ | none | 8 m burst around you, 20 earth damage, stuns for 2.5 s | Locked: defeat a boss |
 | Life Drain | ← ↑ ← | 5 s | Instant hit (35 m range), 30 damage, heals you 35% of it | Locked: heal 300 HP in total |
-| Meteor | → ↓ ← | 14 s | Falls on a target up to 40 m away, 60 fire damage, 6 m explosion | Locked: reach floor 3 |
+| Meteor | → ↓ ← | none | Falls on a target up to 40 m away, 60 fire damage, 6 m explosion | Locked: reach floor 3 |
 
 **Instant spells** go off the moment the rune is complete (no click), and a spell already readied stays
 readied. Every other spell is **Readied**: the rune readies it and Left Click fires it. Forged spells are
@@ -67,7 +69,7 @@ Defined in `Assets/Scripts/Loot/Items.cs`.
 | Ruby Heart | +25 max HP | 25 | Always available |
 | Swift Boots | +15% move speed | 20 | Always available |
 | Arcane Focus | +20% spell power | 30 | Always available |
-| Hourglass | Spell cooldowns 15% shorter | 30 | Always available |
+| Hourglass | Healing spell cooldowns 15% shorter | 30 | Always available |
 | Sharpened Wand | Magic bolt +5 damage | 20 | Always available |
 | Quickcast Ring | Magic bolt fires 30% faster | 20 | Always available |
 | Iron Robe | Take 15% less damage | 25 | Always available |
@@ -93,7 +95,7 @@ Defined in `Assets/Scripts/Loot/Items.cs`.
 | Frostbite Wand | Magic bolts have a 20% chance to freeze | 25 | Always available |
 | Bolt Splitter | The magic bolt fires 3 bolts | 30 | Locked: defeat 50 enemies with the magic bolt |
 | Toxic Vial | Every spell hit poisons enemies | 30 | Locked: defeat 30 enemies with poison |
-| Storm Crown | Every 5th spell has no cooldown | 35 | Locked: cast 150 spells |
+| Storm Crown | Every 5th spell hits 50% harder | 35 | Locked: cast 150 spells |
 | Overcharge | A spell kept ready for 1.5 s hits 50% harder | 30 | Locked: defeat 3 enemies with one spell |
 | Frozen Heart | Getting hurt freezes enemies around you | 30 | Locked: freeze 100 enemies |
 | Hex Mark | Spells deal 30% more to burning or poisoned enemies | 30 | Locked: forge a spell |
@@ -105,8 +107,8 @@ Defined in `Assets/Scripts/Loot/Items.cs`.
 | Health Potion | Restores 35 HP | 8 | Always available |
 | Fire Bomb | Thrown; explodes for 60 damage | 10 | Always available |
 | Frost Scroll | Freezes every enemy within 16 m for 4 s | 12 | Always available |
-| Haste Elixir | For 10 s: faster movement, half cooldowns | 12 | Always available |
-| Scroll of Renewal | Resets all spell cooldowns | 10 | Always available |
+| Haste Elixir | For 10 s: faster movement, half healing cooldowns | 12 | Always available |
+| Scroll of Renewal | Resets your healing spells' cooldowns | 10 | Always available |
 | Smoke Bomb | Stuns every enemy within 14 m for 3 s | 10 | Locked: use 10 items |
 | Time Scroll | Enemies move and attack at half speed for 6 s | 12 | Locked: buy 5 items in shops |
 | Rune Stone | Teaches a random spell you don't know | 20 | Locked: learn 8 spells from runes |
@@ -215,12 +217,12 @@ Starting deck: 5 Blank, Amplify, Split, Echo.
 |---|---|---|
 | Blank | Neutral | No effect |
 | Amplify | Power | +50% damage (Heal: +50% healing) |
-| Overload | Power | +100% damage, cooldown doubled |
+| Overload | Power | +100% damage, cooldown doubled (no cooldown: can't cast spells for 1.5 s) |
 | Split | Shape | 3 shots in a fan, or 3 smaller areas, at 60% each |
 | Pierce | Shape | Shots pass through enemies; areas chain to 1 more enemy |
 | Wide | Shape | +50% area and projectile size |
 | Echo | Tempo | Casts the spell again 0.5 s later |
-| Quicken | Tempo | No cooldown for this cast |
+| Quicken | Tempo | No cooldown for this cast (no cooldown: +30% speed for 3 s) |
 | Burning | Element | Hits burn enemies (6 damage per second for 3 s) |
 | Frozen | Element | Hits slow enemies by 50% for 2 s |
 | Fumble | Curse | The spell fizzles (no cooldown spent) |
@@ -270,7 +272,7 @@ Code in `Assets/Scripts/Net/`; every tunable is in `NetConfig.cs` and `NetDowned
 | Setting / action | What it does |
 |---|---|
 | Host a game | Max players 2-6; who can join: friends only, public, or invite only |
-| Join a game | Friends' games and public Spellcaster lobbies; Steam invites and "Join game" in the friends list (also while the game is closed) |
+| Join a game | Friends' games and public Spellcaster lobbies; Steam invites and "Join game" in the friends list (also while the game is closed). An invite accepted on any menu page opens the lobby; during a run the pause menu asks first (Save & join / Ignore invite) |
 | Lobby screen | Steam names and avatars, Ready / Not ready, the host can remove a player, **Start run** once everyone is ready |
 | Run (host) | **New run** or **Continue saved** (when a save exists) |
 | Invites | **Invite friends** opens the Steam overlay; the overlay only works when the game is started from the Steam Library |
@@ -287,7 +289,7 @@ Code in `Assets/Scripts/Net/`; every tunable is in `NetConfig.cs` and `NetDowned
 | Grimoire | The host's Options setting decides for everyone; each player has their own deck, cycles and picks their own rewards. An elite's curse falls on the whole party |
 | Loot | Instanced: every coin, heart, item, rune and shop item has one copy per player. Arcane Essence is rolled per player: your drops are visible to you only. A forgotten rune is only for the player who dropped it |
 | Your run | Gold, Arcane Essence, items, consumables, stats, spell book and Forge (and its cost) are your own (held by the host) |
-| Fight rooms | The first player in starts a 3 s "Fight! Gather up" countdown; then everyone outside is pulled in and the doors close |
+| Fight rooms | Nothing starts until every living player has walked in ("Waiting for players (n/m)", markers on those outside); no teleport. Downed, spectating or disconnected players don't count |
 | Portal | Opens once every living player stands on it; the whole party moves to the next floor |
 | Pause | The pause menu doesn't stop the game in co-op |
 

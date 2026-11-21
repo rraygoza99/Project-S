@@ -113,6 +113,17 @@ namespace Spellcaster.Net
 
         void Update()
         {
+            var gsInv = GameState.Instance;
+            if (gsInv && gsInv.Phase == Phase.Title)
+            {
+                PendingInvite = CSteamID.Nil; // the run ended without an answer
+                if (JoinAfterMenu != CSteamID.Nil)
+                {
+                    var lobby = JoinAfterMenu;
+                    JoinAfterMenu = CSteamID.Nil;
+                    JoinSteamLobby(lobby);
+                }
+            }
             // The pause switch follows the session (written only on change, so tests can set it too).
             bool on = InSession;
             if (on != sessionWas)
@@ -156,6 +167,10 @@ namespace Spellcaster.Net
                     phase = GameState.Instance ? (int)GameState.Instance.Phase : -1,
                     rtt = (float)(NetworkTime.rtt * 1000.0), lossIn = NetStats.Loss(-1).Percent, enemiesFresh = NetEnemies.FreshCount,
                     pedestals = Dungeon.Instance ? Dungeon.Instance.PedestalCount : 0, portalOpen = Dungeon.Instance && Dungeon.Instance.PortalOpen,
+                    gatherInside = Dungeon.Instance && Dungeon.Instance.GatherRoom != null ? Dungeon.Instance.GatherInside : 0,
+                    gatherNeed = Dungeon.Instance && Dungeon.Instance.GatherRoom != null ? Dungeon.Instance.GatherNeed : 0,
+                    hitArcs = DamageIndicator.Added,
+
                 });
             }
         }
@@ -174,7 +189,7 @@ namespace Spellcaster.Net
         /// </summary>
         IEnumerator LootTest()
         {
-            bool used = false, fused = false;
+            bool used = false, fused = false, erased = false;
             var tried = new HashSet<int>();
             while (NetPlayers.Running)
             {
@@ -184,7 +199,12 @@ namespace Spellcaster.Net
                 {
                     var p = Pickup.NearestInteractable(me.transform.position);
                     if (p && p.NetId != 0 && tried.Add(p.NetId)) NetLoot.RequestTake(p, force: true);
-                    if (!used && run.Consumables[0] != null) { used = true; run.UseConsumable(0); }
+                    if (!used && run.Consumables[0] != null && run.Consumables[0] != Grimoire.GrimoireShop.Erasure) { used = true; run.UseConsumable(0); }
+                    // A Scroll of Erasure: use it, then remove the first card in the list on this screen.
+                    int er = System.Array.IndexOf(run.Consumables, Grimoire.GrimoireShop.Erasure);
+                    if (!erased && er >= 0) { erased = true; run.UseConsumable(er); }
+                    var rw = Grimoire.GrimoireRun.Instance ? Grimoire.GrimoireRun.Instance.Rewards : null;
+                    if (rw != null && rw.IsOpen && rw.IsFree) rw.RemoveGroup(0);
                     if (!fused && SpellBook.Known.Count == 2 && !SpellBook.Known.Any(SelfSpellCards.IsDash)) { fused = true; NetLoot.SendFuse(0, 1); } // not the dash the combat test was taught
                 }
                 yield return new WaitForSecondsRealtime(0.2f);
@@ -292,6 +312,52 @@ namespace Spellcaster.Net
             Status = "Connecting to " + address + "...";
             StartClient();
             return true;
+        }
+
+        /// <summary>An invite accepted during a run, waiting for the player's answer in the pause menu (Nil: none).</summary>
+        public CSteamID PendingInvite { get; private set; } = CSteamID.Nil;
+        /// <summary>Who sent <see cref="PendingInvite"/> (their Steam name), or null.</summary>
+        public string PendingInviteFrom { get; private set; }
+        /// <summary>A lobby to join as soon as the main menu is back (the player left a run for an invite).</summary>
+        public static CSteamID JoinAfterMenu = CSteamID.Nil;
+        /// <summary>Joining a lobby: asked Steam or connecting, not in the session yet.</summary>
+        public bool Joining => !InSession && Status != null;
+
+        /// <summary>
+        /// A Steam invite was accepted (overlay, friends list "Join game"). On the menu (any page) it joins now
+        /// and the menu follows to the lobby; in a run the pause menu asks first (leaving saves a real run);
+        /// on the death or victory screen it goes back to the menu, then joins.
+        /// </summary>
+        public void AcceptInvite(CSteamID lobby, string from)
+        {
+            var gs = GameState.Instance;
+            Debug.Log($"[Spellcaster] invite accepted ({lobby}) from {from ?? "?"}, phase {(gs ? gs.Phase.ToString() : "none")}");
+            if (gs && gs.InRun)
+            {
+                PendingInvite = lobby;
+                PendingInviteFrom = from;
+                gs.PauseForPrompt();
+                return;
+            }
+            PendingInvite = CSteamID.Nil;
+            if (gs && gs.Phase != Phase.Title)
+            {
+                JoinAfterMenu = lobby;
+                gs.ToMenu();
+                return;
+            }
+            JoinSteamLobby(lobby);
+        }
+
+        /// <summary>The player's answer to an invite that came during a run: join (leaves the run) or ignore.</summary>
+        public void AnswerInvite(bool join)
+        {
+            var lobby = PendingInvite;
+            PendingInvite = CSteamID.Nil;
+            PendingInviteFrom = null;
+            if (!join || lobby == CSteamID.Nil) return;
+            JoinAfterMenu = lobby;
+            MainMenu.SaveAndQuit(); // saves a real run (host or solo), then the menu joins the lobby
         }
 
         /// <summary>Joins a Steam lobby (browser, invite, or "Join game" in the friends list).</summary>
@@ -432,6 +498,7 @@ namespace Spellcaster.Net
             NetworkServer.ReplaceHandler<CastIntentMsg>(NetCombat.OnCastIntent);
             NetworkServer.ReplaceHandler<CycleMsg>(NetGrimoire.OnCycle);
             NetworkServer.ReplaceHandler<RewardPickMsg>(NetGrimoire.OnPick);
+            NetworkServer.ReplaceHandler<EraseMsg>(NetGrimoire.OnErase);
             NetworkServer.ReplaceHandler<PickupTakeMsg>(NetLoot.OnTake);
             NetworkServer.ReplaceHandler<UseItemMsg>(NetLoot.OnUseItem);
             NetworkServer.ReplaceHandler<ForgeMsg>(NetLoot.OnForge);
@@ -536,6 +603,8 @@ namespace Spellcaster.Net
             NetworkClient.ReplaceHandler<EnemyStatesMsg>(NetEnemies.OnStates, false);
             NetworkClient.ReplaceHandler<EnemyGoneMsg>(NetEnemies.OnGone, false);
             NetworkClient.ReplaceHandler<RoomGatesMsg>(NetCombat.OnGates, false);
+            NetworkClient.ReplaceHandler<GatherMsg>(NetCombat.OnGather, false);
+            NetworkClient.ReplaceHandler<HurtFromMsg>(NetCombat.OnHurtFrom, false);
             NetworkClient.ReplaceHandler<PropBrokenMsg>(NetCombat.OnPropBroken, false);
             NetworkClient.ReplaceHandler<DeckStateMsg>(NetGrimoire.OnDeckState, false);
             NetworkClient.ReplaceHandler<RewardOfferMsg>(NetGrimoire.OnOffer, false);
@@ -645,7 +714,8 @@ namespace Spellcaster.Net
             lobbyCreated = CallResult<LobbyCreated_t>.Create(OnLobbyCreated);
             lobbyList = CallResult<LobbyMatchList_t>.Create(OnLobbyList);
             lobbyEntered = Callback<LobbyEnter_t>.Create(OnLobbyEntered);
-            joinRequested = Callback<GameLobbyJoinRequested_t>.Create(r => JoinSteamLobby(r.m_steamIDLobby));
+            joinRequested = Callback<GameLobbyJoinRequested_t>.Create(r =>
+                AcceptInvite(r.m_steamIDLobby, SteamService.Ready ? SteamFriends.GetFriendPersonaName(r.m_steamIDFriend) : null));
             lobbyData = Callback<LobbyDataUpdate_t>.Create(r => RefreshFriendLobbies());
         }
 

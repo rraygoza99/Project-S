@@ -257,6 +257,7 @@ namespace Spellcaster
                 if (input.dashEcho > 0f) QueueDash(input.dashDist, EchoWait(input.dashEcho));
             }
             iframes = Mathf.Max(0f, iframes - dt);
+            iframeLock = iframes > 0f ? iframes + CooldownConfig.DashIFrameLockout : Mathf.Max(0f, iframeLock - dt);
             if (dashLeft <= 0f && qDist.x > 0f)
             {
                 qWait.x -= dt;
@@ -545,13 +546,23 @@ namespace Spellcaster
 
         public Vector3 ChestPosition => transform.position + Vector3.up * 1.3f;
 
-        public void TakeDamage(float amount)
+        /// <summary>
+        /// Damage. from: where the hit came from (the attacker for melee, the shot's origin for ranged), or
+        /// null for traps and blasts with no clear source; it draws the hit-direction arc. attacker: who hit
+        /// (another hit from them refreshes the same arc; 0 = none).
+        /// </summary>
+        public void TakeDamage(float amount, Vector3? from = null, int attacker = 0)
         {
             if (IsDead || amount <= 0f) return;
             if (Invulnerable) return; // Blink Dash: no damage during the dash and a moment after
             if (Net.NetSession.IsClientOnly) return; // in multiplayer the host decides damage; HP comes from it
             if (Run) amount *= Run.Stats.DamageTaken;
             HurtFlash = 1f;
+            if (from.HasValue)
+            {
+                if (IsLocal) DamageIndicator.Hit(this, from.Value, attacker, amount);
+                else Net.NetCombat.HurtFrom(this, from.Value, attacker, amount); // their screen draws it
+            }
             if (IsLocal) Sfx.Play("hurt", 0.8f, Random.Range(0.9f, 1.1f));
             if (Dungeon.Instance) Dungeon.Instance.NotePlayerHurt();
             if (!God && HP - amount <= 0f && Run && Run.TryRevive())
@@ -608,7 +619,9 @@ namespace Spellcaster
 
         // ---------------- Blink Dash ----------------
 
-        float dashLeft, iframes;
+        float dashLeft, iframes, iframeLock;
+        /// <summary>The last dash made you untouchable (false: it came too soon after the one before).</summary>
+        public bool LastDashIFrames { get; private set; }
         Vector3 dashVel;
         Vector4 qDist, qWait;
         float pathPierce;
@@ -663,7 +676,14 @@ namespace Spellcaster
             Vector3 dir = Quaternion.Euler(0f, Yaw, 0f) * Vector3.forward; // the view, horizontal only
             dashVel = dir * (dist / dur);
             dashLeft = dur;
-            iframes = Mathf.Max(iframes, dur + SelfSpellConfig.DashExtraIFrames);
+            // Untouchable only if the last dash's i-frames ended a while ago (CooldownConfig.DashIFrameLockout), so
+            // dashing again and again can't keep you invulnerable. Back-to-back dashes of one cast (Split) share it.
+            LastDashIFrames = iframes > 0f || iframeLock <= 0f;
+            if (LastDashIFrames)
+            {
+                iframes = Mathf.Max(iframes, dur + SelfSpellConfig.DashExtraIFrames);
+                iframeLock = iframes + CooldownConfig.DashIFrameLockout;
+            }
             DashKick = 1f;
             DashCount++;
             lastTrail = transform.position;

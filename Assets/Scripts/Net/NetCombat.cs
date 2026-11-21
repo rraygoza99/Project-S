@@ -130,6 +130,8 @@ namespace Spellcaster.Net
             public readonly Dictionary<string, float> readyAt = new Dictionary<string, float>();
             public float boltReadyAt;
             public int casts;
+            /// <summary>No spells until then (Overload on a spell without a cooldown).</summary>
+            public float lockUntil;
         }
         static readonly Dictionary<int, Caster> casters = new Dictionary<int, Caster>();
         /// <summary>Latency allowance on cooldowns (seconds early a cast may arrive and still count).</summary>
@@ -220,15 +222,17 @@ namespace Spellcaster.Net
             float now = Time.time;
             var stats = p.Run ? p.Run.Stats : new PlayerStats();
             if (c.readyAt.TryGetValue(spell.Id, out float ready) && now < ready - CooldownTolerance) { Rejected++; return; }
+            if (now < c.lockUntil - CooldownTolerance) { Rejected++; return; } // Overload's casting lock
             var req = NetGrimoire.Play(p, spell); // this player's Next card shapes the cast
             if (req != null && req.Fizzle) { Sfx.Play("fizzle", 0.6f, 0.8f); RemoteCasts++; return; } // lost, no cooldown spent
-            float cd = spell.Cooldown * (p.Run ? p.Run.CooldownMult : 1f);
+            float cd = CooldownConfig.BaseCooldown(spell) * (p.Run ? p.Run.CooldownMult : 1f);
             // Their relics, as in single-player: Storm Crown, Overcharge, Echo Stone.
             c.casts++;
-            if (stats.FreeCastEvery > 0 && c.casts % stats.FreeCastEvery == 0) cd = 0f;
             float power = stats.Power;
+            if (stats.FreeCastEvery > 0 && c.casts % stats.FreeCastEvery == 0) power *= SpellSystem.StormCrownPower;
             if (stats.Overcharge && Mathf.Clamp(heldFor, 0f, 60f) >= 1.5f) power *= 1.5f;
-            if (req != null) cd = req.ResetCooldown ? 0f : cd * req.CooldownMult;
+            cd = SpellSystem.CardCooldown(cd, CooldownConfig.HasCooldown(spell), req, p, out float castLock);
+            if (castLock > 0f) c.lockUntil = now + castLock;
             c.readyAt[spell.Id] = now + cd;
             Sfx.Play("cast", 0.6f);
             if (req == null) new SpellCast(spell, p) { Power = power }.Launch();
@@ -356,11 +360,45 @@ namespace Spellcaster.Net
             NetworkServer.SendToAll(new RoomGatesMsg { roomId = room.Id, locked = locked, cleared = room.Cleared });
         }
 
+        /// <summary>Host: another player was hit from this spot; their screen draws the hit-direction arc.</summary>
+        public static void HurtFrom(Player p, Vector3 from, int attacker, float amount)
+        {
+            if (!HostMirroring || !p || p.NetId < 0) return;
+            if (NetworkServer.connections.TryGetValue(p.NetId, out var conn))
+                conn.Send(new HurtFromMsg { from = from, attacker = attacker, amount = amount });
+        }
+
+        public static void OnHurtFrom(HurtFromMsg m)
+        {
+            if (!ClientProxying || !Player.Instance) return;
+            DamageIndicator.Hit(Player.Instance, m.from, m.attacker, m.amount);
+        }
+
+        /// <summary>Host: a fight room is waiting for players (or stopped waiting: room null).</summary>
+        public static void GatherChanged(Room room, int inside, int need, List<Player> outside)
+        {
+            if (!HostMirroring) return;
+            var ids = new int[outside.Count];
+            for (int i = 0; i < ids.Length; i++) ids[i] = outside[i] ? outside[i].NetId : -1;
+            NetworkServer.SendToAll(new GatherMsg { roomId = room != null ? room.Id : "", inside = (byte)inside, need = (byte)need, outside = ids });
+        }
+
+        public static void OnGather(GatherMsg m)
+        {
+            if (!ClientProxying || !Dungeon.Instance) return;
+            var room = string.IsNullOrEmpty(m.roomId) ? null : Dungeon.Instance.RoomById(m.roomId);
+            var outside = new List<Player>();
+            if (m.outside != null)
+                foreach (int id in m.outside) if (Players.ByNetId(id) is Player p && p) outside.Add(p);
+            Dungeon.Instance.SetGatherForNet(room, m.inside, m.need, outside);
+        }
+
         public static void OnGates(RoomGatesMsg m)
         {
             if (!ClientProxying || !Dungeon.Instance) return;
             var room = Dungeon.Instance.RoomById(m.roomId);
             if (room == null) return;
+            if (m.locked && Dungeon.Instance.GatherRoom == room) Dungeon.Instance.SetGatherForNet(null, 0, 0, null); // the fight started
             room.Cleared |= m.cleared;
             Dungeon.Instance.SetGates(room, m.locked);
         }

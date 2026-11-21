@@ -79,7 +79,9 @@ changes, and hand testers keys (Users & Permissions > Request Steam Product Keys
   spell, shows its rune, and after each attempt tells you which strokes it read (N: new target).
 - **Unlocks**: meta progression (below).
 - **Options**: mouse sensitivity, invert mouse Y, rune drawing size (how far the mouse moves per
-  stroke), field of view, volume, display mode, resolution, FPS counter, reset to defaults, and
+  stroke), field of view, volume, display mode, resolution, FPS counter, **Hit direction** (a thin
+  red arc around the crosshair pointing at whoever hit you: Off, Outside view (default: only hits
+  you couldn't see) or All hits; traps show none), reset to defaults, and
   **Controls**: rebind every action (two keys each; mouse buttons work too; a key already in use
   swaps over). Everything is saved between sessions.
 - **Exit game**.
@@ -103,7 +105,9 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
   lists players with their Steam names and avatars; **Invite friends** opens the Steam overlay; the host
   can click a player to remove them and starts the run when everyone is ready.
 - **Join a game:** friends' games and public Spellcaster lobbies, or accept a Steam invite / "Join game"
-  in the friends list (also while the game is closed).
+  in the friends list (also while the game is closed). Accepting an invite on any menu page opens the
+  lobby. During a run the game pauses and asks first (**Save & join** or **Ignore invite**); on the
+  death or victory screen it goes back to the menu and joins.
 - **Different versions can't play together**; full lobbies and runs in progress refuse joins.
 - **Direct IP (debug):** with Dev mode on (F3), copies of the game connect by address
   (127.0.0.1:7777 on one PC) without Steam. Give each copy its own identity with `-netkey NAME`.
@@ -127,8 +131,10 @@ Online co-op for 2-6 players through Steam is being built in phases. What works 
 - **Loot is instanced:** every coin, heart, item and shop item has one copy per player, so nobody takes
   anyone's loot. Your gold, items, consumables and spells live on the host and show on your screen.
 - **The Forge works for each player** on their own spell book (between fights).
-- **Fight rooms:** the first player to step into one starts a 3-second countdown ("Fight! Gather up");
-  then everyone still outside is pulled in next to them and the doors close. The floor portal needs
+- **Fight rooms wait for everyone:** nothing starts (no enemies, traps or closed doors) until every
+  living player has walked in. Players inside see "Waiting for players (2/3)" and a marker on each
+  player still outside; players outside see where the room is. Nobody is teleported. Downed,
+  spectating or disconnected players don't count. The floor portal needs
   every living player on it, and the whole party moves to the next floor together.
 - **Downed, not dead:** at 0 HP you're downed. A teammate standing next to you for 3 seconds gets you up
   (35% HP); otherwise you bleed out after 30 seconds and spectate a teammate (click to switch) until the
@@ -188,8 +194,18 @@ rune glows in front of you while you draw, and the spell panel shows each spell'
 
 Casting rules: a full sequence **readies** the spell (hands glow in its colour); releasing the button keeps
 it readied; only one spell can be readied. Input that matches no available spell **fizzles** (0.3 s
-lockout). Spells on cooldown can't be readied (drawing their rune says "Spell on CD"), and cooldowns only
-count down during a fight (they pause in cleared rooms, so you can't wait out Heal between fights).
+lockout). **Only spells that heal have a cooldown** (Heal, Life Drain, Quickening, and forged spells that
+heal); every other spell can be cast as fast as you draw it. Spells on cooldown can't be readied (drawing
+their rune says "Spell on CD"), and cooldowns only count down during a fight (they pause in cleared rooms,
+so you can't wait out Heal between fights). Limits that keep this fair:
+- **Blink Dash** always moves you, but it only makes you untouchable if your last dash's i-frames ended
+  at least 1.5 s ago (dashes of one cast, like Split's three, share them).
+- **Freeze and stun can't be chained:** while an enemy is frozen or stunned nothing extends it, and once it
+  ends that enemy shrugs off new ones for 2 s. Bosses get half the duration.
+- **`cooldowns.json`** next to Spellcaster.exe (written on first launch) sets all of this without a
+  rebuild: `nonHealingCooldowns: true` brings every cooldown back, `overrides` gives one spell a cooldown
+  (`{"spell": "meteor", "seconds": 14}`), plus the dash i-frame wait, the freeze/stun immunity and the boss
+  share. The Forge list and preview show each spell's cooldown, or "no cooldown".
 
 **Instant spells** (Blink Dash and Quickening, marked INSTANT in the spell panel) go off the moment their rune
 is complete, with no click, and a spell you already have readied stays readied.
@@ -263,7 +279,7 @@ variety. Nothing counts in the practice tool or the tutorial.
 | Defeat 50 enemies with the magic bolt | Bolt Splitter: the bolt fires 3 bolts |
 | Collect 300 gold in total | Gold Tooth: every coin is worth 1 more gold |
 | Defeat 30 enemies with poison | Toxic Vial: every spell hit poisons |
-| Cast 150 spells | Storm Crown: every 5th spell has no cooldown |
+| Cast 150 spells | Storm Crown: every 5th spell hits 50% harder |
 | Defeat 3 enemies with one spell | Overcharge: a spell kept ready for 1.5 s hits 50% harder |
 | Freeze 100 enemies | Frozen Heart: getting hurt freezes enemies around you |
 | Forge a spell | Hex Mark: spells deal 30% more to burning or poisoned enemies |
@@ -318,7 +334,7 @@ Enemies drop **gold** (it flies to you) and sometimes hearts or items. **Luck** 
 | Ruby Heart | +25 max HP |
 | Swift Boots | +15% move speed |
 | Arcane Focus | +20% spell power |
-| Hourglass | Spell cooldowns -15% |
+| Hourglass | Healing spell cooldowns -15% |
 | Sharpened Wand | Magic bolt +5 damage |
 | Quickcast Ring | Magic bolt fires 30% faster |
 | Iron Robe | Take 15% less damage |
@@ -343,8 +359,8 @@ Enemies drop **gold** (it flies to you) and sometimes hearts or items. **Luck** 
 | Health Potion | Restore 35 HP |
 | Fire Bomb | Throw: explodes for 60 damage |
 | Frost Scroll | Freeze every nearby enemy for 4 s |
-| Haste Elixir | 10 s of faster movement and half cooldowns |
-| Scroll of Renewal | Reset all spell cooldowns |
+| Haste Elixir | 10 s of faster movement and half healing cooldowns |
+| Scroll of Renewal | Reset your healing spells' cooldowns |
 
 ## Spells
 
@@ -352,13 +368,13 @@ Every run starts with **Fireball**; the others are learned from **runes** (rune 
 
 | Spell | Rune | Shape | Effect | Cooldown |
 |---|---|---|---|---|
-| Fireball | ↓ → ↑ | U | Projectile, explodes for area damage | 3 s |
-| Lightning | → ↓ → | Z bolt | Instant hit, chains to 2 nearby enemies | 6 s |
-| Frost Nova | ↓ ← ↑ → | loop | Freezes everything around you for 3 s | 10 s |
+| Fireball | ↓ → ↑ | U | Projectile, explodes for area damage | none |
+| Lightning | → ↓ → | Z bolt | Instant hit, chains to 2 nearby enemies | none |
+| Frost Nova | ↓ ← ↑ → | loop | Freezes everything around you for 3 s | none |
 | Heal | ↑ ↓ ↑ ↓ | zig-zag | Restore 25 HP | 15 s |
-| Frost Shard | ← ↑ → | arch | Fast projectile, freezes for 1.2 s | 2.5 s |
-| Thunder Ring | ↑ → ↓ | cap ∩ | Storm nova that throws enemies back | 8 s |
-| Blink Dash | ← → | flick | **Instant.** Dash 6 m along your view in 0.15 s, through enemies and their shots (no damage during it), never through walls | 4 s |
+| Frost Shard | ← ↑ → | arch | Fast projectile, freezes for 1.2 s | none |
+| Thunder Ring | ↑ → ↓ | cap ∩ | Storm nova that throws enemies back | none |
+| Blink Dash | ← → | flick | **Instant.** Dash 6 m along your view in 0.15 s, through enemies and their shots (no damage during it), never through walls | none |
 | Quickening | ↓ ↑ ↓ | N | **Instant.** For 6 s: +30% speed and 3 HP per second; recasting refreshes it | 20 s |
 
 ### Spell Forge: make your own spells
@@ -446,12 +462,12 @@ it off, the game plays exactly as without it.
 |---|---|
 | Blank | Nothing |
 | Amplify | +50% damage (Heal: +50% healing; Blink: +50% distance) |
-| Overload | +100% damage, cooldown doubled |
+| Overload | +100% damage, cooldown doubled (on a spell with no cooldown: you can't cast spells for 1.5 s) |
 | Split | Projectiles and rays: 3 in a fan at 60% each. Novas: 3 smaller novas around you. Meteor: 3 smaller meteors around the target. Heal / Blink: twice at 60% |
 | Pierce | Projectiles pass through enemies; rays hit the next enemy too (Lightning also +1 chain); novas and meteors chain to 1 more enemy; Blink hurts enemies along its path |
 | Wide | +50% area and projectile size (Blink: +50% distance; Heal: also slows enemies around you) |
 | Echo | The spell goes off again 0.5 s later |
-| Quicken | This cast has no cooldown |
+| Quicken | This cast has no cooldown (on a spell with no cooldown: +30% speed for 3 s) |
 | Burning | Hits burn enemies (self spells: burn enemies around you) |
 | Frozen | Hits slow enemies by 50% for 2 s (self spells: around you) |
 | Fumble (curse) | The spell fizzles; no cooldown spent |

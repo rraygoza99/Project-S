@@ -27,6 +27,8 @@ namespace Spellcaster
         public static int ResolutionW { get; private set; }
         public static int ResolutionH { get; private set; }
         public static bool ShowFps { get; private set; } = true;
+        /// <summary>Hit-direction arcs around the crosshair: off, hits from outside your view (default), or all hits.</summary>
+        public static HitDirectionMode HitDirection { get; private set; } = HitDirectionMode.OutsideView;
         /// <summary>Dev mode: hitbox wireframes (F3).</summary>
         public static bool DevMode { get; private set; }
         /// <summary>Map key: false = hold to show (default), true = press to open / close.</summary>
@@ -56,6 +58,7 @@ namespace Spellcaster
             ResolutionW = PlayerPrefs.GetInt("res_w", 0);
             ResolutionH = PlayerPrefs.GetInt("res_h", 0);
             ShowFps = PlayerPrefs.GetInt("show_fps", 1) == 1;
+            HitDirection = (HitDirectionMode)Mathf.Clamp(PlayerPrefs.GetInt("hit_direction", (int)HitDirectionMode.OutsideView), 0, 2);
             DevMode = PlayerPrefs.GetInt("dev_mode", 0) == 1;
             MapToggle = PlayerPrefs.GetInt("map_toggle", 0) == 1;
             CastingStyle = PlayerPrefs.GetInt("casting_style", 0) == 1 ? CastingStyle.Momentum : CastingStyle.Classic;
@@ -72,6 +75,7 @@ namespace Spellcaster
         public static void SetFieldOfView(float v) { FieldOfView = Mathf.Clamp(Mathf.Round(v), MinFov, MaxFov); Save(); }
         public static void SetVolume(float v) { Volume = Mathf.Clamp01(Mathf.Round(v * 20f) / 20f); Apply(); Save(); }
         public static void SetShowFps(bool on) { ShowFps = on; Save(); }
+        public static void SetHitDirection(HitDirectionMode m) { HitDirection = m; Save(); }
         public static void SetDevMode(bool on) { DevMode = on; Save(); }
         public static void SetMapToggle(bool on) { MapToggle = on; Save(); }
         public static void SetCastingStyle(CastingStyle s) { CastingStyle = s; Save(); }
@@ -125,6 +129,7 @@ namespace Spellcaster
             FieldOfView = DefFov;
             Volume = DefVolume;
             ShowFps = true;
+            HitDirection = HitDirectionMode.OutsideView;
             DevMode = false;
             MapToggle = false;
             CastingStyle = CastingStyle.Classic;
@@ -165,6 +170,7 @@ namespace Spellcaster
             PlayerPrefs.SetInt("res_w", ResolutionW);
             PlayerPrefs.SetInt("res_h", ResolutionH);
             PlayerPrefs.SetInt("show_fps", ShowFps ? 1 : 0);
+            PlayerPrefs.SetInt("hit_direction", (int)HitDirection);
             PlayerPrefs.SetInt("dev_mode", DevMode ? 1 : 0);
             PlayerPrefs.SetInt("map_toggle", MapToggle ? 1 : 0);
             PlayerPrefs.SetInt("casting_style", CastingStyle == CastingStyle.Momentum ? 1 : 0);

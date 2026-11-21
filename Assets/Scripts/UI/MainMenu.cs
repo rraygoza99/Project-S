@@ -177,13 +177,23 @@ namespace Spellcaster
             if (NetSession.IsClientOnly && Dungeon.Instance) Dungeon.Instance.HoldEncounters = true;
         }
 
-        /// <summary>Joining or leaving a session moves the menu to the lobby or back to the multiplayer page.</summary>
+        /// <summary>
+        /// Joining or leaving a session moves the menu to the lobby or back to the multiplayer page, from any
+        /// menu page: a Steam invite accepted on the main page, in Options or while binding a key opens the
+        /// lobby too (the multiplayer page shows "Joining..." until the host answers).
+        /// </summary>
         void TrackSession()
         {
             var ns = NetSession.Instance;
             if (!ns || !Visible) return;
-            if (ns.InSession && Current != Page.Lobby && IsNetPage(Current)) { Current = Page.Lobby; Selected = 0; }
-            else if (!ns.InSession && Current == Page.Lobby) { Current = Page.Multiplayer; Selected = 0; }
+            Page want = Current;
+            if (ns.InSession) want = Page.Lobby;
+            else if (ns.Joining && !IsNetPage(Current)) want = Page.Multiplayer;
+            else if (Current == Page.Lobby) want = Page.Multiplayer;
+            if (want == Current) return;
+            Current = want;
+            Selected = 0;
+            Listening = null;
         }
 
         // ---------------- pause menu (in a run) ----------------
@@ -203,18 +213,32 @@ namespace Spellcaster
 
         void BuildPause()
         {
-            pauseItems = new List<Item>
+            var nsi = NetSession.Instance;
+            invitePrompt = nsi && nsi.PendingInvite != Steamworks.CSteamID.Nil;
+            pauseItems = new List<Item>();
+            if (invitePrompt)
+            {
+                pauseItems.Add(new Item { Label = QuitSaves ? "Save & join" : "Join game", Activate = () => NetSession.Instance.AnswerInvite(true) }); // who: the hint line
+                pauseItems.Add(new Item { Label = "Ignore invite", Activate = () => { NetSession.Instance.AnswerInvite(false); BuildPause(); Selected = 0; } });
+            }
+            pauseItems.AddRange(new List<Item>
             {
                 new Item { Label = "Resume", Activate = Resume },
                 new Item { Label = "Options", Activate = () => Open(Page.Options) },
                 new Item { Label = NetSession.IsClientOnly ? "Leave game" : QuitSaves ? "Save & quit" : "Quit to menu", Activate = SaveAndQuit },
-            };
+            });
         }
+
+        bool invitePrompt;
+
+        /// <summary>Test hook: the help line of the current page.</summary>
+        public string HintForTest() => Hint();
 
         /// <summary>Closes the pause menu and goes back to the game.</summary>
         public void Resume()
         {
             var gs = GameState.Instance;
+            if (NetSession.Instance && NetSession.Instance.PendingInvite != Steamworks.CSteamID.Nil) NetSession.Instance.AnswerInvite(false);
             gs.ClearFocusPause(); // also: the click / key that resumed must not act in the game
             ResumedFrame = Time.frameCount;
             if (!AutoTest.Active) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
@@ -257,6 +281,16 @@ namespace Spellcaster
         void TrackPause()
         {
             bool up = PauseUp;
+            var nsp = NetSession.Instance;
+            bool invite = nsp && nsp.PendingInvite != Steamworks.CSteamID.Nil;
+            if (up && wasPauseUp && invite != invitePrompt)
+            {
+                // An invite came while the pause menu was open: ask on its first page.
+                BuildPause();
+                Current = Page.Pause;
+                Selected = 0;
+                Listening = null;
+            }
             if (up && !wasPauseUp)
             {
                 BuildPause();
@@ -354,6 +388,8 @@ namespace Spellcaster
                     Change = d => Settings.CycleResolution(d) },
                 new Item { Label = "Show FPS", Value = () => OnOff(Settings.ShowFps),
                     Change = d => Settings.SetShowFps(!Settings.ShowFps) },
+                new Item { Label = "Hit direction", Value = () => Settings.HitDirection switch { HitDirectionMode.Off => "Off", HitDirectionMode.All => "All hits", _ => "Outside view" },
+                    Change = d => Settings.SetHitDirection((HitDirectionMode)(((int)Settings.HitDirection + d + 3) % 3)) },
                 new Item { Label = "Casting style", Value = () => Settings.CastingStyle == CastingStyle.Momentum ? "Momentum" : "Classic",
                     Change = d => Settings.SetCastingStyle(Settings.CastingStyle == CastingStyle.Momentum ? CastingStyle.Classic : CastingStyle.Momentum) },
                 new Item { Label = "Momentum cue (FOV, bob)", Value = () => OnOff(Settings.MomentumCue),
@@ -392,6 +428,7 @@ namespace Spellcaster
             bool paused = PauseUp;
             if (!Visible && !paused) return;
             if (!paused && Cursor.lockState != CursorLockMode.None) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+            TrackSession();
             if (Listening.HasValue) return; // the next key press is captured in DrawGUI
             if (paused && Current == Page.Pause)
             {
@@ -400,7 +437,6 @@ namespace Spellcaster
                 if (Input.GetKeyDown(KeyCode.C) && QuitSaves) RunRandom.CopySeed();
             }
 
-            TrackSession();
             Selected = Mathf.Clamp(Selected, 0, Mathf.Max(0, Items.Count - 1));
             bool typing = Current == Page.Seed || Current == Page.Direct; // letters go into the text box: arrows move, Enter chooses
             if ((!typing && Input.GetKeyDown(KeyCode.W)) || Input.GetKeyDown(KeyCode.UpArrow)) Move(-1);
@@ -589,7 +625,8 @@ namespace Spellcaster
         string Hint() => Current switch
         {
             Page.Main => "Mouse or W/S + Enter",
-            Page.Pause => "Esc: resume   Q: " + (QuitSaves ? "save & quit" : "quit") +
+            Page.Pause => (invitePrompt ? $"{(NetSession.Instance.PendingInviteFrom ?? "A friend")} invited you to their game. Joining leaves this run" + (QuitSaves ? " (it's saved).\n" : ".\n") : "") +
+                "Esc: resume   Q: " + (QuitSaves ? "save & quit" : "quit") +
                 (QuitSaves && Dungeon.Instance && Dungeon.Instance.InCombat
                     ? "\nIn a fight: you keep what you have, and the fight starts over from the last cleared room." : ""),
             Page.Confirm => "Esc: back",

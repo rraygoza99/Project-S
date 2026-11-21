@@ -389,47 +389,87 @@ namespace Spellcaster
 
         // ---------------- co-op room flow (host) ----------------
 
-        /// <summary>A fight room a player stepped into: the doors close when the countdown ends (multiplayer).</summary>
+        /// <summary>A fight room a player stepped into, waiting for everyone (multiplayer); null when none.</summary>
         public Room GatherRoom { get; private set; }
-        float gatherTimer;
-        Vector3 gatherFrom;
+        /// <summary>Players who count (alive, not downed or spectating) inside <see cref="GatherRoom"/>, and how many count.</summary>
+        public int GatherInside { get; private set; }
+        public int GatherNeed { get; private set; }
+        /// <summary>The players who count but are still outside <see cref="GatherRoom"/> (the HUD points at them).</summary>
+        public readonly List<Player> GatherOutside = new List<Player>();
+        /// <summary>How far past the doorway a player must be to count as inside (the gates close behind them).</summary>
+        public const float GatherInset = 1.2f;
+        string gatherKey = "";
         /// <summary>The HP and count multipliers of the last fight (player-count scaling).</summary>
         public (float hp, float count) LastScale { get; private set; } = (1f, 1f);
         bool CoopHost => Net.NetPlayers.Running && !Net.NetSession.IsClientOnly && Players.All.Count > 1;
 
+        /// <summary>A player who must be in the room before its fight starts: alive, not downed, not spectating.</summary>
+        public static bool CountsForGather(Player p) => p && !p.IsDead && !p.Downed && !p.BledOut;
+
         /// <summary>
-        /// The first living player to step into a fight room starts a short countdown; then everyone still
-        /// outside is pulled in next to them, the doors close and the fight starts. Nobody is shut out.
+        /// Co-op (host): the first player to walk into a fight room holds it. Nothing starts (no enemies,
+        /// traps or closed doors) until every player who counts has walked in too; nobody is moved. If
+        /// everyone walks back out, the room is let go. Players who drop out of the game stop counting, so
+        /// the fight starts when everyone left is inside. Clients get the state (<see cref="SetGatherForNet"/>).
         /// </summary>
         void UpdateGathering()
         {
             if (GatherRoom == null)
             {
+                Room found = null;
                 foreach (var p in Players.All)
                 {
-                    if (!p || p.IsDead) continue;
+                    if (!CountsForGather(p)) continue;
                     var pos = p.transform.position;
-                    if (!Rooms.TryGetValue(Room.CellAt(pos), out var r) || !r.HasEnemies || r.Cleared || HoldEncounters || !r.Contains(pos, 1.2f)) continue;
-                    GatherRoom = r;
-                    gatherTimer = Net.NetConfig.GatherSeconds;
-                    gatherFrom = pos;
-                    Current = r;
-                    r.Visited = true;
-                    GameState.Instance?.Show("Fight! Gather up", Net.NetConfig.GatherSeconds);
-                    return;
+                    if (!Rooms.TryGetValue(Room.CellAt(pos), out var r) || !r.HasEnemies || r.Cleared || HoldEncounters || !r.Contains(pos, GatherInset)) continue;
+                    found = r;
+                    break;
                 }
+                if (found == null) return;
+                GatherRoom = found;
+                found.Visited = true;
+            }
+            var room = GatherRoom;
+            int need = 0, inside = 0;
+            GatherOutside.Clear();
+            foreach (var p in Players.All)
+            {
+                if (!CountsForGather(p)) continue;
+                need++;
+                if (room.Contains(p.transform.position, GatherInset)) inside++;
+                else GatherOutside.Add(p);
+            }
+            if (inside == 0) { SetGather(null, 0, 0); return; } // everyone walked back out
+            if (inside >= need)
+            {
+                SetGather(null, 0, 0);
+                Enter(room);
                 return;
             }
-            gatherTimer -= Time.deltaTime;
-            if (gatherTimer > 0f) return;
-            var room = GatherRoom;
-            GatherRoom = null;
-            foreach (var p in Players.All.ToArray())
-            {
-                if (!p || p.IsDead || room.Contains(p.transform.position, 0.5f)) continue;
-                p.Teleport(FindFreeSpot(room, gatherFrom, 0.8f) + Vector3.up * 0.1f, p.Yaw);
-            }
-            Enter(room);
+            SetGather(room, inside, need);
+        }
+
+        /// <summary>Host: the wait state; tells the clients when it changes.</summary>
+        void SetGather(Room room, int inside, int need)
+        {
+            if (room == null) GatherOutside.Clear();
+            GatherRoom = room;
+            GatherInside = inside;
+            GatherNeed = need;
+            string key = room == null ? "" : room.Id + "/" + inside + "/" + need + "/" + string.Join(",", GatherOutside.Select(p => p.NetId));
+            if (key == gatherKey) return;
+            gatherKey = key;
+            Net.NetCombat.GatherChanged(room, inside, need, GatherOutside);
+        }
+
+        /// <summary>Multiplayer client: the host's wait state before a fight.</summary>
+        public void SetGatherForNet(Room room, int inside, int need, IEnumerable<Player> outside)
+        {
+            GatherRoom = room;
+            GatherInside = inside;
+            GatherNeed = need;
+            GatherOutside.Clear();
+            if (room != null) GatherOutside.AddRange(outside);
         }
 
         void Update()
@@ -443,6 +483,8 @@ namespace Spellcaster
             var cell = Room.CellAt(pos);
             bool coop = CoopHost;
             if (coop && !InCombat) UpdateGathering();
+            // Back to one player while a room waited (the others left): the usual single-player entry below.
+            else if (!coop && GatherRoom != null && !Net.NetSession.IsClientOnly) SetGather(null, 0, 0);
             if (Rooms.TryGetValue(cell, out var room) && room != Current && room.Contains(pos, 1.2f) && GatherRoom == null
                 && (!coop || !room.HasEnemies || room.Cleared || HoldEncounters)) Enter(room);
 
@@ -630,7 +672,7 @@ namespace Spellcaster
         public Room RoomById(string id) => AllRooms.FirstOrDefault(r => r.Id == id);
 
         /// <summary>Test hook: drops a pending co-op gather countdown.</summary>
-        public void CancelGatherForTest() => GatherRoom = null;
+        public void CancelGatherForTest() => SetGather(null, 0, 0);
 
         /// <summary>Test hook: as if everyone stepped through the portal.</summary>
         public void EnterPortalForTest() => EnterPortal();

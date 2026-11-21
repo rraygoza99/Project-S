@@ -63,6 +63,8 @@ namespace Spellcaster
             if (Input.GetMouseButtonDown(0)) Click(MouseGui());
         }
 
+        static string CdText(SpellDefinition s) { float c = CooldownConfig.BaseCooldown(s); return c > 0f ? $"{c:0.#}s" : "no cooldown"; }
+
         static Vector2 MouseGui() => new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
 
         /// <summary>Handles a click at a GUI position (also a test hook).</summary>
@@ -266,7 +268,7 @@ namespace Spellcaster
                 if (pick >= 0) HUD.Shadowed(new Rect(row.xMax - 3 * u, row.y, 3 * u, row.height), pick == 0 ? "A" : "B", HUD.Label.Center());
                 GUI.DrawTexture(new Rect(row.x + 0.3f * u, row.y + 0.2f * u, rowH - 0.8f * u, rowH - 0.8f * u), s.Icon, ScaleMode.ScaleToFit);
                 string area = s.AreaTag != null ? "   " + s.AreaTag : "";
-                HUD.Shadowed(new Rect(row.x + rowH, row.y + 0.1f * u, row.width, 1.6f * u), $"{i + 1}. {s.Name}  ({s.Cooldown:0.#}s){area}", HUD.Small);
+                HUD.Shadowed(new Rect(row.x + rowH, row.y + 0.1f * u, row.width, 1.6f * u), $"{i + 1}. {s.Name}  ({CdText(s)}){area}", HUD.Small);
                 HUD.Shadowed(new Rect(row.x + rowH, row.y + 1.5f * u, row.width - rowH - 3 * u, 1.6f * u), s.Describe(), Faint());
                 y += rowH;
             }
@@ -296,7 +298,7 @@ namespace Spellcaster
             if (preview != null)
             {
                 HUD.Fill(new Rect(px0, ly - 0.4f * u, pw, 14.5f * u), new Color(preview.Color.r, preview.Color.g, preview.Color.b, 0.12f));
-                HUD.Shadowed(new Rect(px0 + u, ly, pw, 2 * u), $"Cooldown {preview.Cooldown:0.#}s   Tier {preview.Tier}   Rune {Arrows.Glyphs(preview.Sequence)}", HUD.Small);
+                HUD.Shadowed(new Rect(px0 + u, ly, pw, 2 * u), $"Cooldown {CdText(preview)}   Tier {preview.Tier}   Rune {Arrows.Glyphs(preview.Sequence)}", HUD.Small);
                 HUD.DrawGlyph(preview.Sequence, new Rect(px0 + pw - 6.5f * u, ly, 5.5f * u, 5.5f * u), preview.Color, 1f, preview.Sequence.Length, Mathf.Max(2f, 0.25f * u));
                 ly += 2 * u;
                 HUD.Shadowed(new Rect(px0 + u, ly, pw, 2 * u), "Delivery: " + preview.Delivery.Name + (preview.AreaTag != null ? "   " + preview.AreaTag : ""), HUD.Small);

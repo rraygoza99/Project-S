@@ -71,6 +71,10 @@ namespace Spellcaster.Grimoire
         // ---- card numbers ----
         public static float AmplifyMult = 1.5f;
         public static float OverloadMult = 2f, OverloadCooldownMult = 2f;
+        /// <summary>On a spell without a cooldown: Overload stops you casting spells for this long instead.</summary>
+        public static float OverloadCastLock = 1.5f;
+        /// <summary>On a spell without a cooldown: Quicken gives this speed bonus (0.3 = +30%) for this long instead.</summary>
+        public static float QuickenSprintBonus = 0.3f, QuickenSprintSeconds = 3f;
         public static float SplitPower = 0.6f, SplitFanDegrees = 15f, SplitAreaScale = 0.6f, SplitAreaSpacing = 3f;
         public static float WideMult = 1.5f;
         public static float EchoDelay = 0.5f;

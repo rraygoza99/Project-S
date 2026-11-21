@@ -26,8 +26,6 @@ namespace Spellcaster.Net
         public const string LobbyGameKey = "spellcaster_game";
         public const string LobbyGameValue = "spellcaster";
 
-        /// <summary>Seconds between the first player stepping into a fight room and the doors closing (the others are pulled in).</summary>
-        public const float GatherSeconds = 3f;
 
         /// <summary>
         /// Difficulty by player count (index = players): enemy HP multiplier and how many enemies per wave

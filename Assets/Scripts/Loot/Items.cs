@@ -23,6 +23,11 @@ namespace Spellcaster
         public Action<Run> OnAcquire;
         /// <summary>Consumables: returns false if it can't be used right now (the item is kept).</summary>
         public Func<Run, bool> Use;
+        /// <summary>
+        /// Multiplayer client: runs on the client instead of asking the host to use the item (the item opens
+        /// a panel on the player's own screen; the host is asked once they choose). Arguments: run, slot.
+        /// </summary>
+        public Func<Run, int, bool> ClientUse;
         public Func<Texture2D> IconFactory;
         /// <summary>Not in the loot pools until its achievement is reached (meta progression).</summary>
         public bool StartsLocked;
@@ -65,7 +70,7 @@ namespace Spellcaster
                 OnAcquire = r => r.Stats.MoveSpeed *= 1.15f },
             new ItemDef { Id = "arcane_focus", Name = "Arcane Focus", Desc = "+20% spell power", Shape = "gem", Color = C(0.7f, 0.4f, 1f), Price = 30,
                 OnAcquire = r => r.Stats.Power += 0.2f },
-            new ItemDef { Id = "hourglass", Name = "Hourglass", Desc = "Spell cooldowns -15%", Shape = "hourglass", Color = C(0.9f, 0.8f, 0.4f), Price = 30,
+            new ItemDef { Id = "hourglass", Name = "Hourglass", Desc = "Healing spell cooldowns -15%", Shape = "hourglass", Color = C(0.9f, 0.8f, 0.4f), Price = 30,
                 OnAcquire = r => r.Stats.CooldownMult *= 0.85f },
             new ItemDef { Id = "sharp_wand", Name = "Sharpened Wand", Desc = "Magic bolt +5 damage", Shape = "wand", Color = C(0.75f, 0.55f, 1f), Price = 20,
                 OnAcquire = r => r.Stats.BoltDamage += 5f },
@@ -113,7 +118,7 @@ namespace Spellcaster
                 OnAcquire = r => r.Stats.BoltSplit += 2 },
             new ItemDef { Id = "toxic_vial", Name = "Toxic Vial", Desc = "Every spell hit poisons enemies", Shape = "potion", Color = C(0.45f, 1f, 0.3f), Price = 30, StartsLocked = true,
                 OnAcquire = r => r.Stats.PoisonOnHit += 6f },
-            new ItemDef { Id = "storm_crown", Name = "Storm Crown", Desc = "Every 5th spell has no cooldown", Shape = "ring", Color = C(0.6f, 0.75f, 1f), Price = 35, StartsLocked = true,
+            new ItemDef { Id = "storm_crown", Name = "Storm Crown", Desc = "Every 5th spell hits 50% harder", Shape = "ring", Color = C(0.6f, 0.75f, 1f), Price = 35, StartsLocked = true,
                 OnAcquire = r => r.Stats.FreeCastEvery = 5 },
             new ItemDef { Id = "overcharge", Name = "Overcharge", Desc = "A spell kept ready for 1.5s hits 50% harder", Shape = "orb", Color = C(1f, 0.95f, 0.5f), Price = 30, StartsLocked = true,
                 OnAcquire = r => r.Stats.Overcharge = true },
@@ -147,9 +152,9 @@ namespace Spellcaster
                         if (e.IsAlive && (e.transform.position - p).sqrMagnitude < 16f * 16f) e.Freeze(4f);
                     return true;
                 } },
-            new ItemDef { Id = "haste", Name = "Haste Elixir", Desc = "10s: faster movement, half cooldowns", Kind = ItemKind.Consumable, Shape = "potion", Color = C(1f, 0.85f, 0.2f), Price = 12,
+            new ItemDef { Id = "haste", Name = "Haste Elixir", Desc = "10s: faster movement, half healing cooldowns", Kind = ItemKind.Consumable, Shape = "potion", Color = C(1f, 0.85f, 0.2f), Price = 12,
                 Use = r => { r.HasteTimer = Run.HasteDuration; Sfx.Play("potion", 0.7f, 1.3f); return true; } },
-            new ItemDef { Id = "renewal", Name = "Scroll of Renewal", Desc = "Reset all spell cooldowns", Kind = ItemKind.Consumable, Shape = "scroll", Color = C(0.5f, 1f, 0.6f), Price = 10,
+            new ItemDef { Id = "renewal", Name = "Scroll of Renewal", Desc = "Reset your healing spells' cooldowns", Kind = ItemKind.Consumable, Shape = "scroll", Color = C(0.5f, 1f, 0.6f), Price = 10,
                 Use = r =>
                 {
                     if (r.Owner && !r.Owner.IsLocal) Net.NetCombat.ResetCooldowns(r.Owner); // another player's (multiplayer host)
@@ -175,8 +180,10 @@ namespace Spellcaster
             new ItemDef { Id = "rune_stone", Name = "Rune Stone", Desc = "Learn a random spell you don't know", Kind = ItemKind.Consumable, Shape = "tome", Color = C(0.6f, 0.8f, 1f), Price = 20, StartsLocked = true,
                 Use = r =>
                 {
-                    var rune = RandomRune();
-                    if (rune == null || SpellBook.Known.Count >= SpellBook.MaxSpells) return false;
+                    bool remote = r.Owner && !r.Owner.IsLocal && Net.NetPlayers.Running;
+                    var rune = remote ? RandomRuneFor(r.Owner) : RandomRune();
+                    int known = remote ? Net.NetCombat.BookCount(r.Owner) : SpellBook.Known.Count;
+                    if (rune == null || known >= SpellBook.MaxSpells) return false;
                     return r.GrantSpell(rune.SpellId);
                 } },
         };
@@ -237,6 +244,13 @@ namespace Spellcaster
         public static ItemDef RandomConsumable() => Pick(Consumables.Where(i => i.IsAvailable).ToList());
 
         /// <summary>A rune for a base spell the player doesn't know yet, or null.</summary>
+        /// <summary>Multiplayer host: a rune for a spell this other player doesn't know (their book is on the host).</summary>
+        public static ItemDef RandomRuneFor(Player p)
+        {
+            var ids = SpellBook.Available.Select(s => s.Id).Where(id => !Net.NetCombat.Knows(p, id)).ToList();
+            return ids.Count == 0 ? null : Rune(ids[UnityEngine.Random.Range(0, ids.Count)]);
+        }
+
         public static ItemDef RandomRune(ICollection<ItemDef> exclude = null)
         {
             var ids = SpellBook.Available.Select(s => s.Id).Where(id => !SpellBook.Knows(id) && (exclude == null || !exclude.Contains(Rune(id)))).ToList();

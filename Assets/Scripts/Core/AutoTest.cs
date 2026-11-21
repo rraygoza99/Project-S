@@ -27,6 +27,7 @@ namespace Spellcaster
             int i = Array.IndexOf(args, "-autotest");
             if (i < 0) return;
             Active = true;
+            CooldownConfig.UseLegacyForTest(); // the older checks test cooldowns; the new rules have their own section
             var t = host.AddComponent<AutoTest>();
             t.outDir = i + 1 < args.Length && !args[i + 1].StartsWith("-") ? args[i + 1] : Path.GetFullPath("AutoTest");
             Directory.CreateDirectory(t.outDir);
@@ -59,8 +60,13 @@ namespace Spellcaster
 
                 int mpSeed = 0;
                 Net.NetSession.StartRunHandler = m => mpSeed = m.seed; // don't start this copy's run: the test goes on in single-player
+                // Playtest bug: an invite accepted on a menu page that isn't a multiplayer page didn't open the lobby.
+                MainMenu.Instance.Open(MainMenu.Page.Options);
+                yield return null;
                 bool mpHosted = mpNs.HostDirect(Net.NetConfig.DebugPort, 4);
                 for (int mpF = 0; mpF < 30 && mpNs.Roster.Count < 1; mpF++) yield return null;
+                yield return null;
+                Check($"joining a session from any menu page (here Options) opens the lobby ({MainMenu.Instance.Current})", MainMenu.Instance.Current == MainMenu.Page.Lobby);
                 Check($"hosting (debug direct-IP): the host is in its own lobby ({mpNs.Roster.Count} player, {mpNs.Roster.FirstOrDefault().name}), multiplayer mode on",
                     mpHosted && mpNs.IsHost && mpNs.Roster.Count == 1 && mpNs.Roster[0].host && GameState.Multiplayer);
                 MainMenu.Instance.Open(MainMenu.Page.Multiplayer);
@@ -771,6 +777,122 @@ namespace Spellcaster
                 pmMenu.ChooseForTest("Resume");
                 yield return null;
                 Check("losing window focus pauses the game; Resume goes back to it", fxPaused && !gs.Paused && Time.timeScale == 1f && pmMenu.Current == MainMenu.Page.Main);
+
+                // A Steam invite accepted during a run pauses it and asks first (no join under the player).
+                var ivNs = Net.NetSession.Instance;
+                ivNs.AcceptInvite(new Steamworks.CSteamID(109775240000000001UL), "Tester");
+                yield return null;
+                yield return null;
+                var ivLabels = string.Join(", ", pmMenu.LabelsForTest());
+                bool ivAsk = gs.Paused && pmMenu.Current == MainMenu.Page.Pause && ivLabels.StartsWith("Save & join, Ignore invite") && pmMenu.HintForTest().Contains("Tester invited you") && !ivNs.InSession && gs.InRun;
+                yield return Shot("05k_invite_in_run");
+                string ivLayout = pmMenu.LayoutProblem;
+                pmMenu.ChooseForTest("Ignore invite");
+                yield return null;
+                var ivAfter = string.Join(", ", pmMenu.LabelsForTest());
+                Check($"an invite during a run pauses and asks ({ivLabels}); Ignore keeps the run ({ivAfter}, layout {ivLayout ?? "ok"})",
+                    ivAsk && ivLayout == null && ivNs.PendingInvite == Steamworks.CSteamID.Nil && ivAfter == "Resume, Options, Save & quit" && gs.InRun);
+                pmMenu.ChooseForTest("Resume");
+                yield return null;
+
+                // Hit direction: a red arc around the crosshair points at an attacker you can't see.
+                var hdStartPos = player.transform.position;
+                float hdStartYaw = player.Yaw;
+                DamageIndicator.Clear();
+                int hdAdded = DamageIndicator.Added;
+                float hdHp = player.HP;
+                var hdFwd = player.Cam.transform.forward; hdFwd.y = 0f; hdFwd.Normalize();
+                var hdRightDir = Vector3.Cross(Vector3.up, hdFwd);
+                var hdBase = player.transform.position;
+                var hdBehind = hdBase - hdFwd * 5f;
+                player.TakeDamage(1f, hdBehind, 9001);
+                float hdA0 = DamageIndicator.AngleForTest(player, 9001);
+                player.TakeDamage(1f, hdBehind + hdRightDir * 0.3f, 9001); // the same attacker again: one arc
+                player.TakeDamage(1f, hdBase + hdFwd * 5f, 9002);          // in view: no arc (default: outside view only)
+                player.TakeDamage(1f);                                     // a trap (no source): no arc
+                int hdAfterSame = DamageIndicator.Count;
+                player.TakeDamage(4f, hdBase + hdRightDir * 5f, 9003);    // another attacker on your right
+                float hdA3 = DamageIndicator.AngleForTest(player, 9003);
+                yield return null;
+                yield return Shot("28_damage_indicator");
+                Check($"a hit from behind draws an arc pointing back ({hdA0:0} deg); the same attacker refreshes it, in-view and trap hits draw none ({hdAfterSame} arc); another attacker on the right adds one at {hdA3:0} deg ({DamageIndicator.Count} arcs)",
+                    Mathf.Abs(Mathf.Abs(hdA0) - 180f) < 12f && hdAfterSame == 1 && Mathf.Abs(hdA3 - 90f) < 12f && DamageIndicator.Count == 2 && DamageIndicator.Added == hdAdded + 2);
+                player.LookAt(hdBase + hdRightDir * 5f + Vector3.up * 1.4f);
+                yield return null;
+                float hdTurned = DamageIndicator.AngleForTest(player, 9003), hdBack = DamageIndicator.AngleForTest(player, 9001);
+                Check($"turning keeps the arcs on the attackers (right one now {hdTurned:0} deg, the one behind now {hdBack:0} deg)",
+                    Mathf.Abs(hdTurned) < 12f && Mathf.Abs(hdBack - 90f) < 15f); // facing right, the one behind is on your right
+                yield return new WaitForSeconds(DamageIndicator.Lifetime + 0.15f);
+                Check($"the arcs fade out after about {DamageIndicator.Lifetime:0.0} s ({DamageIndicator.Count} left)", DamageIndicator.Count == 0);
+                player.Heal(player.MaxHP, quiet: true);
+                if (player.HP < hdHp) player.Heal(hdHp - player.HP, quiet: true);
+
+                // ---- Cooldowns (playtest 0.20): only spells that heal keep one (cooldowns.json) ----
+                CooldownConfig.UseDefaultsForTest();
+                string cdList = string.Join(", ", SpellBook.Defaults().Select(sp => $"{sp.Id} {CooldownConfig.BaseCooldown(sp):0.#}"));
+                bool cdRule = SpellBook.Defaults().All(sp => CooldownConfig.HasCooldown(sp) == (sp.Id == "heal" || sp.Id == "lifedrain" || sp.Id == SelfSpellConfig.QuickeningId));
+                SpellForge.TryCombine(SpellBook.CreateBase("heal"), SpellBook.CreateBase("fireball"), new List<SpellDefinition>(), out var cdFusedHeal, out _);
+                SpellForge.TryCombine(SpellBook.CreateBase("frostshard"), SpellBook.CreateBase("fireball"), new List<SpellDefinition>(), out var cdFusedHit, out _);
+                bool cdForged = cdFusedHeal != null && CooldownConfig.HasCooldown(cdFusedHeal) && cdFusedHit != null && !CooldownConfig.HasCooldown(cdFusedHit);
+                CooldownConfig.Overrides["meteor"] = 14f;
+                bool cdOverride = Mathf.Approximately(CooldownConfig.BaseCooldown(SpellBook.CreateBase("meteor")), 14f);
+                CooldownConfig.Overrides.Clear();
+                Check($"only spells that heal keep a cooldown ({cdList}); forged spells follow their effects (heal+fireball: {cdForged}); cooldowns.json can give one back (meteor 14 s: {cdOverride})",
+                    cdRule && cdForged && cdOverride);
+
+                var cdSs = SpellSystem.Instance;
+                var cdFire = SpellBook.Known.FirstOrDefault(sp => sp.Id == "fireball");
+                bool cdTwice = cdFire != null && cdSs.CastForTest(cdFire) && !cdSs.OnCooldown(cdFire) && cdSs.CastForTest(cdFire) && !cdSs.OnCooldown(cdFire);
+                Check("Fireball casts twice in a row (no cooldown)", cdTwice);
+
+                // Blink Dash: no cooldown, but chained dashes don't keep you untouchable.
+                player.QueueDash(3f, 0f);
+                yield return null;
+                yield return null;
+                bool cdD1 = player.LastDashIFrames && player.Invulnerable;
+                yield return new WaitForSeconds(0.4f);
+                player.QueueDash(3f, 0f);
+                yield return null;
+                yield return null;
+                bool cdD2 = !player.LastDashIFrames && !player.Invulnerable;
+                yield return new WaitForSeconds(CooldownConfig.DashIFrameLockout + 0.5f);
+                player.QueueDash(3f, 0f);
+                yield return null;
+                yield return null;
+                bool cdD3 = player.LastDashIFrames && player.Invulnerable;
+                Check($"Blink Dash i-frames: the first dash ({cdD1}), not one 0.4 s later ({cdD2}), again {CooldownConfig.DashIFrameLockout:0.0} s after the last i-frames ended ({cdD3})", cdD1 && cdD2 && cdD3);
+                yield return new WaitForSeconds(0.4f);
+
+                // Freeze and stun: no chaining. Bosses get half.
+                var cdImp = SpawnAhead(player, EnemyType.Imp, 6f, 0f);
+                yield return null;
+                cdImp.Freeze(3f);
+                bool cdFrozen = cdImp.IsFrozen;
+                cdImp.Freeze(3f);
+                cdImp.ConsumeFreeze();
+                cdImp.Stun(1f);
+                bool cdImmune = !cdImp.IsStunned && !cdImp.IsFrozen && cdImp.CcResisted == 2;
+                float cdBoss = Enemy.CcFor(EnemyType.Boss, 4f);
+                Check($"freeze and stun can't be chained: frozen {cdFrozen}; another freeze while frozen and a stun right after it ends are shrugged off ({cdImp.CcResisted} resisted); a boss gets {cdBoss:0.#} s of a 4 s freeze",
+                    cdFrozen && cdImmune && Mathf.Approximately(cdBoss, 2f));
+                gs.ClearEnemies();
+
+                // Grimoire cards on a spell without a cooldown: Quicken is a burst of speed, Overload a casting lock.
+                float cdSpeed0 = player.Run.MoveSpeed;
+                float cdQ = SpellSystem.CardCooldown(0f, false, new CastRequest { ResetCooldown = true }, player, out float cdQLock);
+                float cdSpeed1 = player.Run.MoveSpeed;
+                var cdOv = new CastRequest();
+                cdOv.CooldownMult = Grimoire.GrimoireConfig.OverloadCooldownMult;
+                SpellSystem.CardCooldown(0f, false, cdOv, player, out float cdOvLock);
+                float cdHealOv = SpellSystem.CardCooldown(15f, true, cdOv, player, out float cdHealLock);
+                float cdHealQ = SpellSystem.CardCooldown(15f, true, new CastRequest { ResetCooldown = true }, player, out _);
+                Check($"cards on a spell without a cooldown: Quicken gives +{(cdSpeed1 / cdSpeed0 - 1f) * 100f:0}% speed, Overload a {cdOvLock:0.0} s casting lock; on Heal they still drop it ({cdHealQ:0}) or double it ({cdHealOv:0} s, no lock)",
+                    cdQ == 0f && cdQLock == 0f && cdSpeed1 > cdSpeed0 * 1.25f && Mathf.Approximately(cdOvLock, Grimoire.GrimoireConfig.OverloadCastLock)
+                    && cdHealQ == 0f && Mathf.Approximately(cdHealOv, 30f) && cdHealLock == 0f);
+                player.Run.SprintTimer = 0f;
+                CooldownConfig.UseLegacyForTest();
+                player.Teleport(hdStartPos, hdStartYaw); // the dashes and turns above: back where the next checks expect you
+                yield return null;
                 RetroView.DropForTest();
                 bool fxDropped = !RetroView.Ready;
                 yield return null;
@@ -2944,6 +3066,20 @@ namespace Spellcaster
                 Check($"a room reward reaches the other player, who picks a card; the host adds it to their deck ({gbCount} -> {(gbRemote != null ? gbRemote.Count : 0)}, client shows {wsRep.deck})",
                     gbRemote != null && gbRemote.Count == gbCount + 1 && wsRep.deck == gbRemote.Count);
 
+                // Playtest bug: the Scroll of Erasure did nothing for clients (the host opened its own list instead).
+                int erBefore = gbRemote != null ? gbRemote.Count : 0, erDone = Net.NetGrimoire.Erased;
+                int erHostDeck = gbHostDeck != null ? gbHostDeck.Count : 0;
+                wsOther.Run.Acquire(Grimoire.GrimoireShop.Erasure);
+                float erT = 0f;
+                while (erT < 8f && Net.NetGrimoire.Erased == erDone) { erT += Time.unscaledDeltaTime; yield return null; }
+                yield return new WaitForSecondsRealtime(0.8f);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                bool erScrollGone = System.Array.IndexOf(wsOther.Run.Consumables, Grimoire.GrimoireShop.Erasure) < 0;
+                bool erHostPanel = Grimoire.GrimoireRun.Instance && Grimoire.GrimoireRun.Instance.Rewards.IsOpen;
+                Check($"the other player's Scroll of Erasure opens the list on their screen; the host removes the card from their deck and takes their scroll (deck {erBefore} -> {(gbRemote != null ? gbRemote.Count : 0)}, client shows {wsRep.deck}, scroll gone {erScrollGone}; your deck {erHostDeck} -> {(gbHostDeck != null ? gbHostDeck.Count : 0)}, list opened on your screen {erHostPanel})",
+                    gbRemote != null && gbRemote.Count == erBefore - 1 && wsRep.deck == gbRemote.Count && erScrollGone && !erHostPanel
+                    && (gbHostDeck == null || gbHostDeck.Count == erHostDeck));
+
                 // ---- loot and progress (Phase 4): instanced loot, each player's run, Forge, rooms, floors ----
                 player.Teleport(wsOther.transform.position + new Vector3(2f, 0f, 0f), player.Yaw);
                 yield return new WaitForSecondsRealtime(0.3f);
@@ -2967,13 +3103,16 @@ namespace Spellcaster
                 yield return null;
                 Check("you take your copy too, and then it's gone for everyone", ltMine && player.Run.Has("ruby_heart") && !ltItem);
 
-                wsOther.TakeDamage(30f);
+                int hdCliArcs = wsRep.hitArcs;
+                wsOther.TakeDamage(30f, wsOther.transform.position - Quaternion.Euler(0f, wsOther.Yaw, 0f) * Vector3.forward * 5f, 4242); // from behind them
                 float ltHurt = wsOther.HP;
                 wsOther.Run.Acquire(Items.Get("potion"));
                 ltT = 0f;
                 while (ltT < 4f && wsOther.HP <= ltHurt) { ltT += Time.unscaledDeltaTime; yield return null; }
                 Check($"the other player uses a consumable; the host applies it ({ltHurt:0} -> {wsOther.HP:0} HP, slot empty: {wsOther.Run.Consumables[0] == null})",
                     wsOther.HP > ltHurt && wsOther.Run.Consumables[0] == null);
+                ws.Reports.TryGetValue(wsClientId, out wsRep);
+                Check($"a hit from behind the other player draws the hit-direction arc on their screen (arcs {hdCliArcs} -> {wsRep.hitArcs})", wsRep.hitArcs > hdCliArcs);
 
                 // Essence is per player: a drop for them is theirs alone.
                 int esHost0 = player.Run.Essence, esCli0 = wsOther.Run.Essence;
@@ -2994,30 +3133,76 @@ namespace Spellcaster
                 Check($"the host charges the other player's own Essence for their forge (10 -> {wsOther.Run.Essence}, their screen {wsRep.essence}; their forges done {wsOther.Run.ForgesDone}, yours {player.Run.ForgesDone})",
                     wsOther.Run.Essence == 7 && wsRep.essence == 7 && wsOther.Run.ForgesDone == 1 && wsRep.forgesDone == 1);
 
-                // A fight room: the other player walks in, you're outside; after the countdown you're pulled in.
-                // You wait in the start room (outside any fight), so the only countdown is for the room they enter.
-                player.Teleport(d.Rooms[Vector2Int.zero].Center + new Vector3(0f, 0.1f, -3f), 0f);
+                // A fight room waits for everyone: nobody is pulled in, and nothing starts until all who count are inside.
+                // You wait in the start room (outside any fight), so the only room waiting is the one they enter.
+                var gtStart = d.Rooms[Vector2Int.zero].Center;
+                player.Teleport(gtStart + new Vector3(0f, 0.1f, -3f), 0f);
                 yield return new WaitForSecondsRealtime(0.3f);
-                var ltRoom = d.AllRooms.FirstOrDefault(r => r.Type == RoomType.Combat && !r.Cleared && r.HasEnemies);
-                if (ltRoom != null)
+                var gtRooms = d.AllRooms.Where(r => r.Type == RoomType.Combat && !r.Cleared && r.HasEnemies).Take(2).ToList();
+                if (gtRooms.Count == 2)
                 {
+                    var ltRoom = gtRooms[0];
                     d.HoldEncounters = false;
                     wsOther.Teleport(ltRoom.Center + new Vector3(0f, 0.1f, 0f), 0f);
+                    yield return new WaitForSecondsRealtime(0.6f);
+                    ws.Reports.TryGetValue(wsClientId, out wsRep);
+                    bool gtWait = d.GatherRoom == ltRoom && !d.InCombat && d.GatherInside == 1 && d.GatherNeed == 2 && d.GatherOutside.Contains(player);
+                    string gtAt = $"room {d.GatherRoom?.Id ?? "none"} vs {ltRoom.Id}, fight {d.InCombat}, {d.GatherInside}/{d.GatherNeed}; their screen {wsRep.gatherInside}/{wsRep.gatherNeed}";
+                    bool gtTheirs = wsRep.gatherInside == 1 && wsRep.gatherNeed == 2;
+                    yield return Shot("27a_gather_outside");
+                    int gtMarkOut = HUD.GatherMarkersShown;
+                    yield return new WaitForSecondsRealtime(3.5f); // longer than the old countdown
+                    bool gtNoPull = !d.InCombat && d.GatherRoom == ltRoom && !ltRoom.Contains(player.transform.position, 0f);
+                    Check($"a fight room waits for everyone: no fight, no teleport, \"Waiting for players (1/2)\" on both screens ({gtAt}; after 3.5 s fight {d.InCombat}, you still outside {!ltRoom.Contains(player.transform.position, 0f)}; markers {gtMarkOut})",
+                        gtWait && gtTheirs && gtNoPull && gtMarkOut == 1);
+
+                    // Walking back out lets the room go.
+                    wsOther.Teleport(gtStart + new Vector3(2f, 0.1f, -3f), 0f);
+                    yield return new WaitForSecondsRealtime(0.6f);
+                    ws.Reports.TryGetValue(wsClientId, out wsRep);
+                    Check($"everyone walking back out lets the room go (room {d.GatherRoom?.Id ?? "none"}, fight {d.InCombat}, their screen {wsRep.gatherInside}/{wsRep.gatherNeed})",
+                        d.GatherRoom == null && !d.InCombat && wsRep.gatherNeed == 0);
+
+                    // Players who are out (spectating, downed, or gone) stop counting: you're in, they're out, it starts.
+                    var gtIn = ltRoom.Center + new Vector3(0f, 0.1f, -2f);
+                    player.Teleport(gtIn, 0f);
                     yield return new WaitForSecondsRealtime(0.4f);
-                    bool ltGathering = d.GatherRoom == ltRoom && !d.InCombat && !ltRoom.Contains(player.transform.position, 0f);
-                    string ltAt = $"at 0.4 s: gather {d.GatherRoom?.Id ?? "none"}, fight {d.InCombat}, you in {ltRoom.Contains(player.transform.position, 0f)}, other in {ltRoom.Contains(wsOther.transform.position, 0f)}, current {d.Current?.Id}";
-                    yield return new WaitForSecondsRealtime(Net.NetConfig.GatherSeconds + 0.6f);
+                    bool gtYouWait = d.GatherRoom == ltRoom && d.GatherInside == 1 && d.GatherOutside.Contains(wsOther);
+                    yield return Shot("27b_gather_inside");
+                    int gtMarkIn = HUD.GatherMarkersShown;
+                    wsOther.SetBledOut();
+                    yield return new WaitForSecondsRealtime(0.3f);
+                    bool gtStarted = d.InCombat && d.Current == ltRoom;
+                    Net.NetDowned.Stand(wsOther, 1f);
+                    Check($"you wait inside with a marker on them ({gtYouWait}, markers {gtMarkIn}); once they're out of play (spectating) they stop counting and the fight starts (fight {gtStarted})",
+                        gtYouWait && gtMarkIn == 1 && gtStarted);
+                    yield return new WaitForSecondsRealtime(0.5f);
+                    gs.ClearEnemies();
+                    d.ClearCurrent();
+                    gs.ClearEnemies();
+                    yield return new WaitForSecondsRealtime(0.5f);
+
+                    // Both walk in: the fight starts where they stand.
+                    var lt2 = gtRooms[1];
+                    player.Teleport(gtStart + new Vector3(0f, 0.1f, -3f), 0f);
+                    wsOther.Teleport(lt2.Center + new Vector3(1.5f, 0.1f, 0f), 0f);
+                    yield return new WaitForSecondsRealtime(0.5f);
+                    bool gt2Wait = d.GatherRoom == lt2 && !d.InCombat;
+                    var gtMe = lt2.Center + new Vector3(-1.5f, 0.1f, -1f);
+                    player.Teleport(gtMe, 0f);
+                    yield return new WaitForSecondsRealtime(1.0f);
                     ws.Reports.TryGetValue(wsClientId, out wsRep);
                     var ltScale = Net.NetConfig.ScaleFor(2);
-                    Check($"stepping into a fight room starts a {Net.NetConfig.GatherSeconds:0}s countdown, then everyone is pulled in and the doors close (scaled for 2: HP x{d.LastScale.hp}, enemies x{d.LastScale.count}; doors locked on their screen: {wsRep.gatesLocked}; countdown started {ltGathering} [gather {d.GatherRoom?.Id ?? "none"} vs {ltRoom.Id}], fight on {d.InCombat}, you pulled in {ltRoom.Contains(player.transform.position, 0f)}, other in it {ltRoom.Contains(wsOther.transform.position, 0f)}; {ltAt})",
-                        ltGathering && d.InCombat && ltRoom.Contains(player.transform.position, 0f) && d.LastScale == ltScale && wsRep.gatesLocked > 0);
+                    float gtMoved = Players.FlatSqr(player.transform.position, gtMe);
+                    Check($"when the last player walks in, the doors close and the fight starts with nobody moved (waited {gt2Wait}, fight {d.InCombat}, you moved {Mathf.Sqrt(gtMoved):0.00} m; scaled for 2: HP x{d.LastScale.hp}, enemies x{d.LastScale.count}; doors locked on their screen: {wsRep.gatesLocked})",
+                        gt2Wait && d.InCombat && d.Current == lt2 && gtMoved < 0.25f && d.LastScale == ltScale && wsRep.gatesLocked > 0);
                     yield return new WaitForSecondsRealtime(1.5f);
                     gs.ClearEnemies();
                     d.ClearCurrent();
                     gs.ClearEnemies();
                     yield return new WaitForSecondsRealtime(0.5f);
                 }
-                else Check("a fight room for the co-op room test", false);
+                else Check("two fight rooms for the co-op room test", false);
 
                 // The boss falls: everyone sees the portal and the reward pedestal.
                 var bsRoom = d.AllRooms.First(r => r.Type == RoomType.Boss);

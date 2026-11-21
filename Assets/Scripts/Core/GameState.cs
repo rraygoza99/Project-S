@@ -78,6 +78,14 @@ namespace Spellcaster
             if (!AutoTest.Active) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         }
 
+        /// <summary>Pauses the run to ask the player something (a Steam invite); shown by the pause menu.</summary>
+        public void PauseForPrompt()
+        {
+            if (!InRun) return;
+            FocusPaused = true; // with the Forge open, the pause comes when it closes
+            if (!AutoTest.Active) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+        }
+
         /// <summary>The key or click that closed a panel this frame must not also act in the game.</summary>
         public void IgnoreInputThisFrame() => resumeFrame = Time.frameCount;
 

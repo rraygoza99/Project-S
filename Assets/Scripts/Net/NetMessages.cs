@@ -122,6 +122,23 @@ namespace Spellcaster.Net
         public float heldFor;
     }
 
+    /// <summary>Host to one client: you were hit from this spot (hit-direction arc).</summary>
+    public struct HurtFromMsg : NetworkMessage
+    {
+        public Vector3 from;
+        public int attacker;
+        public float amount;
+    }
+
+    /// <summary>Host to clients: a fight room waits for everyone to walk in (roomId empty: no room waits).</summary>
+    public struct GatherMsg : NetworkMessage
+    {
+        public string roomId;
+        public byte inside, need;
+        /// <summary>Net ids of the players who count but are still outside.</summary>
+        public int[] outside;
+    }
+
     /// <summary>Host to clients: a room's doors locked or opened, and whether it is cleared.</summary>
     public struct RoomGatesMsg : NetworkMessage
     {
@@ -177,6 +194,7 @@ namespace Spellcaster.Net
         public Vector3 pos, otherPos, enemyPos;
         public float hp, lastError, enemyHp;
         public int players, corrections, states, enemies, fx, projectiles, gatesLocked, deck, decks, gold, items, consumables, spells, floor, pickups, essence, forgesDone;
+        public int gatherInside, gatherNeed, hitArcs;
         public float maxHp;
         public string hand;
         public bool downed, bledOut, spectating;

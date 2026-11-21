@@ -71,7 +71,7 @@ namespace Spellcaster.Grimoire
                 Color = Col(1f, 0.55f, 0.25f), Category = CardCategory.Power,
                 Apply = c => c.ForEach(m => { m.DamageMult *= C.AmplifyMult; m.RangeMult *= C.AmplifyMult; }) },
 
-            new CardDef { Id = "overload", Name = "Overload", Symbol = "x2", Desc = "+100% damage, cooldown doubled",
+            new CardDef { Id = "overload", Name = "Overload", Symbol = "x2", Desc = "+100% damage; cooldown doubled (no cooldown: can't cast for 1.5s)",
                 Color = Col(1f, 0.25f, 0.3f), Category = CardCategory.Power,
                 Apply = c =>
                 {
@@ -92,7 +92,7 @@ namespace Spellcaster.Grimoire
                 Color = Col(0.8f, 0.5f, 1f), Category = CardCategory.Tempo,
                 Apply = c => c.Request.EchoDelay = C.EchoDelay },
 
-            new CardDef { Id = "quicken", Name = "Quicken", Symbol = "0s", Desc = "No cooldown for this cast",
+            new CardDef { Id = "quicken", Name = "Quicken", Symbol = "0s", Desc = "No cooldown for this cast (no cooldown: +30% speed for 3s)",
                 Color = Col(0.45f, 1f, 0.5f), Category = CardCategory.Tempo,
                 Apply = c => c.Request.ResetCooldown = true },
 

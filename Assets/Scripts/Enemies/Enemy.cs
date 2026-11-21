@@ -161,6 +161,8 @@ namespace Spellcaster
 
         /// <summary>Network id of this enemy (0 offline).</summary>
         public int NetId;
+        /// <summary>Who hit a player, for the hit-direction arc (one arc per attacker).</summary>
+        public int HitKey => NetId != 0 ? NetId : GetInstanceID();
         /// <summary>A client's copy of a host enemy: no AI, no hits; position and frame come from the host.</summary>
         public bool Proxy { get; private set; }
 
@@ -361,6 +363,7 @@ namespace Spellcaster
         {
             if (Proxy) return; // a client's copy: the host decides
             if (!IsAlive || Invulnerable) return;
+            if (!TakeCc(ref seconds)) return;
             stunTimer = Mathf.Max(stunTimer, seconds);
             if (state == State.Attack || state == State.Charge) state = State.Walk;
         }
@@ -521,7 +524,7 @@ namespace Spellcaster
             if (!chargeHit && dist < Type.Radius + 1.0f)
             {
                 chargeHit = true;
-                player.TakeDamage(Type.ChargeDamage * DamageMult);
+                player.TakeDamage(Type.ChargeDamage * DamageMult, transform.position, HitKey);
                 Sfx.Play("claw", 0.6f, 0.7f);
                 Fx.Flash(player.ChestPosition, new Color(1f, 0.6f, 0.3f), 1.2f, 0.25f, 1.2f);
                 EndCharge();
@@ -593,7 +596,7 @@ namespace Spellcaster
             foreach (var player in Players.All.ToArray())
                 if (player && !player.IsDead && (player.ChestPosition - c).sqrMagnitude <= r * r
                     && !Physics.Linecast(c, player.ChestPosition, Layers.WorldMask, QueryTriggerInteraction.Ignore))
-                    player.TakeDamage(dmg);
+                    player.TakeDamage(dmg, c, HitKey);
             foreach (var o in All.ToArray())
                 if (o && o.IsAlive && (o.Center - c).sqrMagnitude <= r * r) o.TakeDamage(Type.ExplodeDamage, Element.Fire);
             Combat.DamageProps(c, r, Type.ExplodeDamage);
@@ -622,7 +625,7 @@ namespace Spellcaster
                 DevMode.Ring(transform.position + Vector3.up * 0.1f, Type.AttackRange + 0.5f, DevMode.EnemyArea, 0.35f);
                 if (dist <= Type.AttackRange + 0.5f)
                 {
-                    player.TakeDamage(Type.Damage * DamageMult);
+                    player.TakeDamage(Type.Damage * DamageMult, transform.position, HitKey);
                     float thorns = player.Run ? player.Run.Stats.Thorns : 0f; // Thorned Robe
                     if (thorns > 0f) { TakeDamage(thorns, Element.Arcane); Fx.Flash(Center, new Color(0.6f, 1f, 0.4f), 1f, 0.2f, 1f); }
                 }
@@ -659,6 +662,8 @@ namespace Spellcaster
             origin += toChest * (0.6f + Type.Radius * 0.5f);
             float damage = Type.Damage * DamageMult;
             var color = Type.ProjectileColor;
+            int key = HitKey;
+            Vector3 from = origin;
             for (int i = 0; i < Type.Shots; i++)
             {
                 float ang = Type.Shots > 1 ? Mathf.Lerp(-Type.SpreadDeg * 0.5f, Type.SpreadDeg * 0.5f, i / (Type.Shots - 1f)) : 0f;
@@ -668,7 +673,7 @@ namespace Spellcaster
                     Layers.WorldMask | Layers.PlayerMask | Layers.PropMask, (point, col) =>
                     {
                         var p = col.GetComponent<Player>();
-                        if (p) p.TakeDamage(damage);
+                        if (p) p.TakeDamage(damage, from, key);
                         else if (col.GetComponentInParent<Prop>() is Prop prop) prop.TakeDamage(damage);
                         Fx.Flash(point, color, 0.8f, 0.25f, 1.5f);
                     }, life: 6f);
@@ -725,11 +730,12 @@ namespace Spellcaster
         public void Shoot(Vector3 origin, Vector3 dir, float speed, Color color, float size, float damage)
         {
             ShotsFired++;
+            int key = HitKey;
             Projectile.Spawn(origin, dir.normalized * speed, color, size, 0.18f + size * 0.1f,
                 Layers.WorldMask | Layers.PlayerMask | Layers.PropMask, (point, col) =>
                 {
                     var p = col.GetComponent<Player>();
-                    if (p) p.TakeDamage(damage);
+                    if (p) p.TakeDamage(damage, origin, key);
                     else if (col.GetComponentInParent<Prop>() is Prop prop) prop.TakeDamage(damage);
                     Fx.Flash(point, color, 0.8f, 0.25f, 1.5f);
                 }, life: 6f);
@@ -739,8 +745,31 @@ namespace Spellcaster
         {
             if (Proxy) return; // a client's copy: the host decides
             if (!IsAlive || Invulnerable) return;
+            if (!TakeCc(ref seconds)) return;
             frozenTimer = Mathf.Max(frozenTimer, seconds);
             if (state == State.Attack || state == State.Charge) state = State.Walk;
+        }
+
+        float ccFreeAt = -10f;
+        /// <summary>Freezes / stuns refused because of CC immunity (tests).</summary>
+        public int CcResisted { get; private set; }
+
+        /// <summary>
+        /// Freeze and stun limits (CooldownConfig): bosses get a shorter one; while frozen or stunned nothing
+        /// extends it, and once it ends the enemy shrugs off any new one for a moment. With no immunity set,
+        /// the old rule (the longer one wins).
+        /// </summary>
+        /// <summary>A freeze or stun of `seconds` on this kind of enemy (bosses get a shorter one).</summary>
+        public static float CcFor(EnemyType t, float seconds) => t != null && t.IsBoss ? seconds * CooldownConfig.BossCcMult : seconds;
+
+        bool TakeCc(ref float seconds)
+        {
+            seconds = CcFor(Type, seconds);
+            float immune = CooldownConfig.CcImmunitySeconds;
+            if (immune <= 0f) return seconds > 0f;
+            if (Time.time < ccFreeAt || frozenTimer > 0f || stunTimer > 0f) { CcResisted++; return false; }
+            ccFreeAt = Time.time + seconds + immune;
+            return seconds > 0f;
         }
 
         /// <summary>Removes the freeze (used by Shatter). Returns true if the enemy was frozen.</summary>

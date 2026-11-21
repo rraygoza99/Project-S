@@ -102,6 +102,7 @@ namespace Spellcaster
             }
 
             if (!spells || !spells.Channeling) DrawCrosshair(W, H, px); // while drawing, the rune's pen is the focus
+            if (player && gs.InRun && !pauseMenu) DamageIndicator.Draw(W, H, player);
             if (player) DrawHealth(H, px, u, player, run);
             if (run) DrawSlots(H, px, u, run);
             bool practice = PracticeTool.Instance && PracticeTool.Instance.Active;
@@ -124,6 +125,7 @@ namespace Spellcaster
 
             if (player && gs.InRun && !pauseMenu && !gs.ForgeOpen && !player.IsDead) DrawInteractPrompt(W, H, u, player);
             if (player && Net.NetPlayers.Running && gs.InRun) DrawCoopState(W, H, u, player);
+            if (player && dungeon && Net.NetPlayers.Running && gs.InRun && !pauseMenu && !gs.ForgeOpen) DrawGather(W, H, u, player, dungeon);
             if (run && run.ToastTimer > 0f && !gs.Paused) DrawToast(W, H, u, run);
 
             float slotsRight = SlotsRight(H, px, u) + u;
@@ -552,6 +554,118 @@ namespace Spellcaster
                 if (!p || p == me || !p.Downed || Players.FlatSqr(p.transform.position, me.transform.position) > Net.NetDowned.ReviveRange * Net.NetDowned.ReviveRange) continue;
                 Bar(W, H * 0.62f, u, p.ReviveProgress / Net.NetDowned.ReviveSeconds, "Reviving " + (string.IsNullOrEmpty(p.DisplayName) ? "teammate" : p.DisplayName) + " - stay close");
                 break;
+            }
+        }
+
+        /// <summary>
+        /// Co-op, before a fight: players in the room see "Waiting for players (n/m)" and a marker on each player
+        /// still outside (around the crosshair when they're off screen); players outside see where the room is.
+        /// </summary>
+        static void DrawGather(float W, float H, float u, Player me, Dungeon d)
+        {
+            GatherMarkersShown = 0;
+            if (d.GatherRoom == null || d.InCombat || !Dungeon.CountsForGather(me)) return;
+            bool outside = d.GatherOutside.Contains(me);
+            var st = new GUIStyle(Label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            var gold = new Color(1f, 0.85f, 0.4f);
+            st.normal.textColor = gold;
+            float y = H * 0.16f;
+            if (!outside)
+            {
+                Shadowed(new Rect(0, y, W, 2.6f * u), $"Waiting for players ({d.GatherInside}/{d.GatherNeed})", st);
+                Shadowed(new Rect(0, y + 2.6f * u, W, 2f * u), "The fight starts when everyone is in the room.", Small.Center());
+                foreach (var p in d.GatherOutside)
+                {
+                    if (!p || p == me) continue;
+                    var avatar = p.GetComponent<PlayerAvatar>();
+                    Vector3 at = (avatar ? avatar.ShownPosition : p.transform.position) + Vector3.up * 1.2f;
+                    PointTo(W, H, u, me, at, Color.Lerp(p.Color, Color.white, 0.3f), string.IsNullOrEmpty(p.DisplayName) ? "Player" : p.DisplayName);
+                }
+                GatherMarkersShown = d.GatherOutside.Count(p => p && p != me);
+            }
+            else
+            {
+                Shadowed(new Rect(0, y, W, 2.6f * u), $"Your group is waiting for you ({d.GatherInside}/{d.GatherNeed})", st);
+                Shadowed(new Rect(0, y + 2.6f * u, W, 2f * u), "Walk into the fight room to start it.", Small.Center());
+                PointTo(W, H, u, me, d.GatherRoom.Center + Vector3.up * 1.5f, gold, "Fight");
+                GatherMarkersShown = 1;
+            }
+        }
+
+        /// <summary>Markers drawn by the co-op wait before a fight (tests).</summary>
+        public static int GatherMarkersShown { get; private set; }
+
+        /// <summary>
+        /// A marker at a world spot: a chevron above it when it's on screen, else a chevron on a ring around
+        /// the crosshair pointing its way (turning keeps it pointed right).
+        /// </summary>
+        static void PointTo(float W, float H, float u, Player me, Vector3 world, Color col, string label)
+        {
+            var st = new GUIStyle(Small) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            st.normal.textColor = col;
+            float s = 1.8f * u;
+            if (ToScreen(me, world, W, H, out var sp) && sp.x > s && sp.x < W - s && sp.y > s && sp.y < H - s)
+            {
+                float bob = Mathf.Sin(Time.unscaledTime * 5f) * 0.3f * u;
+                DrawRotated(Chevron, new Rect(sp.x - s / 2f, sp.y - s + bob, s, s), 180f, col);
+                Shadowed(new Rect(sp.x - 10f * u, sp.y - s - 2.2f * u + bob, 20f * u, 2f * u), label, st);
+                return;
+            }
+            float ang = AngleTo(me, world);
+            float R = H * 0.3f;
+            var c = new Vector2(W / 2f, H / 2f);
+            var dir = new Vector2(Mathf.Sin(ang * Mathf.Deg2Rad), -Mathf.Cos(ang * Mathf.Deg2Rad));
+            var at = c + dir * R;
+            DrawRotated(Chevron, new Rect(at.x - s / 2f, at.y - s / 2f, s, s), ang, col);
+            var lp = c + dir * (R - 2.2f * u);
+            Shadowed(new Rect(lp.x - 10f * u, lp.y - u, 20f * u, 2f * u), label, st);
+        }
+
+        /// <summary>Degrees from straight ahead (0) to a world spot, clockwise on screen (90: right, 180: behind).</summary>
+        public static float AngleTo(Player me, Vector3 world)
+        {
+            var cam = me.Cam ? me.Cam.transform : me.transform;
+            Vector3 f = cam.forward; f.y = 0f;
+            Vector3 to = world - cam.position; to.y = 0f;
+            if (f.sqrMagnitude < 1e-6f || to.sqrMagnitude < 1e-6f) return 0f;
+            return Vector3.SignedAngle(f, to, Vector3.up);
+        }
+
+        public static void DrawRotated(Texture tex, Rect r, float degrees, Color col)
+        {
+            var m = GUI.matrix;
+            var prev = GUI.color;
+            GUIUtility.RotateAroundPivot(degrees, r.center);
+            GUI.color = col;
+            GUI.DrawTexture(r, tex);
+            GUI.color = prev;
+            GUI.matrix = m;
+        }
+
+        static Texture2D chevron;
+        /// <summary>A soft white arrowhead pointing up (tinted when drawn).</summary>
+        static Texture2D Chevron
+        {
+            get
+            {
+                if (chevron) return chevron;
+                const int n = 32;
+                chevron = new Texture2D(n, n, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+                var px = new Color32[n * n];
+                for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    // Texture rows go bottom-up: the tip is at the top (y = n - 1).
+                    float fy = (y + 0.5f) / n, fx = Mathf.Abs((x + 0.5f) / n - 0.5f) * 2f;
+                    float edge = 1f - fy;                       // 0 at the tip, 1 at the base
+                    float outer = edge - fx;                    // inside the triangle when > 0
+                    float notch = fx * 0.9f + 0.45f - edge;     // the cut-out at the back
+                    float a = Mathf.Clamp01(outer * 10f) * Mathf.Clamp01(notch * 10f) * Mathf.Clamp01((fy - 0.08f) * 10f);
+                    px[y * n + x] = new Color32(255, 255, 255, (byte)(a * 255));
+                }
+                chevron.SetPixels32(px);
+                chevron.Apply();
+                return chevron;
             }
         }
 

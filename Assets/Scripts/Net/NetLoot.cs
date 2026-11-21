@@ -40,7 +40,7 @@ namespace Spellcaster.Net
     public class RunNet
     {
         public int gold, goldEarned, toastId, essence, forgesDone, essenceBadLuck, essenceRolls;
-        public float haste, quicken, quickenSpeed, quickenRegen, quickenLength;
+        public float haste, quicken, quickenSpeed, quickenRegen, quickenLength, sprint, sprintBonus;
         public List<string> items = new List<string>(), consumables = new List<string>();
         public PlayerStats stats;
         public string toastTitle, toastText;
@@ -180,6 +180,7 @@ namespace Spellcaster.Net
             var n = new RunNet
             {
                 gold = r.Gold, goldEarned = r.GoldEarned, essence = r.Essence, forgesDone = r.ForgesDone, essenceBadLuck = r.EssenceBadLuck, essenceRolls = r.EssenceRolls, haste = Mathf.Ceil(r.HasteTimer * 4f) / 4f, stats = r.Stats,
+                sprint = Mathf.Ceil(r.SprintTimer * 4f) / 4f, sprintBonus = r.SprintBonus,
                 quicken = Mathf.Ceil(r.QuickenTimer * 4f) / 4f, quickenSpeed = r.QuickenSpeed, quickenRegen = r.QuickenRegen, quickenLength = r.QuickenLength,
                 toastId = r.ToastId, toastTitle = r.ToastTitle, toastText = r.ToastText, toastColor = r.ToastColor,
             };

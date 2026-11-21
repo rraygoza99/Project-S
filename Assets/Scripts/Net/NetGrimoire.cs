@@ -24,6 +24,13 @@ namespace Spellcaster.Net
         public string[] cards;
     }
 
+    /// <summary>Client to host: a Scroll of Erasure in this item slot removes this card from my deck.</summary>
+    public struct EraseMsg : NetworkMessage
+    {
+        public int slot;
+        public string card;
+    }
+
     /// <summary>Client to host: take the offered card at this index, remove a card (paid), or skip.</summary>
     public struct RewardPickMsg : NetworkMessage
     {
@@ -229,6 +236,30 @@ namespace Spellcaster.Net
             Send(conn.connectionId);
         }
 
+        /// <summary>Erasures the host has applied for clients (tests).</summary>
+        public static int Erased { get; private set; }
+
+        /// <summary>
+        /// Host: a client used their Scroll of Erasure. Their own deck and their own scroll: the slot must hold
+        /// the scroll and the deck must stay above the minimum. The new deck goes back to them (with a toast).
+        /// </summary>
+        public static void OnErase(NetworkConnectionToClient conn, EraseMsg m)
+        {
+            var p = Players.ByNetId(conn.connectionId);
+            var run = p ? p.Run : null;
+            if (!remotes.TryGetValue(conn.connectionId, out var r) || !run || p.IsDead) return;
+            var def = Cards.Get(m.card);
+            bool ok = def != null && m.slot >= 0 && m.slot < Run.Slots && run.Consumables[m.slot] == GrimoireShop.Erasure
+                && r.deck.Count > C.MinDeckSize && r.deck.Remove(def);
+            if (ok)
+            {
+                run.Consumables[m.slot] = null;
+                Erased++;
+            }
+            Debug.Log($"[Spellcaster] erase for player {conn.connectionId}: {m.card} in slot {m.slot} -> {(ok ? "removed" : "refused")}");
+            Send(conn.connectionId, ok ? "erased:" + def.Id : "erase_refused");
+        }
+
         static void OnKilled(Enemy e)
         {
             // An elite's curse falls on the whole party.
@@ -253,6 +284,9 @@ namespace Spellcaster.Net
             if (!ClientMirror || !GrimoireRun.Instance) { pending = m; return; } // arrived before the run started here
             DecksReceived++;
             GrimoireRun.Instance.ApplyNetDeck(m.draw ?? new string[0], m.hand ?? new string[0], m.discard ?? new string[0]);
+            if (m.toast != null && m.toast.StartsWith("erased:") && Run.Instance && Cards.Get(m.toast.Substring(7)) is CardDef er)
+                Run.Instance.Toast("Erased", $"{er.Name} is gone from your Grimoire", er.Color);
+            if (m.toast == "erase_refused" && SpellSystem.Instance) SpellSystem.Instance.Flash("The host refused the erasure");
             if (m.toast == "cursed" && Run.Instance)
             {
                 var def = Cards.Get(C.EliteCurse);
@@ -277,6 +311,7 @@ namespace Spellcaster.Net
         }
 
         public static void SendCycle() => NetworkClient.Send(new CycleMsg());
+        public static void SendErase(int slot, string card) => NetworkClient.Send(new EraseMsg { slot = slot, card = card });
         public static void SendPick(int take, string remove, bool skip) =>
             NetworkClient.Send(new RewardPickMsg { take = take, remove = remove, skip = skip });
     }

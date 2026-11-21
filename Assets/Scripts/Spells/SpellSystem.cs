@@ -17,6 +17,8 @@ namespace Spellcaster
 
         public const float BoltSpeed = 28f;
         public const float FizzleLockout = 0.3f;
+        /// <summary>Storm Crown: every Nth spell hits this much harder (heals this much more).</summary>
+        public const float StormCrownPower = 1.5f;
         public static readonly Color BoltColor = new Color(0.75f, 0.55f, 1f);
         static readonly Color IdleGlow = new Color(0.6f, 0.85f, 1f, 0.35f);
         static readonly Color ChannelGlow = new Color(0.85f, 0.85f, 1f, 0.45f);
@@ -340,7 +342,22 @@ namespace Spellcaster
 
         /// <summary>A spell's cooldown after items and buffs.</summary>
         public static float EffectiveCooldown(SpellDefinition s) =>
-            GameState.PracticeMode ? 0f : s.Cooldown * (Run.Instance ? Run.Instance.CooldownMult : 1f);
+            GameState.PracticeMode ? 0f : CooldownConfig.BaseCooldown(s) * (Run.Instance ? Run.Instance.CooldownMult : 1f);
+
+        /// <summary>
+        /// The cast's Grimoire card on the cooldown. A spell with a cooldown: Quicken drops it, Overload doubles it.
+        /// A spell without one (most of them, CooldownConfig): Quicken gives a short burst of speed instead, and
+        /// Overload stops you casting spells for a moment (castLock seconds).
+        /// </summary>
+        public static float CardCooldown(float cd, bool hasCooldown, CastRequest req, Player caster, out float castLock)
+        {
+            castLock = 0f;
+            if (req == null) return cd;
+            if (hasCooldown) return req.ResetCooldown ? 0f : cd * req.CooldownMult;
+            if (req.ResetCooldown && caster && caster.Run) caster.Run.Sprint(Grimoire.GrimoireConfig.QuickenSprintSeconds, Grimoire.GrimoireConfig.QuickenSprintBonus);
+            if (req.CooldownMult > 1f) castLock = Grimoire.GrimoireConfig.OverloadCastLock;
+            return 0f;
+        }
 
         /// <summary>Spells still reachable with the arrows entered so far.</summary>
         public bool IsCandidate(SpellDefinition s) => !OnCooldown(s) && Arrows.HasPrefix(s.Sequence, Entered);
@@ -448,14 +465,25 @@ namespace Spellcaster
             {
                 // Multiplayer client: the rune was drawn here; the host checks and casts it.
                 float ccd = EffectiveCooldown(s);
+                bool chasCd = CooldownConfig.HasCooldown(s);
                 var nextCard = Net.NetGrimoire.ClientMirror && Grimoire.GrimoireRun.Instance && Grimoire.GrimoireRun.Instance.Deck != null
                     ? Grimoire.GrimoireRun.Instance.Deck.Next : null; // the host plays it; predict its cooldown here
-                if (nextCard != null && (nextCard.Def.Id == "quicken" || nextCard.Def.Id == "fumble")) ccd = 0f;
-                else if (nextCard != null && nextCard.Def.Id == "overload") ccd *= Grimoire.GrimoireConfig.OverloadCooldownMult;
+                string nextId = nextCard != null ? nextCard.Def.Id : null;
+                if (chasCd)
+                {
+                    if (nextId == "quicken" || nextId == "fumble") ccd = 0f;
+                    else if (nextId == "overload") ccd *= Grimoire.GrimoireConfig.OverloadCooldownMult;
+                }
+                else
+                {
+                    // No cooldown: Quicken is a burst of speed, Overload a short casting lock (the host does the same).
+                    if (nextId == "quicken" && Run.Instance) Run.Instance.PredictSprint(Grimoire.GrimoireConfig.QuickenSprintSeconds, Grimoire.GrimoireConfig.QuickenSprintBonus);
+                    if (nextId == "overload") Lockout = Mathf.Max(Lockout, Grimoire.GrimoireConfig.OverloadCastLock);
+                }
                 if (ccd > 0f) cooldownLeft[s] = ccd; else cooldownLeft.Remove(s);
                 cooldownLengths[s] = ccd;
                 castCount++;
-                if (Stats.FreeCastEvery > 0 && castCount % Stats.FreeCastEvery == 0) { ccd = 0f; cooldownLeft.Remove(s); Flash("Free cast!"); } // Storm Crown (the host agrees)
+                if (Stats.FreeCastEvery > 0 && castCount % Stats.FreeCastEvery == 0) Flash("Storm Crown!"); // the host makes it hit harder
                 Progress.Add("spells_cast");
                 Sfx.Play("cast", 0.6f);
                 WizardHands.Instance.Kick();
@@ -490,10 +518,11 @@ namespace Spellcaster
             castCount++;
             Progress.Add("spells_cast");
             var stats = Stats;
-            if (stats.FreeCastEvery > 0 && castCount % stats.FreeCastEvery == 0) { cd = 0f; Flash("Free cast!"); } // Storm Crown
             float power = stats.Power;
+            if (stats.FreeCastEvery > 0 && castCount % stats.FreeCastEvery == 0) { power *= StormCrownPower; Flash("Storm Crown!"); }
             if (stats.Overcharge && held >= 1.5f) { power *= 1.5f; Flash("Overcharged!"); }
-            if (req != null) cd = req.ResetCooldown ? 0f : cd * req.CooldownMult;
+            cd = CardCooldown(cd, CooldownConfig.HasCooldown(s), req, Player.Instance, out float castLock);
+            if (castLock > 0f) Lockout = Mathf.Max(Lockout, castLock);
             if (cd > 0f) cooldownLeft[s] = cd; else cooldownLeft.Remove(s);
             cooldownLengths[s] = cd;
             Sfx.Play("cast", 0.6f);
