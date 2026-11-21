@@ -1,4 +1,4 @@
-# Spellcaster content list (v0.19)
+# Spellcaster content list (v0.20)
 
 Everything currently in the game, read from the code. **Locked** means it only appears in runs after
 you earn the achievement shown (see `Assets/Scripts/Core/Progress.cs`).
