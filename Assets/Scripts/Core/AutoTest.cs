@@ -3104,7 +3104,9 @@ namespace Spellcaster
                 Check("you take your copy too, and then it's gone for everyone", ltMine && player.Run.Has("ruby_heart") && !ltItem);
 
                 int hdCliArcs = wsRep.hitArcs;
-                wsOther.TakeDamage(30f, wsOther.transform.position - Quaternion.Euler(0f, wsOther.Yaw, 0f) * Vector3.forward * 5f, 4242); // from behind them
+                // Hits from four sides (their camera may face elsewhere than the host last heard): two are always out of view.
+                for (int hdSide = 0; hdSide < 4; hdSide++)
+                    wsOther.TakeDamage(hdSide == 0 ? 27f : 1f, wsOther.transform.position + Quaternion.Euler(0f, 90f * hdSide, 0f) * Vector3.forward * 5f, 4242 + hdSide);
                 float ltHurt = wsOther.HP;
                 wsOther.Run.Acquire(Items.Get("potion"));
                 ltT = 0f;
@@ -3112,7 +3114,7 @@ namespace Spellcaster
                 Check($"the other player uses a consumable; the host applies it ({ltHurt:0} -> {wsOther.HP:0} HP, slot empty: {wsOther.Run.Consumables[0] == null})",
                     wsOther.HP > ltHurt && wsOther.Run.Consumables[0] == null);
                 ws.Reports.TryGetValue(wsClientId, out wsRep);
-                Check($"a hit from behind the other player draws the hit-direction arc on their screen (arcs {hdCliArcs} -> {wsRep.hitArcs})", wsRep.hitArcs > hdCliArcs);
+                Check($"hits on the other player from outside their view draw hit-direction arcs on their screen (arcs {hdCliArcs} -> {wsRep.hitArcs})", wsRep.hitArcs >= hdCliArcs + 2);
 
                 // Essence is per player: a drop for them is theirs alone.
                 int esHost0 = player.Run.Essence, esCli0 = wsOther.Run.Essence;
